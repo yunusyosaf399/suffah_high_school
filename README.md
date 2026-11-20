@@ -14,3 +14,7 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+## School management backend
+
+The initial Supabase schema is deployed. See [offline-first architecture](docs/ARCHITECTURE.md), the [local SQLite schema](local/offline_schema.sql) and [Supabase migrations](supabase/migrations). The Flutter UI, offline sync engine, encrypted document store and attendance archive are **not yet implemented**.
