@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "982479145431",
+    "project_id": "suffah-high-school",
+    "storage_bucket": "suffah-high-school.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:982479145431:android:dc8dabb28930f283f9a392",
+        "android_client_info": {
+          "package_name": "com.suffah.school.suffah_high_school"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgLAq42KiKC-3wYYpA7bEHhxuP1d9id84"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
