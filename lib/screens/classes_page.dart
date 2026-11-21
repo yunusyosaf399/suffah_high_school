@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import '../data/school_repository.dart';
 import '../data/school_errors.dart';
+import '../data/school_repository.dart';
 
+/// No nested Expanded/Center chains: always render the toolbar and action bar.
 class ClassesPage extends StatefulWidget {
   const ClassesPage({super.key, this.classesStream});
-
   final Stream<List<SchoolClass>>? classesStream;
 
   @override
@@ -23,10 +23,10 @@ class _ClassesPageState extends State<ClassesPage> {
   @override
   void initState() {
     super.initState();
-    _armLoadTimer();
+    _armTimer();
   }
 
-  void _armLoadTimer() {
+  void _armTimer() {
     _loadTimer?.cancel();
     _loadTimer = Timer(const Duration(seconds: 12), () {
       if (mounted) setState(() => _loadingTooLong = true);
@@ -39,12 +39,12 @@ class _ClassesPageState extends State<ClassesPage> {
     super.dispose();
   }
 
-  void _refresh() {
+  void _reload() {
     setState(() {
       _loadingTooLong = false;
       _stream = widget.classesStream ?? _repository.watchClasses();
     });
-    _armLoadTimer();
+    _armTimer();
   }
 
   Future<void> _verifyConnection() async {
@@ -59,15 +59,12 @@ class _ClassesPageState extends State<ClassesPage> {
       messenger.showSnackBar(
         const SnackBar(content: Text('Firestore is reachable. Try saving a class.')),
       );
-      _refresh();
+      _reload();
     } catch (error) {
       if (!mounted) return;
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 8),
-          content: Text(schoolErrorMessage(error)),
-        ),
+        SnackBar(duration: const Duration(seconds: 8), content: Text(schoolErrorMessage(error))),
       );
     }
   }
@@ -81,7 +78,7 @@ class _ClassesPageState extends State<ClassesPage> {
       ),
     );
     if (mounted && saved == true) {
-      _refresh();
+      _reload();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Class added successfully.')),
       );
@@ -92,6 +89,7 @@ class _ClassesPageState extends State<ClassesPage> {
     try {
       await _repository.setClassActive(schoolClass.id, active);
       if (!mounted) return;
+      _reload();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(active ? 'Class reactivated.' : 'Class archived.')),
       );
@@ -105,10 +103,11 @@ class _ClassesPageState extends State<ClassesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final color = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Classes & sections', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        title: const Text('Classes & sections',
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         actions: [
           IconButton(
             tooltip: 'Test Firebase connection',
@@ -117,128 +116,134 @@ class _ClassesPageState extends State<ClassesPage> {
           ),
           IconButton(
             tooltip: 'Reload classes',
-            onPressed: _refresh,
+            onPressed: _reload,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _addClass,
+                  icon: const Icon(Icons.add, size: 19),
+                  label: const Text('Add class'),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 920),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Manage class sections',
-                          style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
-                        ),
-                      ),
-                      FilledButton.icon(
-                        onPressed: _addClass,
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Add class'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: StreamBuilder<List<SchoolClass>>(
-                      stream: _stream,
-                      builder: (context, snapshot) {
-                        if (snapshot.hasError) {
-                          _loadTimer?.cancel();
-                          return _ClassState(
-                            icon: Icons.cloud_off_outlined,
-                            title: 'Classes could not load',
-                            subtitle: schoolErrorMessage(snapshot.error!),
-                            action: OutlinedButton.icon(
-                              onPressed: _refresh,
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('Retry loading classes'),
-                            ),
-                          );
-                        }
-                        if (!snapshot.hasData) {
-                          return _ClassState(
-                            icon: _loadingTooLong
-                                ? Icons.wifi_off_outlined
-                                : Icons.hourglass_top_outlined,
-                            title: _loadingTooLong
-                                ? 'Firestore has not responded'
-                                : 'Loading classes',
-                            subtitle: _loadingTooLong
-                                ? 'Check mobile data or Wi-Fi, or use the cloud icon above to test Firebase. You can still tap Add class.'
-                                : 'Your classes will appear here. Add class is available above.',
-                            action: _loadingTooLong
-                                ? OutlinedButton.icon(
-                                    onPressed: _refresh,
-                                    icon: const Icon(Icons.refresh),
-                                    label: const Text('Retry'),
-                                  )
-                                : null,
-                          );
-                        }
-                        _loadTimer?.cancel();
-                        final classes = snapshot.data!;
-                        if (classes.isEmpty) {
-                          return _ClassState(
-                            icon: Icons.school_outlined,
-                            title: 'No classes yet',
-                            subtitle: 'Add your first class to start admitting students.',
-                            action: FilledButton.icon(
-                              onPressed: _addClass,
-                              icon: const Icon(Icons.add),
-                              label: const Text('Create class'),
-                            ),
-                          );
-                        }
-                        return ListView.separated(
-                          itemCount: classes.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            final item = classes[index];
-                            return Card(
-                              margin: EdgeInsets.zero,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                                child: ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor: colors.primaryContainer,
-                                    foregroundColor: colors.onPrimaryContainer,
-                                    child: const Icon(Icons.school_outlined, size: 20),
-                                  ),
-                                  title: Text(item.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                                  subtitle: Text(
-                                    item.active ? 'Active • Available for admissions' : 'Archived • Not available for new admissions',
-                                    style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
-                                  ),
-                                  trailing: PopupMenuButton<bool>(
-                                    tooltip: 'Class options',
-                                    onSelected: (active) => _setActive(item, active),
-                                    itemBuilder: (_) => [
-                                      PopupMenuItem(
-                                        value: !item.active,
-                                        child: Text(item.active ? 'Archive class' : 'Reactivate class'),
-                                      ),
-                                    ],
-                                    icon: const Icon(Icons.more_vert),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      },
+            child: CustomScrollView(
+              key: const Key('classes_scroll_view'),
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                  sliver: SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Academic setup', style: Theme.of(context)
+                            .textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 5),
+                        Text('Create class sections before admitting students.',
+                          style: TextStyle(fontSize: 12, color: color.onSurfaceVariant)),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+                StreamBuilder<List<SchoolClass>>(
+                  stream: _stream,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      _loadTimer?.cancel();
+                      return SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _ModuleMessage(
+                          icon: Icons.wifi_off_outlined,
+                          title: 'Classes could not load',
+                          detail: schoolErrorMessage(snapshot.error!),
+                          buttonLabel: 'Retry loading',
+                          onPressed: _reload,
+                        ),
+                      );
+                    }
+                    if (!snapshot.hasData) {
+                      return SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _ModuleMessage(
+                          icon: Icons.hourglass_top_outlined,
+                          title: _loadingTooLong ? 'Firestore has not responded' : 'Loading classes',
+                          detail: _loadingTooLong
+                              ? 'Check your connection or test Firebase with the cloud icon. Add class remains available below.'
+                              : 'Your classes will appear here. You can also add a class now.',
+                          buttonLabel: _loadingTooLong ? 'Retry loading' : null,
+                          onPressed: _loadingTooLong ? _reload : null,
+                        ),
+                      );
+                    }
+                    _loadTimer?.cancel();
+                    final classes = snapshot.data!;
+                    if (classes.isEmpty) {
+                      return const SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _ModuleMessage(
+                          icon: Icons.school_outlined,
+                          title: 'No classes yet',
+                          detail: 'Tap Add class below to create your first section.',
+                        ),
+                      );
+                    }
+                    return SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                      sliver: SliverList.builder(
+                        itemCount: classes.length,
+                        itemBuilder: (context, index) {
+                          final item = classes[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Card(
+                              margin: EdgeInsets.zero,
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: color.primaryContainer,
+                                  foregroundColor: color.onPrimaryContainer,
+                                  child: const Icon(Icons.school_outlined, size: 20),
+                                ),
+                                title: Text(item.label,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                                subtitle: Text(item.active ? 'Active class' : 'Archived class',
+                                  style: TextStyle(fontSize: 11, color: color.onSurfaceVariant)),
+                                trailing: PopupMenuButton<bool>(
+                                  tooltip: 'Class options',
+                                  onSelected: (active) => _setActive(item, active),
+                                  itemBuilder: (_) => [
+                                    PopupMenuItem(
+                                      value: !item.active,
+                                      child: Text(item.active ? 'Archive class' : 'Reactivate class'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
         ),
@@ -247,37 +252,49 @@ class _ClassesPageState extends State<ClassesPage> {
   }
 }
 
-class _ClassState extends StatelessWidget {
-  const _ClassState({
+class _ModuleMessage extends StatelessWidget {
+  const _ModuleMessage({
     required this.icon,
     required this.title,
-    required this.subtitle,
-    this.action,
+    required this.detail,
+    this.buttonLabel,
+    this.onPressed,
   });
 
   final IconData icon;
   final String title;
-  final String subtitle;
-  final Widget? action;
+  final String detail;
+  final String? buttonLabel;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.onSurfaceVariant;
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 300),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 42, color: color),
-            const SizedBox(height: 12),
-            Text(title, textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-            const SizedBox(height: 6),
-            Text(subtitle, textAlign: TextAlign.center,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 330),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 44),
+              const SizedBox(height: 12),
+              Text(title, textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 7),
+              Text(detail, textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: color)),
-            if (action != null) ...[const SizedBox(height: 18), action!],
-          ],
+              if (buttonLabel != null && onPressed != null) ...[
+                const SizedBox(height: 17),
+                OutlinedButton.icon(
+                  onPressed: onPressed,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(buttonLabel!),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
