@@ -76,6 +76,7 @@ service cloud.firestore {
 
     function canMarkExam(examId) {
       return exists(/databases/$(database)/documents/examinations/$(examId))
+        && get(/databases/$(database)/documents/examinations/$(examId)).data.active == true
         && isLinkedTeacher(get(/databases/$(database)/documents/examinations/$(examId)).data.staffId)
         && activeTeacherAssignment(
           get(/databases/$(database)/documents/examinations/$(examId)).data.assignmentId,
@@ -253,7 +254,8 @@ service cloud.firestore {
     // Safe roster projection: names and roll numbers only, never guardian,
     // contact, address or health details from the student record.
     match /class_rosters/{classId}/students/{studentId} {
-      allow get, list: if canManageAdmissions() || hasTeacherClassAccess(classId);
+      allow get, list: if canManageAdmissions()
+        || (resource.data.active == true && hasTeacherClassAccess(classId));
       allow create, update: if canManageAdmissions()
         && request.resource.data.studentId == studentId
         && request.resource.data.classId == classId
