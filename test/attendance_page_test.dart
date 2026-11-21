@@ -73,7 +73,7 @@ void main() {
       scrollable: find.descendant(
         of: find.byKey(const Key('attendance_scroll_view')),
         matching: find.byType(Scrollable),
-      ),
+      ).first,
     );
     expect(find.text('Aisha Khan'), findsOneWidget);
 
