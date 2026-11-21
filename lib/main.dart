@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'screens/owner_dashboard.dart';
+import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
 
 Future<void> main() async {
@@ -87,12 +88,22 @@ class AuthGate extends StatelessWidget {
               return const _AccessPage(message: 'Could not verify your school access. Check your connection and Firestore rules.');
             }
             final record = profile.data?.data();
-            if (record == null || record['active'] != true || record['role'] != 'owner') {
-              return const _AccessPage(message: 'This preview is currently available only to the school owner.');
+            if (record == null || record['active'] != true) {
+              return const _AccessPage(message: 'This school account is inactive or has no approved role.');
+            }
+            final role = (record['role'] as String?) ?? '';
+            if (role == 'owner' && user.uid != schoolOwnerUid) {
+              return const _AccessPage(message: 'This user is not the registered school owner.');
             }
             final name = record['displayName'] is String && (record['displayName'] as String).trim().isNotEmpty
-                ? (record['displayName'] as String).trim() : 'School Owner';
-            return OwnerDashboard(displayName: name);
+                ? (record['displayName'] as String).trim() : 'School User';
+            if (role == 'owner' || role == 'principal') {
+              return OwnerDashboard(displayName: name, role: role);
+            }
+            if (schoolRoles.containsKey(role)) {
+              return _RoleHome(displayName: name, role: role);
+            }
+            return const _AccessPage(message: 'This account has an unsupported school role.');
           },
         );
       },
@@ -134,5 +145,59 @@ class _AccessPage extends StatelessWidget {
         ]),
       ),
     )),
+  );
+}
+
+class _RoleHome extends StatelessWidget {
+  const _RoleHome({required this.displayName, required this.role});
+  final String displayName;
+  final String role;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Suffah High School'),
+      actions: [
+        IconButton(
+          tooltip: 'Sign out',
+          icon: const Icon(Icons.logout_rounded),
+          onPressed: () => FirebaseAuth.instance.signOut(),
+        ),
+      ],
+    ),
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 430),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.account_circle_outlined, size: 57,
+                color: Theme.of(context).colorScheme.primary),
+              const SizedBox(height: 15),
+              Text('Welcome, $displayName',
+                style: const TextStyle(fontSize: 18,
+                  fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              Text('Signed in as ${schoolRoles[role] ?? role}.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 8),
+              const Text(
+                'Your school account has been created. Your role-specific modules are being developed and are not yet available.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: () => FirebaseAuth.instance.signOut(),
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('Sign out'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
   );
 }
