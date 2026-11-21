@@ -251,7 +251,9 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       if (complete) {
         if (!mounted) return;
         setState(() => _closing = true);
-        Navigator.of(context).pop(true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.of(context).pop(true);
+        });
       }
     } catch (error) {
       _showMessage(schoolErrorMessage(error));
@@ -288,7 +290,9 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       await _persist();
       if (!mounted) return;
       setState(() => _closing = true);
-      Navigator.of(context).pop(false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop(false);
+      });
     } catch (error) {
       _showMessage(schoolErrorMessage(error));
     } finally {
