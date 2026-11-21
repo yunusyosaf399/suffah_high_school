@@ -83,6 +83,41 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Attendance is stored per student, within a class/day group, so future
+    // parent rules can expose only the child's own mark without sharing a
+    // class-wide attendance document. Only owner/principal access is active.
+    match /attendance_days/{dayId} {
+      allow get, list: if canManageAdmissions();
+      allow create: if canManageAdmissions()
+        && request.resource.data.classId is string
+        && request.resource.data.date is string
+        && request.resource.data.lastEditedBy == request.auth.uid;
+      allow update: if canManageAdmissions()
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.lastEditedBy == request.auth.uid;
+      allow delete: if false;
+
+      match /marks/{studentId} {
+        allow get, list: if canManageAdmissions();
+        allow create: if canManageAdmissions()
+          && request.resource.data.studentId == studentId
+          && request.resource.data.classId is string
+          && request.resource.data.date is string
+          && request.resource.data.status
+            in ['present', 'absent', 'late', 'leave', 'unmarked']
+          && request.resource.data.updatedBy == request.auth.uid;
+        allow update: if canManageAdmissions()
+          && request.resource.data.studentId == resource.data.studentId
+          && request.resource.data.classId == resource.data.classId
+          && request.resource.data.date == resource.data.date
+          && request.resource.data.status
+            in ['present', 'absent', 'late', 'leave', 'unmarked']
+          && request.resource.data.updatedBy == request.auth.uid;
+        allow delete: if false;
+      }
+    }
+
     // Everything else stays inaccessible until role-specific modules are
     // implemented and reviewed. DO NOT add a broad match allow rule here.
     match /{other=**} {
