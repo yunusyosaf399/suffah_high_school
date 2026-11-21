@@ -18,6 +18,35 @@ service cloud.firestore {
       return isOwner() || isPrincipal();
     }
 
+    // A teacher account must be linked to an existing active teacher profile
+    // and use an email address explicitly saved on that profile.
+    function validTeacherAccount(userId) {
+      let staffId = request.resource.data.staffId;
+      return staffId is string
+        && exists(/databases/$(database)/documents/staff/$(staffId))
+        && get(/databases/$(database)/documents/staff/$(staffId)).data.active == true
+        && get(/databases/$(database)/documents/staff/$(staffId)).data.roleType == 'teacher'
+        && request.resource.data.staffNo
+          == get(/databases/$(database)/documents/staff/$(staffId)).data.staffNo
+        && (
+          request.resource.data.email
+            == get(/databases/$(database)/documents/staff/$(staffId)).data.email
+          || request.resource.data.email
+            == get(/databases/$(database)/documents/staff/$(staffId)).data.alternateEmail
+        );
+    }
+
+    function isLinkedTeacher(staffId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.staffId == staffId
+        && exists(/databases/$(database)/documents/staff/$(staffId))
+        && get(/databases/$(database)/documents/staff/$(staffId)).data.active == true
+        && get(/databases/$(database)/documents/staff/$(staffId)).data.roleType == 'teacher';
+    }
+
     function allowedNewRole() {
       return request.resource.data.role in
         ['principal', 'accountant', 'teacher', 'clerk', 'parent'];
@@ -31,7 +60,11 @@ service cloud.firestore {
       allow create: if isOwner()
         && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
         && allowedNewRole()
-        && request.resource.data.active == true;
+        && request.resource.data.active == true
+        && (
+          request.resource.data.role != 'teacher'
+          || validTeacherAccount(userId)
+        );
       // Suspensions only. Role changes are a separate, audited future flow.
       allow update: if isOwner()
         && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
@@ -120,7 +153,8 @@ service cloud.firestore {
 
     // School staff directory; only owner/principal can view and modify it.
     match /staff/{staffId} {
-      allow read: if canManageAdmissions();
+      allow get: if canManageAdmissions() || isLinkedTeacher(staffId);
+      allow list: if canManageAdmissions();
       allow create: if canManageAdmissions()
         && request.resource.data.staffNo == staffId
         && request.resource.data.active == true
@@ -139,7 +173,7 @@ service cloud.firestore {
 
     // One teacher-to-class-and-subject assignment per stable document ID.
     match /teacher_assignments/{assignmentId} {
-      allow read: if canManageAdmissions();
+      allow read: if canManageAdmissions() || isLinkedTeacher(resource.data.staffId);
       allow create: if canManageAdmissions()
         && request.resource.data.staffId is string
         && request.resource.data.classId is string
