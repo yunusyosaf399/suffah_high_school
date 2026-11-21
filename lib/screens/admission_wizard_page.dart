@@ -403,12 +403,14 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
 
   Widget _readOnly(String label, String value) => Padding(
     padding: const EdgeInsets.only(bottom: 14),
-    child: TextFormField(
-      initialValue: value,
-      readOnly: true,
+    child: InputDecorator(
       decoration: InputDecoration(
         labelText: label,
         suffixIcon: const Icon(Icons.lock_outline_rounded, size: 18),
+      ),
+      child: Text(
+        value,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
       ),
     ),
   );
