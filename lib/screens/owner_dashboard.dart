@@ -184,7 +184,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                                 const Text('Manage your school',
                                   style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Colors.white)),
                                 const SizedBox(height: 8),
-                                Text('Manage admissions, attendance, staff and teaching assignments.',
+                                Text('Manage admissions, attendance, staff, examinations and payroll.',
                                   style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.88))),
                               ],
                             ),
