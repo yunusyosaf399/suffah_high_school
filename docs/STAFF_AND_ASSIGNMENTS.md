@@ -55,9 +55,9 @@ This roster is intentionally separate from **students/{studentId}**. Teachers ar
 
 ### Payroll status
 
-The teacher payroll screen is read-only. It displays records from **payroll_records** matching the signed-in teacher's linked **staffId**, including period, basic salary, allowances, deductions, net salary, receipt number, payment status and payment date.
+The owner/principal **Payroll** dashboard module creates salary records, calculates net salary as basic salary plus allowances minus deductions, assigns permanent receipt numbers such as **SAL-2026-0001**, and records payment status/date/method. Payroll records are append-only for financial history; administrators can update payment status without changing the employee, pay period or salary amounts.
 
-**Owner-side payroll entry, salary calculation, approval and receipt generation are not implemented yet.** Until that module is delivered, salary records must be provisioned by the school administrator. The teacher can never read another staff member's payroll records.
+The teacher payroll screen is read-only. It displays records from **payroll_records** matching the signed-in teacher's linked **staffId**, including period, basic salary, allowances, deductions, net salary, receipt number, payment status and payment date. A teacher can never read another staff member's payroll records.
 
 ## Firestore paths
 
@@ -106,7 +106,7 @@ You do **not** need to publish Storage rules or upgrade to Blaze.
 
 ## Still planned
 
-- Owner-side payroll entry, monthly salary calculations, approvals and printable/exportable salary receipts
+- Printable/exportable salary receipts and payroll reports
 - Staff daily attendance, leave and HR reports
 - Student-facing homework/assignment visibility and submission workflow
 - Exam result aggregation, grade rules, result cards and parent access
