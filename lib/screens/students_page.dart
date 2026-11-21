@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/school_errors.dart';
-
 import '../data/school_repository.dart';
 import 'classes_page.dart';
 
+/// The admission CTA, filters and student list render separately, so a
+/// failing classes stream cannot blank the entire student-management screen.
 class StudentsPage extends StatefulWidget {
   const StudentsPage({super.key, this.classesStream, this.studentsStream});
 
@@ -19,23 +20,26 @@ class StudentsPage extends StatefulWidget {
 
 class _StudentsPageState extends State<StudentsPage> {
   late final SchoolRepository _repo = SchoolRepository();
-  late Stream<List<StudentRecord>> _students =
-      widget.studentsStream ?? _repo.watchStudents();
   late Stream<List<SchoolClass>> _classes =
       widget.classesStream ?? _repo.watchClasses();
+  late Stream<List<StudentRecord>> _students =
+      widget.studentsStream ?? _repo.watchStudents();
 
   List<SchoolClass> _loadedClasses = const [];
   bool _classesLoaded = false;
   bool _classesLoadingTooLong = false;
   Timer? _classesTimer;
+  String _query = '';
+  String _classFilter = '';
+  bool _activeOnly = true;
 
   @override
   void initState() {
     super.initState();
-    _armClassTimer();
+    _armTimer();
   }
 
-  void _armClassTimer() {
+  void _armTimer() {
     _classesTimer?.cancel();
     _classesTimer = Timer(const Duration(seconds: 12), () {
       if (mounted && !_classesLoaded) {
@@ -50,7 +54,7 @@ class _StudentsPageState extends State<StudentsPage> {
     super.dispose();
   }
 
-  void _refreshClasses() {
+  void _reload() {
     setState(() {
       _classesLoaded = false;
       _classesLoadingTooLong = false;
@@ -58,13 +62,19 @@ class _StudentsPageState extends State<StudentsPage> {
       _classes = widget.classesStream ?? _repo.watchClasses();
       _students = widget.studentsStream ?? _repo.watchStudents();
     });
-    _armClassTimer();
+    _armTimer();
   }
 
   void _refreshStudents() {
-    setState(() {
-      _students = widget.studentsStream ?? _repo.watchStudents();
-    });
+    setState(() => _students =
+        widget.studentsStream ?? _repo.watchStudents());
+  }
+
+  Future<void> _manageClasses() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const ClassesPage()),
+    );
+    if (mounted) _reload();
   }
 
   Future<void> _beginAdmission() async {
@@ -75,38 +85,38 @@ class _StudentsPageState extends State<StudentsPage> {
     await _openEditor(_loadedClasses);
   }
 
-  Future<void> _manageClasses() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => const ClassesPage()),
-    );
-    if (mounted) _refreshClasses();
-  }
-
-  String _query = '';
-  String _classFilter = '';
-  bool _activeOnly = true;
-
-  Future<void> _openEditor(List<SchoolClass> classes, [StudentRecord? student]) async {
-    final available = classes.where((c) => c.active).toList();
-    final selected = student != null && !available.any((c) => c.id == student.classId)
-        ? [...available, ...classes.where((c) => c.id == student.classId)]
-        : available;
+  Future<void> _openEditor(
+    List<SchoolClass> classes, [
+    StudentRecord? student,
+  ]) async {
+    final active = classes.where((c) => c.active).toList();
+    final selected =
+        student != null && !active.any((c) => c.id == student.classId)
+        ? [...active, ...classes.where((c) => c.id == student.classId)]
+        : active;
     if (selected.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Create an active class before adding students.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Create an active class first.')),
+        );
+      }
       return;
     }
-    final saved = await Navigator.push<bool>(
-      context,
+
+    final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => StudentEditorPage(classes: selected, student: student),
+        builder: (_) => StudentEditorPage(
+          classes: selected,
+          student: student,
+        ),
       ),
     );
     if (mounted && saved == true) {
       _refreshStudents();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(student == null ? 'Student admitted successfully.' : 'Student updated successfully.')),
+        SnackBar(content: Text(student == null
+            ? 'Student admitted successfully.'
+            : 'Student updated successfully.')),
       );
     }
   }
@@ -115,321 +125,330 @@ class _StudentsPageState extends State<StudentsPage> {
     try {
       await _repo.setStudentActive(student.id, active);
       if (!mounted) return;
+      _refreshStudents();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(active ? 'Student reactivated.' : 'Student archived.')),
+        SnackBar(content: Text(active
+            ? 'Student reactivated.'
+            : 'Student archived.')),
       );
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not update student. Try again.')),
-        );
-      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(schoolErrorMessage(error))),
+      );
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _notice(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String detail,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
     final colors = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Students', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-        actions: [
-          IconButton(
-            tooltip: 'Reload students',
-            onPressed: _refreshClasses,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1050),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Admissions & student records',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colors.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                      FilledButton.icon(
-                        onPressed: _beginAdmission,
-                        icon: const Icon(Icons.person_add_alt_1, size: 18),
-                        label: const Text('Add student'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: _manageClasses,
-                      icon: const Icon(Icons.school_outlined, size: 18),
-                      label: const Text('Manage classes & sections'),
-                    ),
-                  ),
-                  const SizedBox(height: 9),
-                  TextField(
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search_rounded),
-                      hintText: 'Search name, admission no. or guardian',
-                    ),
-                    onChanged: (value) =>
-                        setState(() => _query = value.toLowerCase().trim()),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: StreamBuilder<List<SchoolClass>>(
-              stream: _classes,
-              builder: (context, classSnapshot) {
-                if (classSnapshot.hasError) {
-                  _classesTimer?.cancel();
-                  return _StudentsEmpty(
-                    icon: Icons.wifi_off_outlined,
-                    title: 'Could not load classes',
-                    subtitle: schoolErrorMessage(classSnapshot.error!),
-                    action: OutlinedButton.icon(
-                      onPressed: _refreshClasses,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('Retry loading classes'),
-                    ),
-                  );
-                }
-                if (!classSnapshot.hasData) {
-                  return _StudentsEmpty(
-                    icon: _classesLoadingTooLong
-                        ? Icons.cloud_off_outlined
-                        : Icons.hourglass_top_outlined,
-                    title: _classesLoadingTooLong
-                        ? 'Firestore has not responded'
-                        : 'Loading classes',
-                    subtitle: _classesLoadingTooLong
-                        ? 'Check your internet connection or open Classes to test Firebase. You can still manage classes above.'
-                        : 'You can still use Add student or Manage classes above.',
-                    action: TextButton.icon(
-                      onPressed: _classesLoadingTooLong
-                          ? _refreshClasses
-                          : _manageClasses,
-                      icon: Icon(_classesLoadingTooLong
-                          ? Icons.refresh
-                          : Icons.school_outlined),
-                      label: Text(_classesLoadingTooLong ? 'Retry' : 'Manage classes'),
-                    ),
-                  );
-                }
-                _classesTimer?.cancel();
-                final classes = classSnapshot.data!;
-                _loadedClasses = classes;
-                _classesLoaded = true;
-                final classNames = {for (final item in classes) item.id: item.label};
-                if (!classes.any((c) => c.active)) {
-                  return _StudentsEmpty(
-                    icon: Icons.school_outlined,
-                    title: 'Create your first class',
-                    subtitle: 'Add a class and section before admitting students.',
-                    action: FilledButton.icon(
-                      onPressed: _manageClasses,
-                      icon: const Icon(Icons.add),
-                      label: const Text('Create a class'),
-                    ),
-                  );
-                }
-                return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: classNames.containsKey(_classFilter) ? _classFilter : '',
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Class',
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              ),
-                              items: [
-                                const DropdownMenuItem(value: '', child: Text('All classes')),
-                                ...classes.map((c) => DropdownMenuItem(value: c.id, child: Text(c.label))),
-                              ],
-                              onChanged: (value) => setState(() => _classFilter = value ?? ''),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          FilterChip(
-                            label: const Text('Active only', style: TextStyle(fontSize: 11)),
-                            selected: _activeOnly,
-                            onSelected: (value) => setState(() => _activeOnly = value),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: StreamBuilder<List<StudentRecord>>(
-                          stream: _students,
-                          builder: (context, snapshot) {
-                            if (snapshot.hasError) {
-                              return _StudentsEmpty(
-                                icon: Icons.wifi_off_outlined,
-                                title: 'Could not load students',
-                                subtitle: schoolErrorMessage(snapshot.error!),
-                                action: OutlinedButton.icon(
-                                  onPressed: _refreshStudents,
-                                  icon: const Icon(Icons.refresh_rounded),
-                                  label: const Text('Retry students'),
-                                ),
-                              );
-                            }
-                            if (!snapshot.hasData) {
-                              return const _StudentsEmpty(
-                                icon: Icons.hourglass_top_outlined,
-                                title: 'Loading students',
-                                subtitle: 'Reading admissions from Firestore…',
-                              );
-                            }
-                            final all = snapshot.data!;
-                            final visible = all.where((student) {
-                              if (_activeOnly && !student.active) return false;
-                              if (_classFilter.isNotEmpty && student.classId != _classFilter) return false;
-                              if (_query.isEmpty) return true;
-                              return student.fullName.toLowerCase().contains(_query) ||
-                                  student.admissionNo.toLowerCase().contains(_query) ||
-                                  student.guardianName.toLowerCase().contains(_query);
-                            }).toList();
-                            if (all.isEmpty) {
-                              return _StudentsEmpty(
-                                icon: Icons.groups_outlined,
-                                title: 'No students yet',
-                                subtitle: 'Add your first admission to this class.',
-                                action: FilledButton.icon(
-                                  onPressed: _beginAdmission,
-                                  icon: const Icon(Icons.person_add_alt_1),
-                                  label: const Text('Admit first student'),
-                                ),
-                              );
-                            }
-                            if (visible.isEmpty) {
-                              return const _StudentsEmpty(
-                                icon: Icons.search_off_outlined,
-                                title: 'No matching students',
-                                subtitle: 'Try another name or change the filters.',
-                              );
-                            }
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Text(
-                                    '${visible.length} shown • ${all.length} total',
-                                    style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: ListView.separated(
-                                    itemCount: visible.length,
-                                    separatorBuilder: (_, _) => const SizedBox(height: 7),
-                                    itemBuilder: (context, index) {
-                                      final student = visible[index];
-                                      final initials = student.fullName.trim().isEmpty
-                                          ? '?' : student.fullName.trim().substring(0, 1).toUpperCase();
-                                      return Card(
-                                        margin: EdgeInsets.zero,
-                                        child: ListTile(
-                                          contentPadding: const EdgeInsets.fromLTRB(12, 5, 4, 5),
-                                          leading: CircleAvatar(
-                                            backgroundColor: colors.primaryContainer,
-                                            foregroundColor: colors.onPrimaryContainer,
-                                            child: Text(initials, style: const TextStyle(fontWeight: FontWeight.w700)),
-                                          ),
-                                          title: Text(student.fullName,
-                                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                                          subtitle: Text(
-                                            '${student.admissionNo} • ${classNames[student.classId] ?? "Unassigned"}\n${student.guardianName.isEmpty ? "Guardian not provided" : student.guardianName}${student.active ? "" : " • Archived"}',
-                                            maxLines: 2, overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
-                                          ),
-                                          isThreeLine: true,
-                                          onTap: () => _openEditor(classes, student),
-                                          trailing: PopupMenuButton<String>(
-                                            tooltip: 'Student options',
-                                            icon: const Icon(Icons.more_vert, size: 20),
-                                            onSelected: (action) {
-                                              if (action == 'edit') {
-                                                _openEditor(classes, student);
-                                              } else {
-                                                _setActive(student, action == 'activate');
-                                              }
-                                            },
-                                            itemBuilder: (_) => [
-                                              const PopupMenuItem(value: 'edit', child: Text('Edit student')),
-                                              PopupMenuItem(
-                                                value: student.active ? 'archive' : 'activate',
-                                                child: Text(student.active ? 'Archive student' : 'Reactivate student'),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                );
-              },
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 26),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 39, color: colors.onSurfaceVariant),
+              const SizedBox(height: 12),
+              Text(title,
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                textAlign: TextAlign.center),
+              const SizedBox(height: 6),
+              Text(detail,
+                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+                textAlign: TextAlign.center),
+              if (actionLabel != null && onAction != null) ...[
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  onPressed: onAction,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: Text(actionLabel),
+                ),
+              ],
+            ],
           ),
         ),
       ),
     );
   }
-}
 
-class _StudentsEmpty extends StatelessWidget {
-  const _StudentsEmpty({required this.icon, required this.title, required this.subtitle, this.action});
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Widget? action;
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 42, color: color),
-          const SizedBox(height: 12),
-          Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Text(subtitle, textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: color)),
+    final colors = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Students',
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        actions: [
+          IconButton(
+            tooltip: 'Reload students',
+            onPressed: _reload,
+            icon: const Icon(Icons.refresh_rounded),
           ),
-          if (action != null) ...[
-            const SizedBox(height: 16),
-            action!,
-          ],
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _beginAdmission,
+                  icon: const Icon(Icons.person_add_alt_1, size: 19),
+                  label: const Text('Add student'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1050),
+            child: CustomScrollView(
+              key: const Key('students_scroll_view'),
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                  sliver: SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Admissions & student records',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          )),
+                        const SizedBox(height: 5),
+                        Text('Find or add student records. Start by creating a class.',
+                          style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+                        const SizedBox(height: 5),
+                        TextButton.icon(
+                          onPressed: _manageClasses,
+                          icon: const Icon(Icons.school_outlined, size: 18),
+                          label: const Text('Manage classes & sections'),
+                        ),
+                        const SizedBox(height: 9),
+                        TextField(
+                          key: const Key('student_search_input'),
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.search_rounded),
+                            hintText: 'Search name, admission no. or guardian',
+                          ),
+                          onChanged: (value) => setState(
+                            () => _query = value.toLowerCase().trim(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        StreamBuilder<List<SchoolClass>>(
+                          stream: _classes,
+                          builder: (context, snapshot) {
+                            if (snapshot.hasError) {
+                              _classesTimer?.cancel();
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(schoolErrorMessage(snapshot.error!),
+                                    style: TextStyle(color: colors.error, fontSize: 12)),
+                                  TextButton.icon(
+                                    onPressed: _reload,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Retry classes'),
+                                  ),
+                                ],
+                              );
+                            }
+                            if (!snapshot.hasData) {
+                              return Text(
+                                _classesLoadingTooLong
+                                    ? 'Classes are not responding. Check internet or open Manage classes.'
+                                    : 'Loading class list…',
+                                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+                              );
+                            }
+                            _classesTimer?.cancel();
+                            final classes = snapshot.data!;
+                            _loadedClasses = classes;
+                            _classesLoaded = true;
+                            if (!classes.any((c) => c.active)) {
+                              return OutlinedButton.icon(
+                                onPressed: _manageClasses,
+                                icon: const Icon(Icons.add, size: 18),
+                                label: const Text('Create your first class'),
+                              );
+                            }
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    value: classes.any((c) => c.id == _classFilter)
+                                        ? _classFilter : '',
+                                    isExpanded: true,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Class',
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                    ),
+                                    items: [
+                                      const DropdownMenuItem(value: '', child: Text('All classes')),
+                                      ...classes.map((c) => DropdownMenuItem(
+                                        value: c.id,
+                                        child: Text(c.label),
+                                      )),
+                                    ],
+                                    onChanged: (value) => setState(
+                                      () => _classFilter = value ?? '',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                FilterChip(
+                                  label: const Text('Active only',
+                                    style: TextStyle(fontSize: 11)),
+                                  selected: _activeOnly,
+                                  onSelected: (value) =>
+                                      setState(() => _activeOnly = value),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                StreamBuilder<List<StudentRecord>>(
+                  stream: _students,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return SliverToBoxAdapter(
+                        child: _notice(context,
+                          icon: Icons.wifi_off_outlined,
+                          title: 'Could not load students',
+                          detail: schoolErrorMessage(snapshot.error!),
+                          actionLabel: 'Retry students',
+                          onAction: _refreshStudents),
+                      );
+                    }
+                    if (!snapshot.hasData) {
+                      return SliverToBoxAdapter(
+                        child: _notice(context,
+                          icon: Icons.hourglass_top_outlined,
+                          title: 'Loading students',
+                          detail: 'Reading the admission list from Firestore…'),
+                      );
+                    }
+                    final all = snapshot.data!;
+                    final shown = all.where((student) {
+                      if (_activeOnly && !student.active) return false;
+                      if (_classFilter.isNotEmpty &&
+                          student.classId != _classFilter) return false;
+                      if (_query.isEmpty) return true;
+                      return student.fullName.toLowerCase().contains(_query) ||
+                          student.admissionNo.toLowerCase().contains(_query) ||
+                          student.guardianName.toLowerCase().contains(_query);
+                    }).toList();
+
+                    if (all.isEmpty) {
+                      return SliverToBoxAdapter(
+                        child: _notice(context,
+                          icon: Icons.groups_outlined,
+                          title: 'No students yet',
+                          detail: 'Tap Add student below to create the first admission.',
+                          actionLabel: 'Create first admission',
+                          onAction: _beginAdmission),
+                      );
+                    }
+                    if (shown.isEmpty) {
+                      return SliverToBoxAdapter(
+                        child: _notice(context,
+                          icon: Icons.search_off_outlined,
+                          title: 'No matching students',
+                          detail: 'Try a different search term or filter.'),
+                      );
+                    }
+
+                    final classNames = {
+                      for (final item in _loadedClasses) item.id: item.label,
+                    };
+                    return SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 5, 16, 16),
+                      sliver: SliverList.builder(
+                        itemCount: shown.length,
+                        itemBuilder: (context, index) {
+                          final student = shown[index];
+                          final initials = student.fullName.trim().isEmpty
+                              ? '?' : student.fullName.trim()[0].toUpperCase();
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 7),
+                            child: Card(
+                              margin: EdgeInsets.zero,
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+                                leading: CircleAvatar(
+                                  backgroundColor: colors.primaryContainer,
+                                  foregroundColor: colors.onPrimaryContainer,
+                                  child: Text(initials,
+                                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                                ),
+                                title: Text(student.fullName,
+                                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                                subtitle: Text(
+                                  '${student.admissionNo} • ${classNames[student.classId] ?? "Class not loaded"}\n'
+                                  '${student.guardianName.isEmpty ? "Guardian not provided" : student.guardianName}'
+                                  '${student.active ? "" : " • Archived"}',
+                                  maxLines: 2, overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
+                                ),
+                                isThreeLine: true,
+                                onTap: () => _openEditor(_loadedClasses, student),
+                                trailing: PopupMenuButton<String>(
+                                  tooltip: 'Student options',
+                                  onSelected: (action) {
+                                    if (action == 'edit') {
+                                      _openEditor(_loadedClasses, student);
+                                    } else {
+                                      _setActive(student, action == 'activate');
+                                    }
+                                  },
+                                  itemBuilder: (_) => [
+                                    const PopupMenuItem(
+                                      value: 'edit', child: Text('Edit student')),
+                                    PopupMenuItem(
+                                      value: student.active ? 'archive' : 'activate',
+                                      child: Text(student.active
+                                          ? 'Archive student' : 'Reactivate student')),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
