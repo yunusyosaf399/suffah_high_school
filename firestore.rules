@@ -118,6 +118,57 @@ service cloud.firestore {
       }
     }
 
+    // School staff directory; only owner/principal can view and modify it.
+    match /staff/{staffId} {
+      allow read: if canManageAdmissions();
+      allow create: if canManageAdmissions()
+        && request.resource.data.staffNo == staffId
+        && request.resource.data.active == true
+        && request.resource.data.roleType
+          in ['teacher', 'administration', 'office', 'support']
+        && request.resource.data.fullName is string
+        && request.resource.data.phone is string;
+      allow update: if canManageAdmissions()
+        && request.resource.data.staffNo == resource.data.staffNo
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.roleType
+          in ['teacher', 'administration', 'office', 'support']
+        && request.resource.data.active is bool;
+      allow delete: if false;
+    }
+
+    // One teacher-to-class-and-subject assignment per stable document ID.
+    match /teacher_assignments/{assignmentId} {
+      allow read: if canManageAdmissions();
+      allow create: if canManageAdmissions()
+        && request.resource.data.staffId is string
+        && request.resource.data.classId is string
+        && request.resource.data.subject is string
+        && request.resource.data.active == true
+        && exists(/databases/$(database)/documents/staff/$(request.resource.data.staffId))
+        && exists(/databases/$(database)/documents/classes/$(request.resource.data.classId))
+        && get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.active == true
+        && get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.roleType == 'teacher'
+        && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.active == true;
+      allow update: if canManageAdmissions()
+        && request.resource.data.staffId == resource.data.staffId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.subject == resource.data.subject
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.active is bool
+        && (
+          request.resource.data.active == false
+          || (
+            exists(/databases/$(database)/documents/staff/$(resource.data.staffId))
+            && exists(/databases/$(database)/documents/classes/$(resource.data.classId))
+            && get(/databases/$(database)/documents/staff/$(resource.data.staffId)).data.active == true
+            && get(/databases/$(database)/documents/staff/$(resource.data.staffId)).data.roleType == 'teacher'
+            && get(/databases/$(database)/documents/classes/$(resource.data.classId)).data.active == true
+          )
+        );
+      allow delete: if false;
+    }
+
     // Everything else stays inaccessible until role-specific modules are
     // implemented and reviewed. DO NOT add a broad match allow rule here.
     match /{other=**} {
