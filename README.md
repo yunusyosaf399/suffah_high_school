@@ -15,6 +15,8 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Class/section creation, listing and archival
 - Student admissions, editing, search, class filters and archival
 - Dashboard global search preview (cross-module search is planned; no live results yet)
+- Classes page includes an explicit Firestore connection diagnostic, retries and error messages
+- Student/class lists start with an online read, with retry and timeout feedback
 - Student page retains visible Add Student / Manage Classes actions while Firestore loads
 - Error, loading, empty and confirmation states
 
@@ -31,6 +33,8 @@ Open the [Android APK workflow](https://github.com/yunusyosaf399/suffah_high_sch
 After a successful run, download the artifact named
 `Suffah-High-School-Android-Debug-APK`. It is a ZIP with `app-debug.apk`.
 See the [APK testing guide](docs/APK_TESTING.md).
+
+Android preview updates now reuse a stable debug signing identity and increment the version code on each build. To keep the signing key across GitHub cache eviction, follow [APK update signing setup](docs/APK_UPDATES.md). The first update from older debug builds can still require one uninstall.
 
 **Development APK only:** The school modules are being completed incrementally.
 Do not use real sensitive student information until production permission checks,
