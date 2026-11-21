@@ -163,6 +163,10 @@ class SchoolUserService {
           'role': role,
           'active': true,
           'linkedStudentIds': <String>[],
+          if (staffId != null && role == 'teacher') ...{
+            'staffId': staffId,
+            'staffNo': linkedStaffNo,
+          },
           'createdBy': schoolOwnerUid,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
