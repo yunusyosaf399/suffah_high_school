@@ -44,7 +44,7 @@ class _UsersPageState extends State<UsersPage> {
       context: context,
       barrierDismissible: false,
       builder: (_) => _CreateUserDialog(
-        teacherStream: widget.teachersStream ?? StaffRepository().watchStaff(),
+        teacherStreamProvider: () => widget.teachersStream ?? StaffRepository().watchStaff(),
         onCreate: ({
           required String name,
           required String email,
@@ -241,8 +241,8 @@ class _EmptyUsers extends StatelessWidget {
 }
 
 class _CreateUserDialog extends StatefulWidget {
-  const _CreateUserDialog({required this.onCreate, required this.teacherStream});
-  final Stream<List<StaffMember>> teacherStream;
+  const _CreateUserDialog({required this.onCreate, required this.teacherStreamProvider});
+  final Stream<List<StaffMember>> Function() teacherStreamProvider;
   final Future<CreatedSchoolUser> Function({
     required String name,
     required String email,
@@ -264,6 +264,10 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
   String? _teacherEmail;
   bool _busy = false;
   bool _revealPassword = false;
+  Stream<List<StaffMember>>? _teacherStreamCache;
+
+  Stream<List<StaffMember>> get _teacherStream =>
+      _teacherStreamCache ??= widget.teacherStreamProvider();
   CreatedSchoolUser? _created;
   String? _error;
 
@@ -318,7 +322,7 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
               children: [
                 if (_role == 'teacher') ...[
                   StreamBuilder<List<StaffMember>>(
-                    stream: widget.teacherStream,
+                    stream: _teacherStream,
                     builder: (context, snapshot) {
                       final teachers = (snapshot.data ?? const <StaffMember>[])
                           .where((staff) => staff.isTeacher && staff.active)
@@ -343,6 +347,7 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           DropdownButtonFormField<String>(
+                            key: const Key('teacher_profile_dropdown'),
                             initialValue: selected?.id,
                             isExpanded: true,
                             decoration: const InputDecoration(
@@ -374,6 +379,7 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
                               style: TextStyle(fontSize: 11))
                           else
                             DropdownButtonFormField<String>(
+                              key: const Key('teacher_email_dropdown'),
                               initialValue: selected.accountEmails.contains(_teacherEmail)
                                   ? _teacherEmail : null,
                               isExpanded: true,
@@ -417,6 +423,7 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
                 ],
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  key: const Key('account_role_dropdown'),
                   initialValue: _role,
                   isExpanded: true,
                   decoration: const InputDecoration(labelText: 'Account role'),
