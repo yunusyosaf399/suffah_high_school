@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Initial bootstrap: only the verified first Firebase Auth account can
+    // access school documents. Never authorize based on a client-writable role.
+    function isOwner() {
+      return request.auth != null
+        && request.auth.uid == 'tQt6vca2zuagZipvknBwcmSRcrc2';
+    }
+
+    // In this bootstrap phase teachers, parents, staff and unregistered
+    // accounts receive no Firestore access. This covers nested documents.
+    match /{document=**} {
+      allow read, write: if isOwner();
+    }
+  }
+}
