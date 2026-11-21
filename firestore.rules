@@ -304,15 +304,14 @@ service cloud.firestore {
     // School administrators publish exams; assigned teachers can view their
     // own exam and enter marks only for students in their safe class roster.
     match /examinations/{examId} {
+      // The list query is constrained by staffId and active. Exam creation
+      // already verifies the exact active class/subject assignment, while
+      // marks writes re-check that assignment through canMarkExam().
+      // Keeping the list rule staff-scoped lets Firestore prove the query is
+      // safe instead of treating security rules as client-side filters.
       allow get, list: if canManageAdmissions()
         || (resource.data.active == true
-          && isLinkedTeacher(resource.data.staffId)
-          && activeTeacherAssignment(
-            resource.data.assignmentId,
-            resource.data.staffId,
-            resource.data.classId,
-            resource.data.subject
-          ));
+          && isLinkedTeacher(resource.data.staffId));
       allow create: if canManageAdmissions()
         && request.resource.data.assignmentId is string
         && request.resource.data.staffId is string
