@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suffah_high_school/data/school_user_service.dart';
+import 'package:suffah_high_school/data/staff_repository.dart';
 import 'package:suffah_high_school/screens/users_page.dart';
 
 void main() {
