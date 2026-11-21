@@ -106,15 +106,22 @@ class _StaffRegistrationPageState extends State<StaffRegistrationPage>
   }
 
   String? _validateStep(int step) {
-    if (!(_formKeys[step].currentState?.validate() ?? false)) {
-      return 'Complete the required fields before continuing.';
-    }
+    _formKeys[step].currentState?.validate();
     if (step == 0) {
+      if (_value('firstName').isEmpty || _value('lastName').isEmpty) {
+        return 'Enter the teacher first and last name.';
+      }
       if (_birthDate == null) return 'Select the teacher date of birth.';
       if (_value('guardianName').isEmpty) return 'Enter the father or guardian name.';
+      if (_value('designation').isEmpty) return 'Enter the staff designation.';
     }
     if (step == 1) {
+      if (_value('phone').isEmpty) return 'Enter the teacher mobile number.';
       if (_value('email').isEmpty) return 'Enter the teacher email address.';
+      if (!RegExp(r'^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
+          .hasMatch(_value('email'))) {
+        return 'Enter a valid teacher email address.';
+      }
       if (_value('emergencyContactPhone').isEmpty) {
         return 'Enter an emergency contact number.';
       }
