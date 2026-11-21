@@ -1,7 +1,7 @@
 name: suffah_high_school
 description: "Suffah High School management application."
 publish_to: 'none'
-version: 0.5.0+5
+version: 0.6.0+6
 
 environment:
   sdk: ^3.9.2
