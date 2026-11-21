@@ -449,11 +449,14 @@ class StaffRepository {
     final assignmentRef = _db.collection('teacher_assignments').doc(assignmentId);
     final staffRef = _db.collection('staff').doc(staffId);
     final classRef = _db.collection('classes').doc(classId);
+    final classLinkRef = _db.collection('teacher_class_links')
+        .doc('${staffId}__${classId}');
 
     await _db.runTransaction((transaction) async {
       final staffSnapshot = await transaction.get(staffRef);
       final classSnapshot = await transaction.get(classRef);
       final existing = await transaction.get(assignmentRef);
+      final classLinkSnapshot = await transaction.get(classLinkRef);
       if (!staffSnapshot.exists ||
           staffSnapshot.data()?['active'] != true ||
           staffSnapshot.data()?['roleType'] != 'teacher') {
@@ -466,6 +469,17 @@ class StaffRepository {
         throw StateError('This teacher already teaches that subject here.');
       }
       final className = _classLabel(classSnapshot.data() ?? {});
+      final linkedIds = (classLinkSnapshot.data()?['assignmentIds'] as List<dynamic>? ?? [])
+          .map((value) => value.toString()).toSet();
+      linkedIds.add(assignmentId);
+      transaction.set(classLinkRef, {
+        'staffId': staffId,
+        'classId': classId,
+        'className': className,
+        'assignmentIds': linkedIds.toList(),
+        'active': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
       if (existing.exists) {
         transaction.update(assignmentRef, {
           'active': true,
@@ -491,9 +505,50 @@ class StaffRepository {
     if (id.isEmpty || id.contains('/')) {
       throw ArgumentError('Invalid assignment.');
     }
-    await _db.collection('teacher_assignments').doc(id).update({
-      'active': active,
-      'updatedAt': FieldValue.serverTimestamp(),
+    final assignmentRef = _db.collection('teacher_assignments').doc(id);
+    await _db.runTransaction((transaction) async {
+      final assignmentSnapshot = await transaction.get(assignmentRef);
+      if (!assignmentSnapshot.exists) {
+        throw StateError('Teacher assignment not found.');
+      }
+      final data = assignmentSnapshot.data() ?? <String, dynamic>{};
+      final staffId = (data['staffId'] as String?) ?? '';
+      final classId = (data['classId'] as String?) ?? '';
+      if (staffId.isEmpty || classId.isEmpty) {
+        throw StateError('Teacher assignment is incomplete.');
+      }
+      final staffRef = _db.collection('staff').doc(staffId);
+      final classRef = _db.collection('classes').doc(classId);
+      final classLinkRef = _db.collection('teacher_class_links')
+          .doc('${staffId}__${classId}');
+      final classLinkSnapshot = await transaction.get(classLinkRef);
+      if (active) {
+        final staff = await transaction.get(staffRef);
+        final schoolClass = await transaction.get(classRef);
+        if (!staff.exists || staff.data()?['active'] != true ||
+            staff.data()?['roleType'] != 'teacher' ||
+            !schoolClass.exists || schoolClass.data()?['active'] != true) {
+          throw StateError('Only active teachers and classes can be restored.');
+        }
+      }
+      final ids = (classLinkSnapshot.data()?['assignmentIds'] as List<dynamic>? ?? [])
+          .map((value) => value.toString()).toSet();
+      if (active) {
+        ids.add(id);
+      } else {
+        ids.remove(id);
+      }
+      transaction.update(assignmentRef, {
+        'active': active,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      transaction.set(classLinkRef, {
+        'staffId': staffId,
+        'classId': classId,
+        'assignmentIds': ids.toList(),
+        'active': ids.isNotEmpty,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     });
   }
 }
