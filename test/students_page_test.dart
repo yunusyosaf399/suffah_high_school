@@ -58,7 +58,8 @@ void main() {
         ),
       ),
     );
-    await tester.pump();
+    // The class snapshot must render before the nested students stream binds.
+    await tester.pumpAndSettle();
     expect(find.text('No students yet'), findsOneWidget);
     expect(find.text('Admit first student'), findsOneWidget);
   });
