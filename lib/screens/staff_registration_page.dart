@@ -265,6 +265,8 @@ class _StaffRegistrationPageState extends State<StaffRegistrationPage>
       Padding(
         padding: const EdgeInsets.only(bottom: 13),
         child: InkWell(
+          key: Key(label.toLowerCase().contains('birth')
+              ? 'staff_birth_date' : 'staff_join_date'),
           onTap: _saving ? null : onTap,
           borderRadius: BorderRadius.circular(12),
           child: InputDecorator(
