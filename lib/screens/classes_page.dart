@@ -14,7 +14,7 @@ class ClassesPage extends StatefulWidget {
 }
 
 class _ClassesPageState extends State<ClassesPage> {
-  final _repository = SchoolRepository();
+  late final SchoolRepository _repository = SchoolRepository();
   late Stream<List<SchoolClass>> _stream =
       widget.classesStream ?? _repository.watchClasses();
   Timer? _loadTimer;
@@ -75,7 +75,10 @@ class _ClassesPageState extends State<ClassesPage> {
   Future<void> _addClass() async {
     final saved = await showDialog<bool>(
       context: context,
-      builder: (context) => _CreateClassDialog(repository: _repository),
+      builder: (context) => _CreateClassDialog(
+        onSave: ({required String name, required String section}) =>
+            _repository.createClass(name: name, section: section),
+      ),
     );
     if (mounted && saved == true) {
       _refresh();
@@ -282,8 +285,9 @@ class _ClassState extends StatelessWidget {
 }
 
 class _CreateClassDialog extends StatefulWidget {
-  const _CreateClassDialog({required this.repository});
-  final SchoolRepository repository;
+  const _CreateClassDialog({required this.onSave});
+  final Future<void> Function({required String name, required String section})
+      onSave;
 
   @override
   State<_CreateClassDialog> createState() => _CreateClassDialogState();
@@ -307,8 +311,8 @@ class _CreateClassDialogState extends State<_CreateClassDialog> {
     if (!_formKey.currentState!.validate() || _saving) return;
     setState(() { _saving = true; _error = null; });
     try {
-      await widget.repository
-          .createClass(name: _name.text, section: _section.text)
+      await widget
+          .onSave(name: _name.text, section: _section.text)
           .timeout(const Duration(seconds: 25));
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
