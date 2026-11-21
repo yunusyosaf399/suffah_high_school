@@ -5,11 +5,13 @@ import '../data/school_repository.dart';
 import 'classes_page.dart';
 import 'students_page.dart';
 import 'global_search_page.dart';
+import 'users_page.dart';
 
 class OwnerDashboard extends StatefulWidget {
-  const OwnerDashboard({super.key, required this.displayName});
+  const OwnerDashboard({super.key, required this.displayName, this.role = 'owner'});
 
   final String displayName;
+  final String role;
 
   @override
   State<OwnerDashboard> createState() => _OwnerDashboardState();
@@ -28,6 +30,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Staff', Icons.badge_outlined, 'Team & assignments', false),
     _DashboardModule('Parents', Icons.family_restroom_outlined, 'Families & children', false),
     _DashboardModule('Messages', Icons.forum_outlined, 'School communications', false),
+    _DashboardModule('Users', Icons.manage_accounts_outlined, 'Staff and parent sign-ins', true),
   ];
 
   void _refresh() {
@@ -39,10 +42,21 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => index == 0 ? const StudentsPage() : const ClassesPage(),
+          builder: (_) => index == 0
+              ? StudentsPage(role: widget.role)
+              : const ClassesPage(),
         ),
       );
       _refresh();
+      return;
+    }
+    if (index == 8 && widget.role == 'owner') {
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => UsersPage(role: widget.role),
+        ),
+      );
       return;
     }
     if (!mounted) return;
@@ -54,6 +68,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final shownModules = widget.role == 'owner'
+        ? _modules
+        : _modules.where((module) => module.title != 'Users').toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -180,14 +197,14 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                           child: Text('School management',
                             style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
                         ),
-                        Text('8 modules', style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                        Text('${shownModules.length} modules', style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
                       ],
                     ),
                     const SizedBox(height: 12),
                     GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _modules.length,
+                      itemCount: shownModules.length,
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: gridColumns,
                         crossAxisSpacing: 10,
@@ -195,7 +212,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                         mainAxisExtent: 142,
                       ),
                       itemBuilder: (context, index) {
-                        final item = _modules[index];
+                        final item = shownModules[index];
                         return Card(
                           elevation: 0,
                           margin: EdgeInsets.zero,
