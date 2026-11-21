@@ -7,8 +7,10 @@ import 'package:suffah_high_school/screens/students_page.dart';
 
 void main() {
   testWidgets('Student actions remain visible before Firestore loads', (tester) async {
-    final classes = StreamController<List<SchoolClass>>();
-    final students = StreamController<List<StudentRecord>>();
+    // Broadcast controllers close immediately even if widgets unsubscribe.
+    // A single-subscription controller can leave close() waiting forever.
+    final classes = StreamController<List<SchoolClass>>.broadcast();
+    final students = StreamController<List<StudentRecord>>.broadcast();
     addTearDown(() async {
       await classes.close();
       await students.close();
