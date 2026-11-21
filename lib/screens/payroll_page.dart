@@ -180,7 +180,7 @@ class _PayrollEditorState extends State<_PayrollEditor> {
       allowances: _amount(_allowances),
       deductions: _amount(_deductions),
       status: _status,
-      paymentMethod: _paymentMethod,
+      paymentMethod: _status == 'paid' ? _paymentMethod : '',
       paidAt: _status == 'paid'
           ? '${_paidDate.year.toString().padLeft(4, '0')}-'
             '${_paidDate.month.toString().padLeft(2, '0')}-'
