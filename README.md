@@ -1,20 +1,43 @@
-# suffah_high_school
+# Suffah High School
 
-A new Flutter project.
+Flutter school-management app for a school of approximately 400 students today,
+with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 
-## Getting Started
+## Current stack
+- **Firebase Authentication**: Email/password, initial owner account
+- **Cloud Firestore**: owner profile, school classes, and student admission records
+- **Flutter**: compact, responsive interface for phones, tablets and wider screens
+- **GitHub Actions**: automatically tests, analyzes and builds the Android debug APK
 
-This project is a starting point for a Flutter application.
+## What works
+- Firebase owner sign-in, sign-out and profile verification
+- Owner dashboard with Firestore summary counts
+- Class/section creation, listing and archival
+- Student admissions, editing, search, class filters and archival
+- Error, loading, empty and confirmation states
 
-A few resources to get you started if this is your first Flutter project:
+## Next priorities
+Daily attendance, staff/teacher assignments, fees and receipts, examinations,
+parent accounts linking multiple children, notices and messaging.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+See [three-month delivery plan](docs/RELEASE_PLAN.md) and
+[Firebase setup](docs/FIREBASE_SETUP.md).
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Android test APK
+Open the [Android APK workflow](https://github.com/yunusyosaf399/suffah_high_school/actions/workflows/android-apk.yml).
+After a successful run, download the artifact named
+`Suffah-High-School-Android-Debug-APK`. It is a ZIP with `app-debug.apk`.
+See the [APK testing guide](docs/APK_TESTING.md).
 
-## School management backend
+**Development APK only:** The school modules are being completed incrementally.
+Do not use real sensitive student information until production permission checks,
+backups and acceptance testing are in place. Windows and iOS Firebase
+configuration still need to be completed.
 
-The initial Supabase schema is deployed. See [offline-first architecture](docs/ARCHITECTURE.md), the [local SQLite schema](local/offline_schema.sql) and [Supabase migrations](supabase/migrations). The Flutter UI, offline sync engine, encrypted document store and attendance archive are **not yet implemented**.
+## Historical Supabase design
+The repository retains [Supabase migrations](supabase/migrations),
+the prior [offline-first architecture](docs/ARCHITECTURE.md),
+and the [local SQLite schema](local/offline_schema.sql) as historical references.
+They are **not the active backend** for the Flutter MVP.
+Do not delete the previous Supabase project until migration and retirement
+are explicitly approved.
