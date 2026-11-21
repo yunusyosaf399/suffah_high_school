@@ -52,6 +52,35 @@ service cloud.firestore {
         ['principal', 'accountant', 'teacher', 'clerk', 'parent'];
     }
 
+    function hasTeacherClassAccess(classId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'
+        && exists(/databases/$(database)/documents/teacher_class_links/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.staffId + '__' + classId))
+        && get(/databases/$(database)/documents/teacher_class_links/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.staffId + '__' + classId)).data.active == true;
+    }
+
+    function activeTeacherAssignment(assignmentId, staffId, classId, subject) {
+      return exists(/databases/$(database)/documents/teacher_assignments/$(assignmentId))
+        && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.active == true
+        && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.staffId == staffId
+        && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.classId == classId
+        && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.subject == subject
+        && isLinkedTeacher(staffId);
+    }
+
+    function canMarkExam(examId) {
+      return exists(/databases/$(database)/documents/examinations/$(examId))
+        && isLinkedTeacher(get(/databases/$(database)/documents/examinations/$(examId)).data.staffId)
+        && activeTeacherAssignment(
+          get(/databases/$(database)/documents/examinations/$(examId)).data.assignmentId,
+          get(/databases/$(database)/documents/examinations/$(examId)).data.staffId,
+          get(/databases/$(database)/documents/examinations/$(examId)).data.classId,
+          get(/databases/$(database)/documents/examinations/$(examId)).data.subject
+        );
+    }
+
     match /users/{userId} {
       // All accounts can read only their own school role; owner can list them.
       allow get: if isOwner()
@@ -202,6 +231,127 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/classes/$(resource.data.classId)).data.active == true
           )
         );
+      allow delete: if false;
+    }
+
+    // Teachers can read only the class/subject assignments linked to their
+    // own active staff profile. Assignment creation remains owner/principal.
+    match /teacher_class_links/{linkId} {
+      allow read: if canManageAdmissions() || isLinkedTeacher(resource.data.staffId);
+      allow create, update: if canManageAdmissions()
+        && request.resource.data.staffId is string
+        && request.resource.data.classId is string
+        && request.resource.data.active is bool
+        && request.resource.data.assignmentIds is list;
+      allow delete: if false;
+    }
+
+    // Safe roster projection: names and roll numbers only, never guardian,
+    // contact, address or health details from the student record.
+    match /class_rosters/{classId}/students/{studentId} {
+      allow get, list: if canManageAdmissions() || hasTeacherClassAccess(classId);
+      allow create, update: if canManageAdmissions()
+        && request.resource.data.studentId == studentId
+        && request.resource.data.classId == classId
+        && request.resource.data.fullName is string
+        && request.resource.data.rollNo is string
+        && request.resource.data.active is bool;
+      allow delete: if false;
+    }
+
+    // Teacher-created assignments and homework are scoped to an active
+    // teacher/class/subject assignment and the authenticated linked teacher.
+    match /classwork/{workId} {
+      allow get, list: if canManageAdmissions()
+        || (isLinkedTeacher(resource.data.staffId)
+          && resource.data.teacherUid == request.auth.uid);
+      allow create: if request.auth != null
+        && request.resource.data.teacherUid == request.auth.uid
+        && isLinkedTeacher(request.resource.data.staffId)
+        && request.resource.data.kind in ['assignment', 'homework']
+        && request.resource.data.title is string
+        && request.resource.data.active == true
+        && activeTeacherAssignment(
+          request.resource.data.assignmentId,
+          request.resource.data.staffId,
+          request.resource.data.classId,
+          request.resource.data.subject
+        );
+      allow update: if canManageAdmissions()
+        || (isLinkedTeacher(resource.data.staffId)
+          && resource.data.teacherUid == request.auth.uid
+          && request.resource.data.teacherUid == resource.data.teacherUid
+          && request.resource.data.staffId == resource.data.staffId
+          && request.resource.data.assignmentId == resource.data.assignmentId
+          && request.resource.data.classId == resource.data.classId
+          && request.resource.data.subject == resource.data.subject);
+      allow delete: if false;
+    }
+
+    // School administrators publish exams; assigned teachers can view their
+    // own exam and enter marks only for students in their safe class roster.
+    match /examinations/{examId} {
+      allow get, list: if canManageAdmissions()
+        || (resource.data.active == true
+          && isLinkedTeacher(resource.data.staffId)
+          && activeTeacherAssignment(
+            resource.data.assignmentId,
+            resource.data.staffId,
+            resource.data.classId,
+            resource.data.subject
+          ));
+      allow create: if canManageAdmissions()
+        && request.resource.data.assignmentId is string
+        && request.resource.data.staffId is string
+        && request.resource.data.classId is string
+        && request.resource.data.subject is string
+        && request.resource.data.title is string
+        && request.resource.data.maxMarks is number
+        && request.resource.data.maxMarks > 0
+        && exists(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId))
+        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.active == true
+        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.staffId == request.resource.data.staffId
+        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.classId == request.resource.data.classId
+        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.subject == request.resource.data.subject;
+      allow update: if canManageAdmissions()
+        && request.resource.data.assignmentId == resource.data.assignmentId
+        && request.resource.data.staffId == resource.data.staffId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.subject == resource.data.subject
+        && request.resource.data.maxMarks is number
+        && request.resource.data.maxMarks > 0;
+      allow delete: if false;
+
+      match /marks/{studentId} {
+        allow get, list: if canManageAdmissions() || canMarkExam(examId);
+        allow create, update: if canManageAdmissions()
+          || (
+            canMarkExam(examId)
+            && request.resource.data.examId == examId
+            && request.resource.data.studentId == studentId
+            && request.resource.data.teacherUid == request.auth.uid
+            && request.resource.data.classId
+              == get(/databases/$(database)/documents/examinations/$(examId)).data.classId
+            && request.resource.data.score is number
+            && request.resource.data.score >= 0
+            && request.resource.data.score
+              <= get(/databases/$(database)/documents/examinations/$(examId)).data.maxMarks
+            && exists(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId))
+            && get(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId)).data.active == true
+          );
+        allow delete: if false;
+      }
+    }
+
+    // Payroll documents are owner/principal managed; a teacher can read only
+    // their own salary details and receipts through the linked staff ID.
+    match /payroll_records/{payrollId} {
+      allow get, list: if canManageAdmissions()
+        || isLinkedTeacher(resource.data.staffId);
+      allow create, update: if canManageAdmissions()
+        && request.resource.data.staffId is string
+        && request.resource.data.period is string
+        && request.resource.data.netSalary is number;
       allow delete: if false;
     }
 
