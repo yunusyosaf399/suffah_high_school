@@ -5,7 +5,7 @@
 - An admitted student now opens in **Student profile**, a read-only, responsive screen containing student, guardian, academic, contact/address, health and uploaded-document metadata. The student's registration and roll numbers remain visible and immutable.
 - Owner and principal see an **Edit student** action. Every other role sees a read-only profile only if future access policies explicitly permit that role to open it.
 - Draft admissions are still opened in the multi-step wizard; the Students list shows drafts even when the **Active only** filter is on.
-- The admission wizard now has seven tabs: Student, Contact, Guardian, Academic, Health, Documents, **Review**. The last tab summarizes entered fields and asks for an explicit **Apply admission** confirmation before changing a draft to admitted.
+- The admission wizard currently has six tabs: Student, Contact, Guardian, Academic, Health, **Review**. Document uploads are postponed until Blaze is available. The last tab summarizes entered fields and asks for an explicit **Apply admission** confirmation before changing a draft to admitted.
 - Reopening an admitted student from Edit uses the same wizard but says **Save changes**, never a second admission.
 - The Users module appears in the dashboard **only for the owner**. The owner can create an email/password Auth account for Principal, Teacher, Accountant, Office staff, or Parent. Owner can suspend/activate accounts via the school role profile.
 - Principal gets access to Students and Classes after publishing the new rules. Other new user roles can sign in, but see a clearly labeled account-ready screen until their own modules and verified policies are finished. Parent-to-many-children links are not implemented yet.
