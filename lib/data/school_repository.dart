@@ -103,16 +103,29 @@ class SchoolRepository {
   CollectionReference<Map<String, dynamic>> get _students =>
       _db.collection('students');
 
-  Stream<List<SchoolClass>> watchClasses() => _classes
-      .orderBy('sortKey')
-      .snapshots()
-      .map((snap) => snap.docs.map(SchoolClass.fromSnapshot).toList());
+  // Start with a bounded online read, then attach live updates. This avoids
+  // relying solely on the first snapshot event on Android.
+  Stream<List<SchoolClass>> watchClasses() async* {
+    final query = _classes.orderBy('sortKey');
+    final first = await query
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
+    yield first.docs.map(SchoolClass.fromSnapshot).toList();
+    yield* query.snapshots().map(
+      (snap) => snap.docs.map(SchoolClass.fromSnapshot).toList(),
+    );
+  }
 
-  Stream<List<StudentRecord>> watchStudents() => _students
-      .orderBy('fullName')
-      .limit(1000)
-      .snapshots()
-      .map((snap) => snap.docs.map(StudentRecord.fromSnapshot).toList());
+  Stream<List<StudentRecord>> watchStudents() async* {
+    final query = _students.orderBy('fullName').limit(1000);
+    final first = await query
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
+    yield first.docs.map(StudentRecord.fromSnapshot).toList();
+    yield* query.snapshots().map(
+      (snap) => snap.docs.map(StudentRecord.fromSnapshot).toList(),
+    );
+  }
 
   Future<SchoolSummary> loadSummary() async {
     final totals = await Future.wait([
