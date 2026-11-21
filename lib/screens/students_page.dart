@@ -4,16 +4,21 @@ import '../data/school_repository.dart';
 import 'classes_page.dart';
 
 class StudentsPage extends StatefulWidget {
-  const StudentsPage({super.key});
+  const StudentsPage({super.key, this.classesStream, this.studentsStream});
+
+  final Stream<List<SchoolClass>>? classesStream;
+  final Stream<List<StudentRecord>>? studentsStream;
 
   @override
   State<StudentsPage> createState() => _StudentsPageState();
 }
 
 class _StudentsPageState extends State<StudentsPage> {
-  final _repo = SchoolRepository();
-  late final Stream<List<StudentRecord>> _students = _repo.watchStudents();
-  late final Stream<List<SchoolClass>> _classes = _repo.watchClasses();
+  late final SchoolRepository _repo = SchoolRepository();
+  late final Stream<List<StudentRecord>> _students =
+      widget.studentsStream ?? _repo.watchStudents();
+  late final Stream<List<SchoolClass>> _classes =
+      widget.classesStream ?? _repo.watchClasses();
 
   List<SchoolClass> _loadedClasses = const [];
   bool _classesLoaded = false;
