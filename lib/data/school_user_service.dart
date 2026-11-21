@@ -19,6 +19,8 @@ class SchoolUserAccount {
     required this.email,
     required this.role,
     required this.active,
+    this.staffId = '',
+    this.staffNo = '',
   });
 
   final String uid;
@@ -26,6 +28,8 @@ class SchoolUserAccount {
   final String email;
   final String role;
   final bool active;
+  final String staffId;
+  final String staffNo;
   bool get isOwner => role == 'owner' || uid == schoolOwnerUid;
 
   factory SchoolUserAccount.fromSnapshot(
@@ -38,6 +42,8 @@ class SchoolUserAccount {
       email: (data['email'] as String?) ?? '',
       role: (data['role'] as String?) ?? 'unknown',
       active: data['active'] == true,
+      staffId: (data['staffId'] as String?) ?? '',
+      staffNo: (data['staffNo'] as String?) ?? '',
     );
   }
 }
