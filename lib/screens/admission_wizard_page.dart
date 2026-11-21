@@ -43,6 +43,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     'Academic',
     'Health',
     'Documents',
+    'Review',
   ];
 
   static const _fields = [
@@ -132,7 +133,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     if (widget.saveOverride != null) return; // tests remain deterministic
     _debounce?.cancel();
     _debounce = Timer(const Duration(seconds: 3), () {
-      if (!mounted || _busy || _closing) return;
+      if (!mounted || _busy || _closing || !widget.record.isDraft) return;
       unawaited(_persist().catchError((Object error) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -235,8 +236,10 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       _showMessage(error);
       return;
     }
-    await _performSave();
-    if (!mounted || _dirty) return;
+    if (widget.record.isDraft) {
+      await _performSave();
+      if (!mounted || _dirty) return;
+    }
     if (_tabs.index < _steps.length - 1) {
       _tabs.animateTo(_tabs.index + 1);
     }
@@ -263,6 +266,10 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   }
 
   Future<void> _finish() async {
+    if (_tabs.index != _steps.length - 1) {
+      _tabs.animateTo(_steps.length - 1);
+      return;
+    }
     final validation = admissionValidationMessage(_collect());
     if (validation != null) {
       _showMessage(validation);
@@ -279,7 +286,30 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       }
       return;
     }
-    await _performSave(complete: true);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(widget.record.isDraft
+            ? 'Confirm student admission'
+            : 'Confirm student changes'),
+        content: Text(widget.record.isDraft
+            ? 'Review the information and admit this student? The record will be locked for everyone except the owner and principal.'
+            : 'Save the reviewed changes to this admitted student record?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(widget.record.isDraft ? 'Apply admission' : 'Save changes'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _performSave(complete: true);
+    }
   }
 
   Future<void> _saveAndClose() async {
@@ -644,6 +674,135 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     ]);
   }
 
+
+  static const _reviewLabels = <String, Map<String, String>>{
+    'student': {
+      'firstName': 'First name', 'middleName': 'Middle name',
+      'lastName': 'Last name', 'dateOfBirth': 'Date of birth',
+      'gender': 'Gender', 'nationality': 'Nationality',
+      'idType': 'ID type', 'idNumber': 'Student ID number',
+    },
+    'contact': {
+      'email': 'Student email', 'phone': 'Student phone',
+      'whatsapp': 'Student WhatsApp', 'street': 'Street',
+      'neighborhood': 'Neighborhood', 'city': 'City',
+      'postalCode': 'Postal code', 'country': 'Country',
+      'emergencyPhone': 'Emergency contact',
+    },
+    'guardian': {
+      'firstName': 'First name', 'middleName': 'Middle name',
+      'lastName': 'Last name', 'relationship': 'Relationship',
+      'phone': 'Primary phone', 'whatsapp': 'WhatsApp',
+      'emergencyPhone': 'Emergency phone', 'email': 'Email',
+      'idNumber': 'Guardian ID number', 'occupation': 'Occupation',
+    },
+    'academic': {
+      'campus': 'Campus', 'academicYear': 'Academic year',
+      'term': 'Term', 'admissionDate': 'Admission date',
+      'previousSchool': 'Previous school', 'previousGrade': 'Previous grade',
+      'transcriptNotes': 'Previous results',
+    },
+    'health': {
+      'medicalConditions': 'Medical conditions', 'allergies': 'Allergies',
+      'bloodGroup': 'Blood group', 'specialNeeds': 'Special needs',
+    },
+  };
+
+  Widget _reviewPane() {
+    final colors = Theme.of(context).colorScheme;
+    final data = _collect();
+    final classId = _value('academic', 'classId');
+    final schoolClass = widget.classes.where((c) => c.id == classId);
+    final className = schoolClass.isEmpty ? 'Not selected' : schoolClass.first.label;
+
+    Widget section(String heading, String sectionName) {
+      final labels = _reviewLabels[sectionName]!;
+      final rows = labels.entries.where(
+        (entry) => (data[sectionName]?[entry.key] ?? '').trim().isNotEmpty,
+      ).toList();
+      return Card(
+        margin: const EdgeInsets.only(bottom: 11),
+        child: Padding(
+          padding: const EdgeInsets.all(13),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(heading, style: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 9),
+              if (rows.isEmpty)
+                const Text('No information entered.',
+                  style: TextStyle(fontSize: 11))
+              else
+                for (final row in rows)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 9),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 128, child: Text(
+                          row.value, style: TextStyle(
+                            fontSize: 11, color: colors.onSurfaceVariant))),
+                        Expanded(child: Text(data[sectionName]![row.key]!,
+                          style: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w600))),
+                      ],
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final validation = admissionValidationMessage(data);
+    return _pane('review', [
+      _heading('Review admission',
+        hint: 'Check everything carefully before applying. Only the owner and principal can edit an admitted record.'),
+      if (validation != null)
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text('Still required: $validation',
+              style: TextStyle(fontSize: 12, color: colors.error)),
+          ),
+        ),
+      _readOnly('Registration number', widget.record.registrationNo),
+      _readOnly('Roll number', widget.record.rollNo),
+      _readOnly('Class and section', className),
+      section('Student personal details', 'student'),
+      section('Contact and address', 'contact'),
+      section('Parent or guardian', 'guardian'),
+      section('Academic information', 'academic'),
+      section('Health and special needs', 'health'),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(13),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Documents and photo', style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 9),
+              Text(_photoPath.isEmpty
+                  ? 'Photo: Not uploaded'
+                  : 'Photo: Attached',
+                  style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 7),
+              if (_attachments.isEmpty)
+                const Text('No documents uploaded.',
+                    style: TextStyle(fontSize: 12))
+              else
+                for (final file in _attachments.values)
+                  Text(file['name']?.toString() ?? 'Document',
+                    style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+      ),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme;
@@ -721,6 +880,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
               _academicPane(),
               _healthPane(),
               _documentsPane(),
+              _reviewPane(),
             ],
           ),
         ),
@@ -746,7 +906,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
                       child: OutlinedButton.icon(
                         onPressed: _busy ? null : _saveAndClose,
                         icon: const Icon(Icons.save_outlined, size: 18),
-                        label: Text(_busy ? 'Saving…' : 'Save draft'),
+                        label: Text(_busy ? 'Saving…' : widget.record.isDraft ? 'Save draft' : 'Save changes'),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -755,7 +915,8 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
                         onPressed: _busy ? null
                             : _tabs.index == _steps.length - 1 ? _finish : _next,
                         child: Text(_tabs.index == _steps.length - 1
-                            ? 'Complete' : 'Save & next'),
+                            ? widget.record.isDraft ? 'Review & admit' : 'Save reviewed changes'
+                            : widget.record.isDraft ? 'Save & next' : 'Next'),
                       ),
                     ),
                   ],
