@@ -123,8 +123,10 @@ class SchoolUserService {
       if (!emails.contains(cleanEmail)) {
         throw StateError('Choose an email address saved on this teacher profile.');
       }
-      final linkedUid = (staff['accountUid'] as String?) ?? '';
-      if (linkedUid.isNotEmpty) {
+      final linkedUsers = await _db.collection('users')
+          .where('staffId', isEqualTo: staffId).limit(1)
+          .get(const GetOptions(source: Source.server));
+      if (linkedUsers.docs.isNotEmpty) {
         throw StateError('This teacher already has a linked user account.');
       }
       if (((staff['fullName'] as String?) ?? '').trim() != cleanName) {
