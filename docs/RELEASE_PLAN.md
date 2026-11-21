@@ -18,7 +18,7 @@
 | 9–10 | Parent profiles, one-to-many child links, notifications, in-app messages | Parents see only linked children, fees, attendance and results; reminders work. |
 | 11–12 | Import 400 records, client feedback, device testing, backups and recovery | Stakeholder acceptance, reconciliation checks, restore drill, signed production build. |
 
-**Current milestone:** Android login and owner dashboard built. Live class management and basic student admissions are being implemented; these are not yet declared client-accepted.
+**Current milestone:** Android login and owner dashboard built. Live class management and basic student admissions are being implemented; the Students page must remain usable while class data loads, with a permanent Add Student / Manage Classes action. Global search UI is preview-only; these features are not yet declared client-accepted.
 
 ## UX/product design contract
 - Compact, readable typography: typically 11–14 sp for supporting/body text and 16–20 sp for headings.
@@ -26,6 +26,7 @@
 - Responsive single-column phone layout; constrained forms and multi-column dashboards on tablet/desktop.
 - Short forms, clear required fields, keyboard-aware layouts, loading/empty/error states and feedback after saves.
 - Avoid false placeholders: incomplete modules marked clearly as upcoming.
+- Global search: display its dashboard entry now, but ship actual cross-module results only after source modules and secure indexes exist; include students, reports, invoices, documents and pictures. See [GLOBAL_SEARCH_SPEC.md](GLOBAL_SEARCH_SPEC.md).
 - Accessibility: meaningful labels/tooltips, reasonable contrast, text scaling and keyboard navigation.
 - Optimize Firestore usage through bounded queries, only loading screens that are opened, and summary count aggregation.
 - English MVP, with Pakistani Urdu localization as a later planned option if the client requests it.
