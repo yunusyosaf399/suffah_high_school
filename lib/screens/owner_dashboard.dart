@@ -6,6 +6,7 @@ import 'classes_page.dart';
 import 'students_page.dart';
 import 'attendance_page.dart';
 import 'staff_page.dart';
+import 'examinations_page.dart';
 import 'global_search_page.dart';
 import 'users_page.dart';
 
@@ -28,7 +29,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Classes', Icons.school_outlined, 'Classes & sections', true),
     _DashboardModule('Attendance', Icons.fact_check_outlined, 'Daily class registers', true),
     _DashboardModule('Fees & accounts', Icons.receipt_long_outlined, 'Fees & payments', false),
-    _DashboardModule('Examinations', Icons.assignment_outlined, 'Marks & results', false),
+    _DashboardModule('Examinations', Icons.assignment_outlined, 'Marks & results', true),
     _DashboardModule('Staff', Icons.badge_outlined, 'Team & assignments', true),
     _DashboardModule('Parents', Icons.family_restroom_outlined, 'Families & children', false),
     _DashboardModule('Messages', Icons.forum_outlined, 'School communications', false),
@@ -56,6 +57,14 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       await Navigator.of(context).push<void>(
         MaterialPageRoute(
           builder: (_) => AttendancePage(role: widget.role),
+        ),
+      );
+      return;
+    }
+    if (index == 4) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => ExaminationsPage(role: widget.role),
         ),
       );
       return;
