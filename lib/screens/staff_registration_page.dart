@@ -199,8 +199,11 @@ class _StaffRegistrationPageState extends State<StaffRegistrationPage>
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false),
             child: const Text('Review again')),
-          FilledButton(onPressed: () => Navigator.pop(context, true),
-            child: Text(widget.initial == null ? 'Submit staff' : 'Save changes')),
+          FilledButton(
+            key: const Key('confirm_staff_registration'),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(widget.initial == null ? 'Submit staff' : 'Save changes'),
+          ),
         ],
       ),
     );
