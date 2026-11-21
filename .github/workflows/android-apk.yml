@@ -22,6 +22,8 @@ permissions:
 jobs:
   build-apk:
     name: Build and test Android APK
+    env:
+      HAS_SIGNING_SECRET: ${{ secrets.SUFFAH_DEBUG_KEYSTORE_BASE64 != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -57,8 +59,43 @@ jobs:
       - name: Run Flutter widget tests
         run: flutter test
 
+      # GitHub runners have different temporary debug keys by default.
+      # A stable key enables Android to accept APK upgrades in place.
+      - name: Restore preview signing identity
+        id: debug_signing_cache
+        if: env.HAS_SIGNING_SECRET != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: suffah-preview-debug-signing-key-v1
+
+      - name: Prepare a consistent Android debug signature
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SUFFAH_DEBUG_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf "%s" "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+            echo "Using the permanent GitHub Actions debug signing secret."
+          elif [ ! -s "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Suffah School Preview, OU=Android Testing, O=Suffah High School, C=PK"
+            echo "::warning::A new preview key was generated; an existing APK signed with another key must be uninstalled once. Configure the signing secret to protect against cache expiry."
+          else
+            echo "Restored the previous preview signing identity."
+          fi
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
+
       - name: Build Android APK (development / debug signed)
-        run: flutter build apk --debug
+        run: flutter build apk --debug --build-number "${{ github.run_number }}"
+
+      - name: Preserve preview signature for future updates
+        if: env.HAS_SIGNING_SECRET != 'true' && steps.debug_signing_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: suffah-preview-debug-signing-key-v1
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
