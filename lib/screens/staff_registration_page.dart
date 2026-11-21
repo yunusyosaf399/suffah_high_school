@@ -118,8 +118,7 @@ class _StaffRegistrationPageState extends State<StaffRegistrationPage>
     if (step == 1) {
       if (_value('phone').isEmpty) return 'Enter the teacher mobile number.';
       if (_value('email').isEmpty) return 'Enter the teacher email address.';
-      if (!RegExp(r'^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
-          .hasMatch(_value('email'))) {
+      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(_value('email'))) {
         return 'Enter a valid teacher email address.';
       }
       if (_value('emergencyContactPhone').isEmpty) {
