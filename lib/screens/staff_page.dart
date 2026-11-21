@@ -92,7 +92,7 @@ class _StaffPageState extends State<StaffPage>
       ),
     );
     if (!mounted || success != true) return;
-    _reload();
+    // Firestore snapshot streams update automatically after writes.
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(existing == null
           ? 'Staff member created.'
@@ -130,7 +130,7 @@ class _StaffPageState extends State<StaffPage>
       ),
     );
     if (!mounted || saved != true) return;
-    _reload();
+    // Firestore snapshot streams update automatically after writes.
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
       content: Text('Teacher assignment saved.'),
     ));
@@ -164,7 +164,7 @@ class _StaffPageState extends State<StaffPage>
     try {
       await _repo.setStaffActive(staff.id, active);
       if (!mounted) return;
-      _reload();
+      // The active Firestore listener updates the lists automatically.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(active ? 'Staff member restored.' : 'Staff archived.'),
       ));
@@ -178,7 +178,7 @@ class _StaffPageState extends State<StaffPage>
     try {
       await _repo.setAssignmentActive(assignment.id, !assignment.active);
       if (!mounted) return;
-      _reload();
+      // The active Firestore listener updates the lists automatically.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(assignment.active
             ? 'Assignment archived.'
