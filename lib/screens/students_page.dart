@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import '../data/school_errors.dart';
 
 import '../data/school_repository.dart';
 import 'classes_page.dart';
@@ -15,13 +19,53 @@ class StudentsPage extends StatefulWidget {
 
 class _StudentsPageState extends State<StudentsPage> {
   late final SchoolRepository _repo = SchoolRepository();
-  late final Stream<List<StudentRecord>> _students =
+  late Stream<List<StudentRecord>> _students =
       widget.studentsStream ?? _repo.watchStudents();
-  late final Stream<List<SchoolClass>> _classes =
+  late Stream<List<SchoolClass>> _classes =
       widget.classesStream ?? _repo.watchClasses();
 
   List<SchoolClass> _loadedClasses = const [];
   bool _classesLoaded = false;
+  bool _classesLoadingTooLong = false;
+  Timer? _classesTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _armClassTimer();
+  }
+
+  void _armClassTimer() {
+    _classesTimer?.cancel();
+    _classesTimer = Timer(const Duration(seconds: 12), () {
+      if (mounted && !_classesLoaded) {
+        setState(() => _classesLoadingTooLong = true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _classesTimer?.cancel();
+    super.dispose();
+  }
+
+  void _refreshClasses() {
+    setState(() {
+      _classesLoaded = false;
+      _classesLoadingTooLong = false;
+      _loadedClasses = const [];
+      _classes = widget.classesStream ?? _repo.watchClasses();
+      _students = widget.studentsStream ?? _repo.watchStudents();
+    });
+    _armClassTimer();
+  }
+
+  void _refreshStudents() {
+    setState(() {
+      _students = widget.studentsStream ?? _repo.watchStudents();
+    });
+  }
 
   Future<void> _beginAdmission() async {
     if (!_classesLoaded || !_loadedClasses.any((c) => c.active)) {
@@ -35,6 +79,7 @@ class _StudentsPageState extends State<StudentsPage> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => const ClassesPage()),
     );
+    if (mounted) _refreshClasses();
   }
 
   String _query = '';
@@ -87,6 +132,13 @@ class _StudentsPageState extends State<StudentsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Students', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        actions: [
+          IconButton(
+            tooltip: 'Reload students',
+            onPressed: _refreshClasses,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Center(
@@ -139,29 +191,41 @@ class _StudentsPageState extends State<StudentsPage> {
               stream: _classes,
               builder: (context, classSnapshot) {
                 if (classSnapshot.hasError) {
+                  _classesTimer?.cancel();
                   return _StudentsEmpty(
                     icon: Icons.wifi_off_outlined,
                     title: 'Could not load classes',
-                    subtitle: 'Check your connection. You can still open class setup.',
-                    action: TextButton.icon(
-                      onPressed: _manageClasses,
-                      icon: const Icon(Icons.school_outlined),
-                      label: const Text('Open classes'),
+                    subtitle: schoolErrorMessage(classSnapshot.error!),
+                    action: OutlinedButton.icon(
+                      onPressed: _refreshClasses,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Retry loading classes'),
                     ),
                   );
                 }
                 if (!classSnapshot.hasData) {
                   return _StudentsEmpty(
-                    icon: Icons.hourglass_top_outlined,
-                    title: 'Loading classes',
-                    subtitle: 'You can still use Add student or Manage classes above.',
+                    icon: _classesLoadingTooLong
+                        ? Icons.cloud_off_outlined
+                        : Icons.hourglass_top_outlined,
+                    title: _classesLoadingTooLong
+                        ? 'Firestore has not responded'
+                        : 'Loading classes',
+                    subtitle: _classesLoadingTooLong
+                        ? 'Check your internet connection or open Classes to test Firebase. You can still manage classes above.'
+                        : 'You can still use Add student or Manage classes above.',
                     action: TextButton.icon(
-                      onPressed: _manageClasses,
-                      icon: const Icon(Icons.school_outlined),
-                      label: const Text('Manage classes'),
+                      onPressed: _classesLoadingTooLong
+                          ? _refreshClasses
+                          : _manageClasses,
+                      icon: Icon(_classesLoadingTooLong
+                          ? Icons.refresh
+                          : Icons.school_outlined),
+                      label: Text(_classesLoadingTooLong ? 'Retry' : 'Manage classes'),
                     ),
                   );
                 }
+                _classesTimer?.cancel();
                 final classes = classSnapshot.data!;
                 _loadedClasses = classes;
                 _classesLoaded = true;
@@ -212,14 +276,23 @@ class _StudentsPageState extends State<StudentsPage> {
                           stream: _students,
                           builder: (context, snapshot) {
                             if (snapshot.hasError) {
-                              return const _StudentsEmpty(
+                              return _StudentsEmpty(
                                 icon: Icons.wifi_off_outlined,
                                 title: 'Could not load students',
-                                subtitle: 'Check your internet connection and retry.',
+                                subtitle: schoolErrorMessage(snapshot.error!),
+                                action: OutlinedButton.icon(
+                                  onPressed: _refreshStudents,
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  label: const Text('Retry students'),
+                                ),
                               );
                             }
                             if (!snapshot.hasData) {
-                              return const Center(child: CircularProgressIndicator());
+                              return const _StudentsEmpty(
+                                icon: Icons.hourglass_top_outlined,
+                                title: 'Loading students',
+                                subtitle: 'Reading admissions from Firestore…',
+                              );
                             }
                             final all = snapshot.data!;
                             final visible = all.where((student) {
@@ -406,14 +479,12 @@ class _StudentEditorPageState extends State<StudentEditorPage> {
         guardianPhone: _phone.text,
         gender: _gender,
         rollNo: _roll.text,
-      );
+      ).timeout(const Duration(seconds: 25));
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error is StateError || error is ArgumentError
-              ? error.toString().replaceFirst(RegExp(r'^(Bad state|Invalid argument):\s*'), '')
-              : 'Unable to save student. Check your connection and retry.';
+          _error = schoolErrorMessage(error);
         });
       }
     } finally {
