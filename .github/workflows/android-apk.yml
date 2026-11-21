@@ -1,0 +1,63 @@
+name: Android APK — Suffah High School
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "android/**"
+      - "test/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Build and test Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout school app
+        uses: actions/checkout@v4
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Fetch Dart packages
+        run: flutter pub get
+
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze Flutter source
+        run: flutter analyze
+
+      - name: Run Flutter widget tests
+        run: flutter test
+
+      - name: Build Android APK (development / debug signed)
+        run: flutter build apk --debug
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Suffah-High-School-Android-Debug-APK
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
