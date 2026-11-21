@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Small typed model for the school's long-lived class/section catalog.
@@ -121,6 +123,15 @@ class SchoolRepository {
       students: totals[0].count ?? 0,
       classes: totals[1].count ?? 0,
     );
+  }
+
+  /// Explicit server read to distinguish offline/permission failures from
+  /// an empty class list. Nothing is written during this check.
+  Future<void> verifyFirestoreConnection() async {
+    await _classes
+        .limit(1)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
   }
 
   Future<void> createClass({required String name, String section = ''}) async {
