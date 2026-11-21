@@ -1,27 +1,41 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Temporary owner-only preview policy. Replace with verified staff/parent
-    // permissions before releasing accounts to families.
     function isOwner() {
       return request.auth != null
         && request.auth.uid == 'tQt6vca2zuagZipvknBwcmSRcrc2';
     }
 
+    function isPrincipal() {
+      return request.auth != null
+        && firestore.exists(
+          /databases/(default)/documents/users/${request.auth.uid})
+        && firestore.get(
+          /databases/(default)/documents/users/${request.auth.uid}).data.active == true
+        && firestore.get(
+          /databases/(default)/documents/users/${request.auth.uid}).data.role == 'principal';
+    }
+
+    function canManageAdmissions() {
+      return isOwner() || isPrincipal();
+    }
+
     match /student-photos/{registrationNo} {
-      allow read: if isOwner();
-      allow write: if isOwner()
+      allow read: if canManageAdmissions();
+      allow create, update: if canManageAdmissions()
         && registrationNo.matches('ST-[0-9]{4}-[0-9]{4}\\.webp')
         && request.resource.size <= 102400
         && request.resource.contentType == 'image/webp';
+      allow delete: if false;
     }
 
     match /student-documents/{registrationNo}/{filename} {
-      allow read: if isOwner();
-      allow write: if isOwner()
+      allow read: if canManageAdmissions();
+      allow create, update: if canManageAdmissions()
         && request.resource.size <= 5242880
         && request.resource.contentType.matches(
           'application/pdf|image/jpeg|image/png|image/webp');
+      allow delete: if false;
     }
   }
 }
