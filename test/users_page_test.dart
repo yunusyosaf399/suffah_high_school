@@ -105,19 +105,24 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Create user account'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    final roleDropdown = find.byKey(const Key('account_role_dropdown'));
+    await tester.ensureVisible(roleDropdown);
+    await tester.tap(roleDropdown);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Teacher').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Select active teacher *'), findsOneWidget);
-    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    final teacherDropdown = find.byKey(const Key('teacher_profile_dropdown'));
+    await tester.ensureVisible(teacherDropdown);
+    await tester.tap(teacherDropdown);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Aisha Khan • EMP-2026-0001'));
     await tester.pumpAndSettle();
 
-    final dropdowns = find.byType(DropdownButtonFormField<String>);
-    await tester.tap(dropdowns.last);
+    final emailDropdown = find.byKey(const Key('teacher_email_dropdown'));
+    await tester.ensureVisible(emailDropdown);
+    await tester.tap(emailDropdown);
     await tester.pumpAndSettle();
     await tester.tap(find.text('a.khan@example.com').last);
     await tester.pumpAndSettle();
