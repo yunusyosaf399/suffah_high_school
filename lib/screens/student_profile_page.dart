@@ -216,7 +216,7 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
                                   Icon(locked ? Icons.lock_outline : Icons.edit_note,
                                     size: 15, color: scheme.primary),
                                   const SizedBox(width: 5),
-                                  Text(locked ? 'Admitted · Details locked' : 'Draft',
+                                  Text(locked ? record.active ? 'Admitted · Details locked' : 'Archived · Details locked' : 'Draft',
                                     style: TextStyle(fontSize: 11,
                                         fontWeight: FontWeight.w700,
                                         color: scheme.primary)),
