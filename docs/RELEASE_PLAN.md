@@ -18,7 +18,7 @@
 | 9–10 | Parent profiles, one-to-many child links, notifications, in-app messages | Parents see only linked children, fees, attendance and results; reminders work. |
 | 11–12 | Import 400 records, client feedback, device testing, backups and recovery | Stakeholder acceptance, reconciliation checks, restore drill, signed production build. |
 
-**Current milestone:** Six-step admissions with final Review & Admit and draft recovery, read-only admitted profiles, owner-only Users provisioning, online daily student attendance and a staff directory with teacher class/subject assignments. Photo and document uploads are postponed until Blaze can be enabled. App code and rule files are in GitHub; live Firebase rules must be published and accepted on actual devices before this is client-ready. Global search is preview-only.
+**Current milestone:** Six-step admissions with final Review & Admit and draft recovery, owner-only Users provisioning, daily student attendance, multi-step staff registration, verified teacher-to-staff account linking, teacher classwork/homework, examinations and marks entry, and teacher-only payroll receipt viewing. Safe class-roster projections expose student name and roll number to assigned teachers without exposing guardian/contact/health fields. Photo and document uploads remain postponed until Blaze can be enabled. App code and rule files are in GitHub; live Firebase rules must be published and accepted on actual devices before this is client-ready. Global search is preview-only.
 
 ## UX/product design contract
 - Compact, readable typography: typically 11–14 sp for supporting/body text and 16–20 sp for headings.
@@ -33,7 +33,7 @@
 
 ## Data notes for present milestone
 - `attendance_days/{classId}_YYYYMMDD/marks/{studentId}`: individual daily status per admitted active student, plus a small day metadata document. Marking only changed students reduces Firestore writes.
-- See [ATTENDANCE.md](ATTENDANCE.md) and [STAFF_AND_ASSIGNMENTS.md](STAFF_AND_ASSIGNMENTS.md); teacher-specific access, staff attendance, UID-to-staff linking and aggregated reporting remain future work.
+- See [ATTENDANCE.md](ATTENDANCE.md) and [STAFF_AND_ASSIGNMENTS.md](STAFF_AND_ASSIGNMENTS.md); staff attendance, owner-side payroll entry, results cards, UID-to-parent linking and aggregated reporting remain future work.
 - `classes/{classId}`: `name`, `section`, `sortKey`, `active`, `createdAt`.
 - `students/{admissionNo}`: `admissionNo`, `fullName`, `searchName`, `classId`, `gender`, `rollNo`, `guardianName`, `guardianPhone`, `active`, `parentUids` (empty until parent module), timestamps.
 - Stable admission number as document ID blocks duplicates. Archive via `active=false`; no destructive deletion.
