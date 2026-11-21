@@ -104,6 +104,7 @@ class _StudentsPageState extends State<StudentsPage> {
       ),
     );
     if (mounted && saved == true) {
+      _refreshStudents();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(student == null ? 'Student admitted successfully.' : 'Student updated successfully.')),
       );
