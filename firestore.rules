@@ -32,7 +32,7 @@ service cloud.firestore {
           request.resource.data.email
             == get(/databases/$(database)/documents/staff/$(staffId)).data.email
           || request.resource.data.email
-            == get(/databases/$(database)/documents/staff/$(staffId)).data.alternateEmail
+            == get(/databases/$(database)/documents/staff/$(staffId)).data.get('alternateEmail', '')
         );
     }
 
@@ -178,6 +178,7 @@ service cloud.firestore {
         && request.resource.data.staffId is string
         && request.resource.data.classId is string
         && request.resource.data.subject is string
+        && request.resource.data.className is string
         && request.resource.data.active == true
         && exists(/databases/$(database)/documents/staff/$(request.resource.data.staffId))
         && exists(/databases/$(database)/documents/classes/$(request.resource.data.classId))
@@ -188,6 +189,7 @@ service cloud.firestore {
         && request.resource.data.staffId == resource.data.staffId
         && request.resource.data.classId == resource.data.classId
         && request.resource.data.subject == resource.data.subject
+        && request.resource.data.className is string
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.active is bool
         && (
