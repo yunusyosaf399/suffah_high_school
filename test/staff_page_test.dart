@@ -74,10 +74,17 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('next_staff_registration')));
     await tester.pumpAndSettle();
+    expect(find.text('Contact'), findsOneWidget);
 
     await tester.enterText(find.byKey(const Key('staff_phone_field')), '03001234567');
     await tester.enterText(find.byKey(const Key('staff_email_field')), 'aisha@example.com');
-    await tester.enterText(find.byKey(const Key('staff_emergencyContactPhone_field')), '03007654321');
+    final emergencyPhone = find.byKey(const Key('staff_emergencyContactPhone_field'));
+    if (emergencyPhone.evaluate().isEmpty) {
+      await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+      await tester.pumpAndSettle();
+    }
+    await tester.ensureVisible(emergencyPhone);
+    await tester.enterText(emergencyPhone, '03007654321');
     await tester.tap(find.byKey(const Key('next_staff_registration')));
     await tester.pumpAndSettle();
 
