@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'screens/owner_dashboard.dart';
 import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
+import 'screens/teacher_dashboard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -99,6 +100,15 @@ class AuthGate extends StatelessWidget {
                 ? (record['displayName'] as String).trim() : 'School User';
             if (role == 'owner' || role == 'principal') {
               return OwnerDashboard(displayName: name, role: role);
+            }
+            if (role == 'teacher') {
+              final staffId = (record['staffId'] as String?) ?? '';
+              if (staffId.isEmpty) {
+                return const _AccessPage(
+                  message: 'This teacher account is not linked to an active staff profile. Ask the school owner to link it from Users.',
+                );
+              }
+              return TeacherDashboard(displayName: name, staffId: staffId);
             }
             if (schoolRoles.containsKey(role)) {
               return _RoleHome(displayName: name, role: role);
