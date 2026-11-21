@@ -70,7 +70,6 @@ void main() {
     await tester.scrollUntilVisible(
       find.byKey(const Key('attendance_student_ST-2026-0002')),
       130,
-      scrollable: find.byKey(const Key('attendance_scroll_view')),
     );
     expect(find.text('Aisha Khan'), findsOneWidget);
 
