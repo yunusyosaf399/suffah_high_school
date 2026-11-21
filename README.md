@@ -14,13 +14,16 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Owner dashboard with Firestore summary counts
 - Class/section creation, listing and archival
 - Student admissions, editing, search, class filters and archival
+- Dashboard global search preview (cross-module search is planned; no live results yet)
+- Student page retains visible Add Student / Manage Classes actions while Firestore loads
 - Error, loading, empty and confirmation states
 
 ## Next priorities
 Daily attendance, staff/teacher assignments, fees and receipts, examinations,
 parent accounts linking multiple children, notices and messaging.
 
-See [three-month delivery plan](docs/RELEASE_PLAN.md) and
+See [global search scope](docs/GLOBAL_SEARCH_SPEC.md),
+[three-month delivery plan](docs/RELEASE_PLAN.md) and
 [Firebase setup](docs/FIREBASE_SETUP.md).
 
 ## Android test APK
