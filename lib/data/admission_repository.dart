@@ -268,6 +268,40 @@ class AdmissionRepository {
     }
     if (attachments != null) data['attachments'] = attachments;
     if (photoPath != null) data['photoPath'] = photoPath;
-    await _students.doc(admission.id).update(data);
+    final batch = _db.batch();
+    final studentRef = _students.doc(admission.id);
+    batch.update(studentRef, data);
+    if (complete) {
+      final previousClassId =
+          (admission.details['academic']?['classId'] ?? '').trim();
+      final nextClassId = value('academic', 'classId');
+      if (previousClassId.isNotEmpty && previousClassId != nextClassId) {
+        batch.set(
+          _db.collection('class_rosters').doc(previousClassId)
+              .collection('students').doc(admission.id),
+          {
+            'active': false,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+      if (nextClassId.isNotEmpty) {
+        batch.set(
+          _db.collection('class_rosters').doc(nextClassId)
+              .collection('students').doc(admission.id),
+          {
+            'studentId': admission.id,
+            'fullName': name,
+            'rollNo': admission.rollNo,
+            'classId': nextClassId,
+            'active': data['active'] == true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    }
+    await batch.commit();
   }
 }
