@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../data/school_errors.dart';
 import '../data/school_repository.dart';
+import '../data/admission_repository.dart';
+import 'admission_wizard_page.dart';
 import 'classes_page.dart';
 
 /// The admission CTA, filters and student list render separately, so a
@@ -20,6 +22,8 @@ class StudentsPage extends StatefulWidget {
 
 class _StudentsPageState extends State<StudentsPage> {
   late final SchoolRepository _repo = SchoolRepository();
+  late final AdmissionRepository _admissions = AdmissionRepository();
+  bool _openingAdmission = false;
   late Stream<List<SchoolClass>> _classes =
       widget.classesStream ?? _repo.watchClasses();
   late Stream<List<StudentRecord>> _students =
@@ -89,35 +93,52 @@ class _StudentsPageState extends State<StudentsPage> {
     List<SchoolClass> classes, [
     StudentRecord? student,
   ]) async {
-    final active = classes.where((c) => c.active).toList();
-    final selected =
-        student != null && !active.any((c) => c.id == student.classId)
-        ? [...active, ...classes.where((c) => c.id == student.classId)]
-        : active;
-    if (selected.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Create an active class first.')),
-        );
-      }
+    if (_openingAdmission) return;
+    final available = classes.where((c) => c.active).toList();
+    final chosen = student != null &&
+        !available.any((c) => c.id == student.classId)
+        ? [...available, ...classes.where((c) => c.id == student.classId)]
+        : available;
+    if (chosen.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Create an active class first.')),
+      );
       return;
     }
 
-    final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => StudentEditorPage(
-          classes: selected,
-          student: student,
+    setState(() => _openingAdmission = true);
+    try {
+      final record = student == null
+          ? await _admissions.startDraft()
+          : await _admissions.load(student.id);
+      if (!mounted) return;
+      setState(() => _openingAdmission = false);
+      final finished = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => AdmissionWizardPage(
+            record: record,
+            classes: chosen,
+          ),
         ),
-      ),
-    );
-    if (mounted && saved == true) {
-      _refreshStudents();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(student == null
-            ? 'Student admitted successfully.'
-            : 'Student updated successfully.')),
       );
+      if (!mounted) return;
+      _refreshStudents();
+      if (finished == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Admission completed and saved.')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Admission draft saved.')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(schoolErrorMessage(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _openingAdmission = false);
     }
   }
 
@@ -207,9 +228,9 @@ class _StudentsPageState extends State<StudentsPage> {
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _beginAdmission,
+                  onPressed: _openingAdmission ? null : _beginAdmission,
                   icon: const Icon(Icons.person_add_alt_1, size: 19),
-                  label: const Text('Add student'),
+                  label: Text(_openingAdmission ? 'Preparing admission…' : 'Add student'),
                 ),
               ),
             ),
@@ -407,13 +428,15 @@ class _StudentsPageState extends State<StudentsPage> {
                                   child: Text(initials,
                                     style: const TextStyle(fontWeight: FontWeight.w700)),
                                 ),
-                                title: Text(student.fullName,
+                                title: Text(student.isDraft
+                                  ? 'Draft • ${student.admissionNo}'
+                                  : student.fullName,
                                   maxLines: 1, overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                                 subtitle: Text(
                                   '${student.admissionNo} • ${classNames[student.classId] ?? "Class not loaded"}\n'
                                   '${student.guardianName.isEmpty ? "Guardian not provided" : student.guardianName}'
-                                  '${student.active ? "" : " • Archived"}',
+                                  '${student.isDraft ? " • Save draft to resume" : student.active ? "" : " • Archived"}',
                                   maxLines: 2, overflow: TextOverflow.ellipsis,
                                   style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
                                 ),
