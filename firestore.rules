@@ -240,6 +240,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // One-time migration markers are administrator-only.
+    match /system_migrations/{migrationId} {
+      allow read, create, update: if canManageAdmissions();
+      allow delete: if false;
+    }
+
     // Teachers can read only the class/subject assignments linked to their
     // own active staff profile. Assignment creation remains owner/principal.
     match /teacher_class_links/{linkId} {
