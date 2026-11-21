@@ -311,6 +311,7 @@ class TeacherAssignment {
     required this.classId,
     required this.subject,
     required this.active,
+    this.className = '',
   });
 
   final String id;
@@ -318,6 +319,7 @@ class TeacherAssignment {
   final String classId;
   final String subject;
   final bool active;
+  final String className;
 
   factory TeacherAssignment.fromSnapshot(
     DocumentSnapshot<Map<String, dynamic>> snap,
@@ -329,6 +331,7 @@ class TeacherAssignment {
       classId: (d['classId'] as String?) ?? '',
       subject: (d['subject'] as String?) ?? '',
       active: d['active'] != false,
+      className: (d['className'] as String?) ?? '',
     );
   }
 }
@@ -355,6 +358,16 @@ class StaffRepository {
       .snapshots()
       .map((snap) =>
           snap.docs.map(TeacherAssignment.fromSnapshot).toList());
+
+  Stream<List<TeacherAssignment>> watchAssignmentsForStaff(String staffId) =>
+      _db.collection('teacher_assignments')
+          .where('staffId', isEqualTo: staffId)
+          .limit(1000)
+          .snapshots()
+          .map((snap) => snap.docs
+              .map(TeacherAssignment.fromSnapshot)
+              .where((assignment) => assignment.active)
+              .toList());
 
   Future<void> createStaff(StaffInput input) async {
     final error = input.validate();
@@ -412,6 +425,12 @@ class StaffRepository {
     });
   }
 
+  String _classLabel(Map<String, dynamic> data) {
+    final name = (data['name'] as String?) ?? '';
+    final section = (data['section'] as String?) ?? '';
+    return [name, section].where((value) => value.isNotEmpty).join(' – ');
+  }
+
   Future<void> assignTeacher({
     required String staffId,
     required String classId,
@@ -444,12 +463,14 @@ class StaffRepository {
         tx.update(ref, {
           'active': true,
           'subject': clean,
+          'className': _classLabel(schoolClass.data() ?? {}),
           'updatedAt': FieldValue.serverTimestamp(),
         });
       } else {
         tx.set(ref, {
           'staffId': staffId,
           'classId': classId,
+          'className': _classLabel(schoolClass.data() ?? {}),
           'subject': clean,
           'active': true,
           'createdAt': FieldValue.serverTimestamp(),
