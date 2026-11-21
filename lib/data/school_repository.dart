@@ -200,6 +200,13 @@ class SchoolRepository {
   /// One-time owner migration for existing students. Only the safe roster
   /// projection is copied; guardian/contact/health fields are never exposed.
   Future<int> syncClassRosters() async {
+    final marker = _db.collection('system_migrations').doc('class_rosters_v1');
+    final markerSnapshot = await marker.get(
+      const GetOptions(source: Source.server),
+    );
+    if (markerSnapshot.data()?['completed'] == true) {
+      return (markerSnapshot.data()?['count'] as num?)?.toInt() ?? 0;
+    }
     final snapshot = await _students.limit(1000)
         .get(const GetOptions(source: Source.server))
         .timeout(const Duration(seconds: 25));
@@ -224,6 +231,11 @@ class SchoolRepository {
       }
       await batch.commit();
     }
+    await marker.set({
+      'completed': true,
+      'count': written,
+      'completedAt': FieldValue.serverTimestamp(),
+    });
     return written;
   }
 
