@@ -42,6 +42,7 @@ class StudentRecord {
     required this.gender,
     required this.rollNo,
     required this.active,
+    this.status = 'admitted',
   });
 
   final String id;
@@ -53,6 +54,8 @@ class StudentRecord {
   final String gender;
   final String rollNo;
   final bool active;
+  final String status;
+  bool get isDraft => status == 'draft';
 
   factory StudentRecord.fromSnapshot(
     DocumentSnapshot<Map<String, dynamic>> snapshot,
@@ -68,6 +71,7 @@ class StudentRecord {
       gender: (data['gender'] as String?) ?? 'Not specified',
       rollNo: (data['rollNo'] as String?) ?? '',
       active: data['active'] != false,
+      status: (data['status'] as String?) ?? 'admitted',
     );
   }
 }
