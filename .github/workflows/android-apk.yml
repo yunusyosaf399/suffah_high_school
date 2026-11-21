@@ -34,6 +34,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.38.9'
           cache: true
 
       - name: Flutter version
@@ -46,8 +47,7 @@ jobs:
         run: dart format lib test
 
       - name: Analyze Flutter source (warnings and errors are fatal)
-        # Flutter 3.50 reports legacy Material imports as informational deprecations.
-        # Keep them visible, but do not block the test APK on info-level diagnostics.
+        # Keep informational lint diagnostics visible without blocking APK builds.
         run: flutter analyze --no-fatal-infos
 
       - name: Run Flutter widget tests
