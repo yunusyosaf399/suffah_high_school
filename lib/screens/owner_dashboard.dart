@@ -5,6 +5,7 @@ import '../data/school_repository.dart';
 import 'classes_page.dart';
 import 'students_page.dart';
 import 'attendance_page.dart';
+import 'staff_page.dart';
 import 'global_search_page.dart';
 import 'users_page.dart';
 
@@ -28,7 +29,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Attendance', Icons.fact_check_outlined, 'Daily class registers', true),
     _DashboardModule('Fees & accounts', Icons.receipt_long_outlined, 'Fees & payments', false),
     _DashboardModule('Examinations', Icons.assignment_outlined, 'Marks & results', false),
-    _DashboardModule('Staff', Icons.badge_outlined, 'Team & assignments', false),
+    _DashboardModule('Staff', Icons.badge_outlined, 'Team & assignments', true),
     _DashboardModule('Parents', Icons.family_restroom_outlined, 'Families & children', false),
     _DashboardModule('Messages', Icons.forum_outlined, 'School communications', false),
     _DashboardModule('Users', Icons.manage_accounts_outlined, 'Staff and parent sign-ins', true),
@@ -55,6 +56,14 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       await Navigator.of(context).push<void>(
         MaterialPageRoute(
           builder: (_) => AttendancePage(role: widget.role),
+        ),
+      );
+      return;
+    }
+    if (index == 5) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => StaffPage(role: widget.role),
         ),
       );
       return;
@@ -155,7 +164,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                                 const Text('Manage your school',
                                   style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Colors.white)),
                                 const SizedBox(height: 8),
-                                Text('Manage admissions, classes and student attendance.',
+                                Text('Manage admissions, attendance, staff and teaching assignments.',
                                   style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.88))),
                               ],
                             ),
@@ -257,7 +266,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                       },
                     ),
                     const SizedBox(height: 22),
-                    Text('Suffah High School • Preview v0.5',
+                    Text('Suffah High School • Preview v0.6',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
                   ],
