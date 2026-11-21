@@ -1,0 +1,27 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Temporary owner-only preview policy. Replace with verified staff/parent
+    // permissions before releasing accounts to families.
+    function isOwner() {
+      return request.auth != null
+        && request.auth.uid == 'tQt6vca2zuagZipvknBwcmSRcrc2';
+    }
+
+    match /student-photos/{registrationNo} {
+      allow read: if isOwner();
+      allow write: if isOwner()
+        && registrationNo.matches('ST-[0-9]{4}-[0-9]{4}\\.webp')
+        && request.resource.size <= 102400
+        && request.resource.contentType == 'image/webp';
+    }
+
+    match /student-documents/{registrationNo}/{filename} {
+      allow read: if isOwner();
+      allow write: if isOwner()
+        && request.resource.size <= 5242880
+        && request.resource.contentType.matches(
+          'application/pdf|image/jpeg|image/png|image/webp');
+    }
+  }
+}
