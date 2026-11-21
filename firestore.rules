@@ -1,17 +1,92 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Initial bootstrap: only the verified first Firebase Auth account can
-    // access school documents. Never authorize based on a client-writable role.
+    // Primary administrator is pinned to the school's existing Auth account.
     function isOwner() {
       return request.auth != null
         && request.auth.uid == 'tQt6vca2zuagZipvknBwcmSRcrc2';
     }
 
-    // In this bootstrap phase teachers, parents, staff and unregistered
-    // accounts receive no Firestore access. This covers nested documents.
-    match /{document=**} {
-      allow read, write: if isOwner();
+    function isPrincipal() {
+      return request.auth != null
+        && exists(/databases/${database}/documents/users/${request.auth.uid})
+        && get(/databases/${database}/documents/users/${request.auth.uid}).data.active == true
+        && get(/databases/${database}/documents/users/${request.auth.uid}).data.role == 'principal';
+    }
+
+    function canManageAdmissions() {
+      return isOwner() || isPrincipal();
+    }
+
+    function allowedNewRole() {
+      return request.resource.data.role in
+        ['principal', 'accountant', 'teacher', 'clerk', 'parent'];
+    }
+
+    match /users/{userId} {
+      // All accounts can read only their own school role; owner can list them.
+      allow get: if isOwner()
+        || (request.auth != null && request.auth.uid == userId);
+      allow list: if isOwner();
+      allow create: if isOwner()
+        && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
+        && allowedNewRole()
+        && request.resource.data.active == true;
+      // Suspensions only. Role changes are a separate, audited future flow.
+      allow update: if isOwner()
+        && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['active', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /classes/{classId} {
+      allow read, create, update: if canManageAdmissions();
+      allow delete: if false;
+    }
+
+    match /counters/{counterId} {
+      allow read, create, update: if canManageAdmissions();
+      allow delete: if false;
+    }
+
+    match /students/{studentId} {
+      // School records are readable in this phase only by owner/principal.
+      // Parent and teacher access needs verified child/class links later.
+      allow read: if canManageAdmissions();
+
+      // New admissions must begin as reserved drafts. Existing legacy IDs
+      // can still be read/updated without changing their original numbers.
+      allow create: if canManageAdmissions()
+        && request.resource.data.admissionNo == studentId
+        && request.resource.data.status == 'draft'
+        && request.resource.data.rollNo is string
+        && request.resource.data.rollNo.matches('[1-9][0-9]{4}');
+
+      // After admission the record is locked against everyone except
+      // the owner or principal, including clients bypassing the Flutter UI.
+      // Never change immutable identity, family links, or creation time.
+      allow update: if canManageAdmissions()
+        && request.resource.data.get('admissionNo', studentId)
+           == resource.data.get('admissionNo', studentId)
+        && request.resource.data.get('rollNo', '')
+           == resource.data.get('rollNo', '')
+        && request.resource.data.get('parentUids', [])
+           == resource.data.get('parentUids', [])
+        && request.resource.data.get('createdAt', null)
+           == resource.data.get('createdAt', null)
+        && request.resource.data.get('status', 'admitted')
+           in ['draft', 'admitted']
+        && !(resource.data.get('status', 'admitted') == 'admitted'
+          && request.resource.data.get('status', 'admitted') == 'draft');
+
+      allow delete: if false;
+    }
+
+    // Everything else stays inaccessible until role-specific modules are
+    // implemented and reviewed. DO NOT add a broad match allow rule here.
+    match /{other=**} {
+      allow read, write: if false;
     }
   }
 }
