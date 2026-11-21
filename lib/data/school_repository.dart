@@ -177,6 +177,56 @@ class SchoolRepository {
   Future<void> setClassActive(String id, bool active) =>
       _classes.doc(id).update({'active': active});
 
+  DocumentReference<Map<String, dynamic>> _rosterRef(
+    String classId, String studentId,
+  ) => _db.collection('class_rosters').doc(classId)
+      .collection('students').doc(studentId);
+
+  Map<String, dynamic> _rosterFields({
+    required String studentId,
+    required String fullName,
+    required String rollNo,
+    required String classId,
+    required bool active,
+  }) => {
+    'studentId': studentId,
+    'fullName': fullName,
+    'rollNo': rollNo,
+    'classId': classId,
+    'active': active,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+
+  /// One-time owner migration for existing students. Only the safe roster
+  /// projection is copied; guardian/contact/health fields are never exposed.
+  Future<int> syncClassRosters() async {
+    final snapshot = await _students.limit(1000)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 25));
+    var written = 0;
+    const batchSize = 400;
+    for (var start = 0; start < snapshot.docs.length; start += batchSize) {
+      final batch = _db.batch();
+      final chunk = snapshot.docs.skip(start).take(batchSize);
+      for (final doc in chunk) {
+        final data = doc.data();
+        final classId = (data['classId'] as String?) ?? '';
+        if (classId.isEmpty || classId.contains('/')) continue;
+        final status = (data['status'] as String?) ?? 'admitted';
+        batch.set(_rosterRef(classId, doc.id), _rosterFields(
+          studentId: doc.id,
+          fullName: (data['fullName'] as String?) ?? '',
+          rollNo: (data['rollNo'] as String?) ?? '',
+          classId: classId,
+          active: data['active'] != false && status != 'draft',
+        ), SetOptions(merge: true));
+        written++;
+      }
+      await batch.commit();
+    }
+    return written;
+  }
+
   Future<void> saveStudent({
     String? existingId,
     required String admissionNo,
@@ -192,7 +242,7 @@ class SchoolRepository {
       throw ArgumentError('Admission number must use letters, digits or hyphens.');
     }
     final name = fullName.trim();
-    if (name.isEmpty || classId.isEmpty) {
+    if (name.isEmpty || classId.isEmpty || classId.contains('/')) {
       throw ArgumentError('Student name and class are required.');
     }
     final fields = <String, dynamic>{
@@ -207,30 +257,73 @@ class SchoolRepository {
     };
 
     if (existingId != null) {
-      // Admission number is fixed after creation to prevent broken references.
-      await _students.doc(existingId).update(fields);
+      final studentRef = _students.doc(existingId);
+      final oldSnapshot = await studentRef.get(
+        const GetOptions(source: Source.server),
+      );
+      if (!oldSnapshot.exists) throw StateError('Student record not found.');
+      final oldClassId = (oldSnapshot.data()?['classId'] as String?) ?? '';
+      final batch = _db.batch();
+      batch.update(studentRef, fields);
+      if (oldClassId.isNotEmpty && oldClassId != classId) {
+        batch.set(_rosterRef(oldClassId, existingId), {
+          'active': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      batch.set(_rosterRef(classId, existingId), _rosterFields(
+        studentId: existingId,
+        fullName: name,
+        rollNo: rollNo.trim(),
+        classId: classId,
+        active: oldSnapshot.data()?['active'] != false,
+      ), SetOptions(merge: true));
+      await batch.commit();
       return;
     }
 
-    final ref = _students.doc(normalized);
+    final studentRef = _students.doc(normalized);
     await _db.runTransaction((transaction) async {
-      final existing = await transaction.get(ref);
+      final existing = await transaction.get(studentRef);
       if (existing.exists) {
         throw StateError('This admission number is already used.');
       }
-      transaction.set(ref, {
+      transaction.set(studentRef, {
         ...fields,
         'admissionNo': normalized,
         'active': true,
+        'status': 'admitted',
         'parentUids': <String>[],
         'createdAt': FieldValue.serverTimestamp(),
       });
+      transaction.set(_rosterRef(classId, normalized), _rosterFields(
+        studentId: normalized,
+        fullName: name,
+        rollNo: rollNo.trim(),
+        classId: classId,
+        active: true,
+      ));
     });
   }
 
-  Future<void> setStudentActive(String id, bool active) =>
-      _students.doc(id).update({
+  Future<void> setStudentActive(String id, bool active) async {
+    final studentRef = _students.doc(id);
+    final snapshot = await studentRef.get(
+      const GetOptions(source: Source.server),
+    );
+    if (!snapshot.exists) throw StateError('Student record not found.');
+    final classId = (snapshot.data()?['classId'] as String?) ?? '';
+    final batch = _db.batch();
+    batch.update(studentRef, {
+      'active': active,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    if (classId.isNotEmpty) {
+      batch.set(_rosterRef(classId, id), {
         'active': active,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
+    }
+    await batch.commit();
+  }
 }
