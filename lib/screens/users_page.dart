@@ -23,6 +23,7 @@ class UsersPage extends StatefulWidget {
     required String email,
     required String password,
     required String role,
+    String? staffId,
   })? createOverride;
   final Stream<List<StaffMember>>? teachersStream;
 
@@ -52,7 +53,8 @@ class _UsersPageState extends State<UsersPage> {
           String? staffId,
         }) => widget.createOverride != null
             ? widget.createOverride!(
-                name: name, email: email, password: password, role: role)
+                name: name, email: email, password: password,
+                role: role, staffId: staffId)
             : _service.createAccount(
                 name: name, email: email, password: password,
                 role: role, staffId: staffId),
