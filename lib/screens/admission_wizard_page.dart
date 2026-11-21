@@ -409,8 +409,8 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     ),
   );
 
-  Widget _pane(List<Widget> children) => ListView(
-    key: PageStorageKey<int>(_tabs.index),
+  Widget _pane(String section, List<Widget> children) => ListView(
+    key: PageStorageKey<String>('admission_$section'),
     padding: const EdgeInsets.fromLTRB(16, 18, 16, 34),
     children: [
       Center(
@@ -425,7 +425,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     ],
   );
 
-  Widget _studentPane() => _pane([
+  Widget _studentPane() => _pane('student', [
     _heading('Student personal details',
       hint: 'Names should match official identification. Middle name is optional.'),
     _field('student', 'firstName', 'First name', required: true),
@@ -443,7 +443,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       style: TextStyle(fontSize: 11)),
   ]);
 
-  Widget _contactPane() => _pane([
+  Widget _contactPane() => _pane('contact', [
     _heading('Contact and residential address',
       hint: 'Student contact details are optional. Guardian contacts are recorded in the next step.'),
     _field('contact', 'email', 'Student email',
@@ -459,7 +459,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       type: TextInputType.phone),
   ]);
 
-  Widget _guardianPane() => _pane([
+  Widget _guardianPane() => _pane('guardian', [
     _heading('Parent or guardian',
       hint: 'The same parent account will later be able to link multiple children.'),
     _field('guardian', 'firstName', 'First name', required: true),
@@ -478,7 +478,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     _field('guardian', 'occupation', 'Occupation (optional)'),
   ]);
 
-  Widget _academicPane() => _pane([
+  Widget _academicPane() => _pane('academic', [
     _heading('Registration and academic details',
       hint: 'Numbers are reserved automatically and cannot be edited.'),
     _readOnly('Registration number', widget.record.registrationNo),
@@ -518,7 +518,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       lines: 3, maxLength: 500),
   ]);
 
-  Widget _healthPane() => _pane([
+  Widget _healthPane() => _pane('health', [
     _heading('Health and special educational needs',
       hint: 'All fields are optional. Only collect what the school needs for student safety.'),
     _field('health', 'medicalConditions', 'Medical conditions',
@@ -576,7 +576,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       'other': 'Other document',
     };
     final colors = Theme.of(context).colorScheme;
-    return _pane([
+    return _pane('documents', [
       _heading('Photos and supporting documents',
         hint: 'Optional. Save admission drafts even when document storage is not enabled.'),
       Card(
