@@ -66,6 +66,7 @@ class AdmissionRecord {
     required this.details,
     this.photoPath = '',
     this.attachments = const {},
+    this.active = true,
   });
 
   final String id;
@@ -76,6 +77,7 @@ class AdmissionRecord {
   final Map<String, Map<String, String>> details;
   final String photoPath;
   final Map<String, Map<String, dynamic>> attachments;
+  final bool active;
 
   bool get isDraft => status != 'admitted';
 
@@ -130,6 +132,7 @@ class AdmissionRecord {
       registrationNo: (data['admissionNo'] as String?) ?? id,
       rollNo: (data['rollNo'] as String?) ?? '',
       status: (data['status'] as String?) ?? 'admitted',
+      active: data['active'] != false,
       step: (data['currentStep'] as int?) ?? 0,
       details: parseDetails(data),
       attachments: attachments,
@@ -208,6 +211,7 @@ class AdmissionRepository {
         registrationNo: registrationNo,
         rollNo: rollNo,
         status: 'draft',
+        active: false,
         step: 0,
         details: {
           'student': {},
@@ -253,7 +257,10 @@ class AdmissionRepository {
       'classId': value('academic', 'classId'),
       'gender': value('student', 'gender'),
       'status': complete ? 'admitted' : admission.status,
-      'active': complete || admission.status == 'admitted',
+      // Preserve archival state when editing an already admitted student.
+      'active': admission.status == 'admitted'
+          ? admission.active
+          : complete,
       'updatedAt': FieldValue.serverTimestamp(),
     };
     if (complete && admission.status != 'admitted') {
