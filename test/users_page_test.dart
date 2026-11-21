@@ -42,7 +42,8 @@ void main() {
     expect(find.text('School Owner'), findsOneWidget);
     await tester.tap(find.text('Create user account'));
     await tester.pumpAndSettle();
-    expect(find.text('Create user account'), findsOneWidget);
+    // The primary footer action and the dialog title share this wording.
+    expect(find.text('Create user account'), findsNWidgets(2));
     await tester.enterText(
       find.widgetWithText(TextField, 'Full name *'), 'Test Principal');
     await tester.enterText(
