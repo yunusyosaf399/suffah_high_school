@@ -84,6 +84,7 @@ class SchoolUserService {
     required String email,
     required String password,
     required String role,
+    String? staffId,
   }) async {
     final cleanName = name.trim();
     final cleanEmail = email.trim().toLowerCase();
@@ -98,6 +99,40 @@ class SchoolUserService {
     }
     if (password.length < 12) {
       throw ArgumentError('The temporary password must be at least 12 characters.');
+    }
+    DocumentReference<Map<String, dynamic>>? linkedStaffRef;
+    String linkedStaffNo = '';
+    if (role == 'teacher') {
+      if (staffId == null || staffId.trim().isEmpty) {
+        throw ArgumentError('Select an active teacher profile first.');
+      }
+      linkedStaffRef = _db.collection('staff').doc(staffId);
+      final staffSnapshot = await linkedStaffRef.get(
+        const GetOptions(source: Source.server),
+      );
+      final staff = staffSnapshot.data();
+      if (!staffSnapshot.exists || staff == null ||
+          staff['active'] != true || staff['roleType'] != 'teacher') {
+        throw StateError('The selected teacher is no longer active.');
+      }
+      final emails = [
+        (staff['email'] as String?) ?? '',
+        (staff['alternateEmail'] as String?) ?? '',
+      ].map((value) => value.trim().toLowerCase())
+          .where((value) => value.isNotEmpty);
+      if (!emails.contains(cleanEmail)) {
+        throw StateError('Choose an email address saved on this teacher profile.');
+      }
+      final linkedUid = (staff['accountUid'] as String?) ?? '';
+      if (linkedUid.isNotEmpty) {
+        throw StateError('This teacher already has a linked user account.');
+      }
+      if (((staff['fullName'] as String?) ?? '').trim() != cleanName) {
+        throw StateError('The selected teacher name changed. Select the teacher again.');
+      }
+      linkedStaffNo = (staff['staffNo'] as String?) ?? staffId;
+    } else if (staffId != null && staffId.isNotEmpty) {
+      throw ArgumentError('Only teacher accounts can be linked to staff profiles.');
     }
 
     const appName = 'suffah-account-provisioning';
