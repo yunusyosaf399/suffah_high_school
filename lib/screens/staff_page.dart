@@ -537,7 +537,6 @@ class _StaffPageState extends State<StaffPage>
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Staff & teachers',
