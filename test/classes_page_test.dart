@@ -18,6 +18,8 @@ void main() {
     expect(find.text('Add class'), findsOneWidget);
     expect(find.text('Loading classes'), findsOneWidget);
     expect(find.byTooltip('Test Firebase connection'), findsOneWidget);
+    expect(tester.getRect(find.text('Add class')).bottom, lessThan(800));
+    expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('Add class'));
     await tester.pumpAndSettle();
@@ -35,6 +37,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('No classes yet'), findsOneWidget);
-    expect(find.text('Create class'), findsOneWidget);
+    expect(find.text('Add class'), findsOneWidget);
   });
 }
