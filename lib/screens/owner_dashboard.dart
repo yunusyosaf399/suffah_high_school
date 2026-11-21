@@ -231,7 +231,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                       },
                     ),
                     const SizedBox(height: 22),
-                    Text('Suffah High School • Preview v0.2',
+                    Text('Suffah High School • Preview v0.3',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
                   ],
