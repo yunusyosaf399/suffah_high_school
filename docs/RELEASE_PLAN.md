@@ -3,7 +3,7 @@
 **Target:** client-ready school management app by approximately 21 February 2027.
 **Starting point:** 21 November 2026. School: about 400 students, scalable to 800+.
 **Platform focus:** Flutter Android first, adaptable layouts for Windows and iOS; desktop releases require separate platform setup and verification.
-**Backend:** Firebase Authentication, Cloud Firestore, Cloud Storage (photos), Cloud Messaging.
+**Backend:** Firebase Authentication and Cloud Firestore now; Cloud Storage and Cloud Messaging in later milestones after billing setup.
 **Operation:** online-first; no offline data-edit queue in MVP.
 **Accounts:** owner, principal, accountant, teachers, and parents; each parent account may access multiple children.
 
@@ -18,7 +18,7 @@
 | 9–10 | Parent profiles, one-to-many child links, notifications, in-app messages | Parents see only linked children, fees, attendance and results; reminders work. |
 | 11–12 | Import 400 records, client feedback, device testing, backups and recovery | Stakeholder acceptance, reconciliation checks, restore drill, signed production build. |
 
-**Current milestone:** Seven-step admissions with final Review & Admit, draft recovery, read-only admitted student profiles, explicit owner/principal edit access, and an owner-only Users module for provisioning Firebase Auth sign-ins. App code and rule files are in GitHub; live Firebase rules must be published and accepted on actual devices before this is client-ready. Global search is preview-only.
+**Current milestone:** Six-step admissions with final Review & Admit and draft recovery, read-only admitted profiles, owner-only Users provisioning and online daily student attendance by class/date. Photo and document uploads are postponed until Blaze can be enabled. App code and rule files are in GitHub; live Firebase rules must be published and accepted on actual devices before this is client-ready. Global search is preview-only.
 
 ## UX/product design contract
 - Compact, readable typography: typically 11–14 sp for supporting/body text and 16–20 sp for headings.
@@ -32,6 +32,8 @@
 - English MVP, with Pakistani Urdu localization as a later planned option if the client requests it.
 
 ## Data notes for present milestone
+- `attendance_days/{classId}_YYYYMMDD/marks/{studentId}`: individual daily status per admitted active student, plus a small day metadata document. Marking only changed students reduces Firestore writes.
+- See [ATTENDANCE.md](ATTENDANCE.md) for feature scope and test protocol; teacher-specific access, staff attendance and aggregated reporting still need implementation.
 - `classes/{classId}`: `name`, `section`, `sortKey`, `active`, `createdAt`.
 - `students/{admissionNo}`: `admissionNo`, `fullName`, `searchName`, `classId`, `gender`, `rollNo`, `guardianName`, `guardianPhone`, `active`, `parentUids` (empty until parent module), timestamps.
 - Stable admission number as document ID blocks duplicates. Archive via `active=false`; no destructive deletion.
