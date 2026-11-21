@@ -38,14 +38,15 @@ void main() {
     expect(find.byKey(const Key('staff_scroll_view')), findsOneWidget);
     await tester.tap(find.text('Add staff'));
     await tester.pumpAndSettle();
-    expect(find.text('Add staff member'), findsOneWidget);
-    expect(find.text('Save staff'), findsOneWidget);
-    await tester.tap(find.text('Cancel'));
+    expect(find.text('Staff registration'), findsOneWidget);
+    expect(find.text('Name & Guardian'), findsWidgets);
+    expect(find.byKey(const Key('next_staff_registration')), findsOneWidget);
+    await tester.pageBack();
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('owner can create a staff profile without Storage', (tester) async {
+  testWidgets('owner can complete the five-step staff registration', (tester) async {
     StaffInput? submitted;
     await tester.pumpWidget(MaterialApp(
       home: StaffPage(
@@ -61,18 +62,46 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Add staff'));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'First name *'), 'Aisha');
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Last name *'), 'Khan');
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Phone number *'), '03001234567');
-    await tester.tap(find.text('Save staff'));
+
+    await tester.enterText(find.byKey(const Key('staff_firstName_field')), 'Aisha');
+    await tester.enterText(find.byKey(const Key('staff_lastName_field')), 'Khan');
+    await tester.enterText(find.byKey(const Key('staff_guardianName_field')), 'Ahmed Khan');
+    await tester.tap(find.text('Date of birth *'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('next_staff_registration')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('staff_phone_field')), '03001234567');
+    await tester.enterText(find.byKey(const Key('staff_email_field')), 'aisha@example.com');
+    await tester.enterText(find.byKey(const Key('staff_emergencyContactPhone_field')), '03007654321');
+    await tester.tap(find.byKey(const Key('next_staff_registration')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('staff_presentAddress_field')), 'Main Street');
+    await tester.tap(find.byKey(const Key('next_staff_registration')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('staff_highestQualification_field')), 'BS Mathematics');
+    await tester.tap(find.byKey(const Key('next_staff_registration')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Review your information'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('submit_staff_registration')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Submit staff'));
+    await tester.pumpAndSettle();
+
     expect(submitted?.fullName, 'Aisha Khan');
+    expect(submitted?.guardianName, 'Ahmed Khan');
+    expect(submitted?.email, 'aisha@example.com');
+    expect(submitted?.presentAddress, 'Main Street');
+    expect(submitted?.highestQualification, 'BS Mathematics');
     expect(submitted?.roleType, 'teacher');
     expect(tester.takeException(), isNull);
   });
+
 
   testWidgets('staff profile is read-only and has edit action', (tester) async {
     await tester.pumpWidget(MaterialApp(
