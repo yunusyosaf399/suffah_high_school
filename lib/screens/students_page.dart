@@ -15,6 +15,23 @@ class _StudentsPageState extends State<StudentsPage> {
   late final Stream<List<StudentRecord>> _students = _repo.watchStudents();
   late final Stream<List<SchoolClass>> _classes = _repo.watchClasses();
 
+  List<SchoolClass> _loadedClasses = const [];
+  bool _classesLoaded = false;
+
+  Future<void> _beginAdmission() async {
+    if (!_classesLoaded || !_loadedClasses.any((c) => c.active)) {
+      await _manageClasses();
+      return;
+    }
+    await _openEditor(_loadedClasses);
+  }
+
+  Future<void> _manageClasses() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const ClassesPage()),
+    );
+  }
+
   String _query = '';
   String _classFilter = '';
   bool _activeOnly = true;
@@ -70,46 +87,95 @@ class _StudentsPageState extends State<StudentsPage> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1050),
-            child: StreamBuilder<List<SchoolClass>>(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Admissions & student records',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _beginAdmission,
+                        icon: const Icon(Icons.person_add_alt_1, size: 18),
+                        label: const Text('Add student'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _manageClasses,
+                      icon: const Icon(Icons.school_outlined, size: 18),
+                      label: const Text('Manage classes & sections'),
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  TextField(
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search_rounded),
+                      hintText: 'Search name, admission no. or guardian',
+                    ),
+                    onChanged: (value) =>
+                        setState(() => _query = value.toLowerCase().trim()),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: StreamBuilder<List<SchoolClass>>(
               stream: _classes,
               builder: (context, classSnapshot) {
                 if (classSnapshot.hasError) {
-                  return const Center(child: Text('Cannot load classes. Check your internet connection.'));
+                  return _StudentsEmpty(
+                    icon: Icons.wifi_off_outlined,
+                    title: 'Could not load classes',
+                    subtitle: 'Check your connection. You can still open class setup.',
+                    action: TextButton.icon(
+                      onPressed: _manageClasses,
+                      icon: const Icon(Icons.school_outlined),
+                      label: const Text('Open classes'),
+                    ),
+                  );
                 }
                 if (!classSnapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
+                  return _StudentsEmpty(
+                    icon: Icons.hourglass_top_outlined,
+                    title: 'Loading classes',
+                    subtitle: 'You can still use Add student or Manage classes above.',
+                    action: TextButton.icon(
+                      onPressed: _manageClasses,
+                      icon: const Icon(Icons.school_outlined),
+                      label: const Text('Manage classes'),
+                    ),
+                  );
                 }
                 final classes = classSnapshot.data!;
+                _loadedClasses = classes;
+                _classesLoaded = true;
                 final classNames = {for (final item in classes) item.id: item.label};
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-                  child: Column(
+                if (!classes.any((c) => c.active)) {
+                  return _StudentsEmpty(
+                    icon: Icons.school_outlined,
+                    title: 'Create your first class',
+                    subtitle: 'Add a class and section before admitting students.',
+                    action: FilledButton.icon(
+                      onPressed: _manageClasses,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Create a class'),
+                    ),
+                  );
+                }
+                return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text('Admissions & student records',
-                              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
-                          ),
-                          FilledButton.icon(
-                            onPressed: classes.any((c) => c.active)
-                                ? () => _openEditor(classes)
-                                : () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClassesPage())),
-                            icon: const Icon(Icons.add, size: 18),
-                            label: Text(classes.any((c) => c.active) ? 'Admit student' : 'Add class first'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 15),
-                      TextField(
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search_rounded),
-                          hintText: 'Search name, admission no. or guardian',
-                        ),
-                        onChanged: (value) => setState(() => _query = value.toLowerCase().trim()),
-                      ),
-                      const SizedBox(height: 10),
                       Row(
                         children: [
                           Expanded(
@@ -160,10 +226,15 @@ class _StudentsPageState extends State<StudentsPage> {
                                   student.guardianName.toLowerCase().contains(_query);
                             }).toList();
                             if (all.isEmpty) {
-                              return const _StudentsEmpty(
+                              return _StudentsEmpty(
                                 icon: Icons.groups_outlined,
                                 title: 'No students yet',
-                                subtitle: 'Create a class, then admit your first student.',
+                                subtitle: 'Add your first admission to this class.',
+                                action: FilledButton.icon(
+                                  onPressed: _beginAdmission,
+                                  icon: const Icon(Icons.person_add_alt_1),
+                                  label: const Text('Admit first student'),
+                                ),
                               );
                             }
                             if (visible.isEmpty) {
@@ -239,9 +310,12 @@ class _StudentsPageState extends State<StudentsPage> {
                         ),
                       ),
                     ],
-                  ),
                 );
               },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -251,10 +325,11 @@ class _StudentsPageState extends State<StudentsPage> {
 }
 
 class _StudentsEmpty extends StatelessWidget {
-  const _StudentsEmpty({required this.icon, required this.title, required this.subtitle});
+  const _StudentsEmpty({required this.icon, required this.title, required this.subtitle, this.action});
   final IconData icon;
   final String title;
   final String subtitle;
+  final Widget? action;
   @override
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.onSurfaceVariant;
@@ -271,6 +346,10 @@ class _StudentsEmpty extends StatelessWidget {
             child: Text(subtitle, textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: color)),
           ),
+          if (action != null) ...[
+            const SizedBox(height: 16),
+            action!,
+          ],
         ],
       ),
     );
