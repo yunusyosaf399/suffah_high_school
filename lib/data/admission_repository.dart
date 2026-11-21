@@ -280,6 +280,10 @@ class AdmissionRepository {
           _db.collection('class_rosters').doc(previousClassId)
               .collection('students').doc(admission.id),
           {
+            'studentId': admission.id,
+            'fullName': name,
+            'rollNo': admission.rollNo,
+            'classId': previousClassId,
             'active': false,
             'updatedAt': FieldValue.serverTimestamp(),
           },
