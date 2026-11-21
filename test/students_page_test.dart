@@ -26,8 +26,10 @@ void main() {
     );
     expect(find.text('Add student'), findsOneWidget);
     expect(find.text('Manage classes & sections'), findsOneWidget);
-    expect(find.text('Loading classes'), findsOneWidget);
+    expect(find.text('Loading class list…'), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
+    expect(tester.getRect(find.text('Add student')).bottom, lessThan(800));
+    expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -43,7 +45,7 @@ void main() {
     );
     await tester.pump();
     expect(find.text('Create your first class'), findsOneWidget);
-    expect(find.text('Create a class'), findsOneWidget);
+    expect(find.byKey(const Key('students_scroll_view')), findsOneWidget);
     expect(find.text('Add student'), findsOneWidget);
   });
 
@@ -61,6 +63,6 @@ void main() {
     // The class snapshot must render before the nested students stream binds.
     await tester.pumpAndSettle();
     expect(find.text('No students yet'), findsOneWidget);
-    expect(find.text('Admit first student'), findsOneWidget);
+    expect(find.text('Create first admission'), findsOneWidget);
   });
 }
