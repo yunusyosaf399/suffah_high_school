@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../data/school_repository.dart';
 import 'classes_page.dart';
 import 'students_page.dart';
+import 'global_search_page.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({super.key, required this.displayName});
@@ -104,7 +105,15 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     const SizedBox(height: 3),
                     Text('Welcome back, ${widget.displayName}.',
                       style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 17),
+                    GlobalSearchEntry(
+                      onTap: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) => const GlobalSearchPage(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 17),
                     Container(
                       decoration: BoxDecoration(
                         color: scheme.primary,
