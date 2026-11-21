@@ -1,87 +1,138 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'screens/owner_dashboard.dart';
+import 'screens/sign_in_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    // Android loads its Firebase identifiers from android/app/google-services.json.
+    // The registered Android app reads its configuration from google-services.json.
     await Firebase.initializeApp();
-    runApp(const MyApp());
-  } catch (error) {
-    // Do not silently launch screens that require an uninitialized backend.
-    runApp(MaterialApp(
+    runApp(const SchoolApp());
+  } catch (_) {
+    runApp(const MaterialApp(
       home: Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              'Firebase could not start. Check Android configuration and retry.\n\n$error',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
+        body: Center(child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text('Could not initialize Firebase. Check your connection and app configuration.'),
+        )),
       ),
     ));
   }
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class SchoolApp extends StatelessWidget {
+  const SchoolApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    const seed = Color(0xFF176B56);
+    final color = ColorScheme.fromSeed(seedColor: seed);
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Suffah High School',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        useMaterial3: true,
+        colorScheme: color,
+        scaffoldBackgroundColor: const Color(0xFFF7F9F8),
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF7F9F8), elevation: 0),
+        cardTheme: CardThemeData(
+          color: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFE7EDEA))),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 15),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11))),
+        ),
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(fontSize: 13),
+          bodySmall: TextStyle(fontSize: 11),
+        ),
       ),
-      home: const MyHomePage(title: 'Suffah High School'),
+      home: const AuthGate(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
-  }
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, auth) {
+        if (auth.connectionState == ConnectionState.waiting) {
+          return const _StatusPage(message: 'Checking your session…');
+        }
+        if (auth.hasError) return const _StatusPage(message: 'Unable to check your session.');
+        final user = auth.data;
+        if (user == null) return const SignInPage();
+
+        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          key: ValueKey(user.uid),
+          future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+          builder: (context, profile) {
+            if (profile.connectionState != ConnectionState.done) {
+              return const _StatusPage(message: 'Loading your school profile…');
+            }
+            if (profile.hasError) {
+              return const _AccessPage(message: 'Could not verify your school access. Check your connection and Firestore rules.');
+            }
+            final record = profile.data?.data();
+            if (record == null || record['active'] != true || record['role'] != 'owner') {
+              return const _AccessPage(message: 'This preview is currently available only to the school owner.');
+            }
+            final name = record['displayName'] is String && (record['displayName'] as String).trim().isNotEmpty
+                ? (record['displayName'] as String).trim() : 'School Owner';
+            return OwnerDashboard(displayName: name);
+          },
+        );
+      },
     );
   }
+}
+
+class _StatusPage extends StatelessWidget {
+  const _StatusPage({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      const CircularProgressIndicator(),
+      const SizedBox(height: 18),
+      Text(message, style: const TextStyle(fontSize: 12)),
+    ])),
+  );
+}
+
+class _AccessPage extends StatelessWidget {
+  const _AccessPage({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Access unavailable')),
+    body: Center(child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.lock_outline_rounded, size: 42),
+          const SizedBox(height: 16),
+          Text(message, textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          OutlinedButton(onPressed: () => FirebaseAuth.instance.signOut(), child: const Text('Sign out')),
+        ]),
+      ),
+    )),
+  );
 }
