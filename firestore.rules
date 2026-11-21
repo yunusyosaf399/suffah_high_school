@@ -354,10 +354,44 @@ service cloud.firestore {
     match /payroll_records/{payrollId} {
       allow get, list: if canManageAdmissions()
         || isLinkedTeacher(resource.data.staffId);
-      allow create, update: if canManageAdmissions()
+      allow create: if canManageAdmissions()
         && request.resource.data.staffId is string
+        && exists(/databases/$(database)/documents/staff/$(request.resource.data.staffId))
+        && get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.active == true
+        && request.resource.data.staffNo
+          == get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.staffNo
+        && request.resource.data.staffName
+          == get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.fullName
+        && request.resource.data.receiptNo is string
         && request.resource.data.period is string
-        && request.resource.data.netSalary is number;
+        && request.resource.data.basicSalary is number
+        && request.resource.data.allowances is number
+        && request.resource.data.deductions is number
+        && request.resource.data.netSalary is number
+        && request.resource.data.basicSalary >= 0
+        && request.resource.data.allowances >= 0
+        && request.resource.data.deductions >= 0
+        && request.resource.data.deductions
+          <= request.resource.data.basicSalary + request.resource.data.allowances
+        && request.resource.data.netSalary
+          == request.resource.data.basicSalary + request.resource.data.allowances - request.resource.data.deductions
+        && request.resource.data.status in ['paid', 'unpaid']
+        && request.resource.data.paidAt is string
+        && request.resource.data.paymentMethod is string;
+      allow update: if canManageAdmissions()
+        && request.resource.data.staffId == resource.data.staffId
+        && request.resource.data.staffNo == resource.data.staffNo
+        && request.resource.data.staffName == resource.data.staffName
+        && request.resource.data.receiptNo == resource.data.receiptNo
+        && request.resource.data.period == resource.data.period
+        && request.resource.data.basicSalary == resource.data.basicSalary
+        && request.resource.data.allowances == resource.data.allowances
+        && request.resource.data.deductions == resource.data.deductions
+        && request.resource.data.netSalary == resource.data.netSalary
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ['paid', 'unpaid']
+        && request.resource.data.paidAt is string
+        && request.resource.data.paymentMethod is string;
       allow delete: if false;
     }
 
