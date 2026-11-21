@@ -371,6 +371,46 @@ class StaffRepository {
               .where((assignment) => assignment.active)
               .toList());
 
+  /// Rebuilds the compact staff/class access index from active assignments.
+  /// This is an owner/principal migration for assignments created before the
+  /// teacher portal was enabled.
+  Future<int> syncTeacherClassLinks() async {
+    final snapshot = await _db.collection('teacher_assignments')
+        .limit(1000).get(const GetOptions(source: Source.server));
+    final grouped = <String, Map<String, dynamic>>{};
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['active'] != true) continue;
+      final staffId = (data['staffId'] as String?) ?? '';
+      final classId = (data['classId'] as String?) ?? '';
+      if (staffId.isEmpty || classId.isEmpty) continue;
+      final id = '${staffId}__${classId}';
+      final entry = grouped.putIfAbsent(id, () => {
+        'staffId': staffId,
+        'classId': classId,
+        'className': (data['className'] as String?) ?? '',
+        'assignmentIds': <String>[],
+        'active': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      (entry['assignmentIds'] as List<String>).add(doc.id);
+    }
+    const chunkSize = 400;
+    final entries = grouped.entries.toList();
+    for (var start = 0; start < entries.length; start += chunkSize) {
+      final batch = _db.batch();
+      for (final entry in entries.skip(start).take(chunkSize)) {
+        batch.set(
+          _db.collection('teacher_class_links').doc(entry.key),
+          entry.value,
+          SetOptions(merge: true),
+        );
+      }
+      await batch.commit();
+    }
+    return grouped.length;
+  }
+
   Future<void> createStaff(StaffInput input) async {
     final error = input.validate();
     if (error != null) throw ArgumentError(error);
