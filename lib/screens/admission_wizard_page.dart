@@ -64,8 +64,8 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   ];
 
   final _inputs = <String, TextEditingController>{};
-  final _repository = AdmissionRepository();
-  final _storage = AdmissionStorage();
+  late final AdmissionRepository _repository = AdmissionRepository();
+  late final AdmissionStorage _storage = AdmissionStorage();
   final _attachments = <String, Map<String, dynamic>>{};
   late final TabController _tabs;
   Future<void> _saveQueue = Future<void>.value();
