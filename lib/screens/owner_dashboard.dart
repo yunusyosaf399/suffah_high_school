@@ -256,7 +256,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                           margin: EdgeInsets.zero,
                           child: InkWell(
                             borderRadius: BorderRadius.circular(16),
-                            onTap: () => _openModule(index),
+                            onTap: () => _openModule(_modules.indexOf(item)),
                             child: Padding(
                               padding: const EdgeInsets.all(14),
                               child: Column(
@@ -286,7 +286,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                       },
                     ),
                     const SizedBox(height: 22),
-                    Text('Suffah High School • Preview v0.6',
+                    Text('Suffah High School • Preview v0.7',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
                   ],
