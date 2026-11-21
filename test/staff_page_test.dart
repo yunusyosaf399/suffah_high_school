@@ -66,7 +66,9 @@ void main() {
     await tester.enterText(find.byKey(const Key('staff_firstName_field')), 'Aisha');
     await tester.enterText(find.byKey(const Key('staff_lastName_field')), 'Khan');
     await tester.enterText(find.byKey(const Key('staff_guardianName_field')), 'Ahmed Khan');
-    await tester.tap(find.text('Date of birth *'));
+    final birthDate = find.byKey(const Key('staff_birth_date'));
+    await tester.ensureVisible(birthDate);
+    await tester.tap(birthDate);
     await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
