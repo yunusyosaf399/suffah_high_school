@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/school_errors.dart';
 import '../data/school_repository.dart';
 import '../data/staff_repository.dart';
+import 'staff_registration_page.dart';
 
 typedef StaffSaveAction = Future<void> Function(StaffInput input, String? id);
 typedef TeacherAssignAction = Future<void> Function(
@@ -84,18 +85,18 @@ class _StaffPageState extends State<StaffPage>
 
   Future<void> _addStaff({StaffMember? existing}) async {
     if (!_canEdit) return;
-    final success = await showDialog<bool>(
-      context: context,
-      builder: (_) => _StaffEditorDialog(
-        initial: existing,
-        onSave: (input) => _saveStaff(input, existing?.id),
+    final success = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => StaffRegistrationPage(
+          initial: existing,
+          onSave: _saveStaff,
+        ),
       ),
     );
     if (!mounted || success != true) return;
-    // Firestore snapshot streams update automatically after writes.
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(existing == null
-          ? 'Staff member created.'
+          ? 'Staff member registered.'
           : 'Staff information updated.'),
     ));
   }
@@ -219,12 +220,24 @@ class _StaffPageState extends State<StaffPage>
                     style: const TextStyle(fontSize: 12)),
                   const Divider(height: 26),
                   _detail('Designation', staff.designation),
+                  _detail('Father / guardian', staff.guardianName),
+                  _detail('Date of birth', staff.dateOfBirth),
+                  _detail('Gender', staff.gender),
                   _detail('Phone', staff.phone),
                   _detail('WhatsApp', staff.whatsapp),
                   _detail('Email', staff.email),
+                  _detail('Alternate email', staff.alternateEmail),
+                  _detail('Emergency contact', staff.emergencyContactName),
+                  _detail('Emergency phone', staff.emergencyContactPhone),
                   _detail('Date joined', staff.joinDate),
-                  _detail('Qualifications', staff.qualification),
-                  _detail('Address', staff.address),
+                  _detail('Highest qualification', staff.highestQualification.isEmpty ? staff.qualification : staff.highestQualification),
+                  _detail('Education details', staff.educationDetails),
+                  _detail('Subject specialization', staff.subjectSpecialization),
+                  _detail('Experience', staff.experienceYears),
+                  _detail('Present address', staff.presentAddress.isEmpty ? staff.address : staff.presentAddress),
+                  _detail('Permanent address', staff.permanentAddress),
+                  _detail('City', staff.city),
+                  _detail('Country', staff.country),
                   _detail('Status', staff.active ? 'Active' : 'Archived'),
                   if (_canEdit) ...[
                     const SizedBox(height: 16),
