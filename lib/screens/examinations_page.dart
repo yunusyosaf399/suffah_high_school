@@ -32,9 +32,10 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
     if (_syncing) return;
     setState(() { _syncing = true; _syncMessage = null; });
     try {
+      final links = await StaffRepository().syncTeacherClassLinks();
       final count = await _school.syncClassRosters();
       if (mounted) setState(() =>
-        _syncMessage = 'Student name and roll-number lists are ready for exam marking ($count records).');
+        _syncMessage = 'Teacher class access and safe student lists are ready ($links classes, $count students).');
     } catch (error) {
       if (mounted) setState(() => _syncMessage = schoolErrorMessage(error));
     } finally {
