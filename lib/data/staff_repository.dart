@@ -93,8 +93,7 @@ class StaffInput {
   final String experienceYears;
   final String previousEmployer;
 
-  String get fullName =>
-      staffDisplayName(firstName, middleName, lastName);
+  String get fullName => staffDisplayName(firstName, middleName, lastName);
 
   String? validate() {
     if (firstName.trim().isEmpty || lastName.trim().isEmpty) {
@@ -103,13 +102,12 @@ class StaffInput {
     if (!staffTypes.containsKey(roleType)) return 'Choose a staff category.';
     if (designation.trim().isEmpty) return 'Enter the staff designation.';
     if (phone.trim().isEmpty) return 'Enter a contact phone number.';
-    if (email.trim().isNotEmpty &&
-        !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email.trim())) {
+    final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (email.trim().isNotEmpty && !emailPattern.hasMatch(email.trim())) {
       return 'Enter a valid email address.';
     }
     if (alternateEmail.trim().isNotEmpty &&
-        !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-            .hasMatch(alternateEmail.trim())) {
+        !emailPattern.hasMatch(alternateEmail.trim())) {
       return 'Enter a valid alternate email address.';
     }
     final parsed = DateTime.tryParse(joinDate);
@@ -130,23 +128,27 @@ class StaffInput {
     'designation': designation.trim(),
     'phone': phone.trim(),
     'email': email.trim().toLowerCase(),
+    'alternateEmail': alternateEmail.trim().toLowerCase(),
     'whatsapp': whatsapp.trim(),
     'joinDate': joinDate,
-    'qualification': qualification.trim(),
-    'address': address.trim(),
+    'qualification': highestQualification.trim().isEmpty
+        ? qualification.trim() : highestQualification.trim(),
+    'highestQualification': highestQualification.trim().isEmpty
+        ? qualification.trim() : highestQualification.trim(),
+    'address': presentAddress.trim().isEmpty
+        ? address.trim() : presentAddress.trim(),
     'guardianName': guardianName.trim(),
     'dateOfBirth': dateOfBirth.trim(),
     'gender': gender.trim(),
     'nationality': nationality.trim(),
-    'alternateEmail': alternateEmail.trim().toLowerCase(),
     'emergencyContactName': emergencyContactName.trim(),
     'emergencyContactPhone': emergencyContactPhone.trim(),
-    'presentAddress': presentAddress.trim(),
+    'presentAddress': presentAddress.trim().isEmpty
+        ? address.trim() : presentAddress.trim(),
     'permanentAddress': permanentAddress.trim(),
     'city': city.trim(),
     'postalCode': postalCode.trim(),
     'country': country.trim(),
-    'highestQualification': highestQualification.trim(),
     'educationDetails': educationDetails.trim(),
     'subjectSpecialization': subjectSpecialization.trim(),
     'experienceYears': experienceYears.trim(),
@@ -188,7 +190,6 @@ class StaffMember {
     this.subjectSpecialization = '',
     this.experienceYears = '',
     this.previousEmployer = '',
-    this.accountUid = '',
   });
 
   final String id;
@@ -223,7 +224,6 @@ class StaffMember {
   final String subjectSpecialization;
   final String experienceYears;
   final String previousEmployer;
-  final String accountUid;
 
   bool get isTeacher => roleType == 'teacher';
 
@@ -242,6 +242,7 @@ class StaffMember {
     designation: designation,
     phone: phone,
     email: email,
+    alternateEmail: alternateEmail,
     whatsapp: whatsapp,
     joinDate: joinDate,
     qualification: qualification,
@@ -250,7 +251,6 @@ class StaffMember {
     dateOfBirth: dateOfBirth,
     gender: gender,
     nationality: nationality,
-    alternateEmail: alternateEmail,
     emergencyContactName: emergencyContactName,
     emergencyContactPhone: emergencyContactPhone,
     presentAddress: presentAddress,
@@ -266,21 +266,22 @@ class StaffMember {
   );
 
   factory StaffMember.fromSnapshot(
-    DocumentSnapshot<Map<String, dynamic>> snap,
+    DocumentSnapshot<Map<String, dynamic>> snapshot,
   ) {
-    final d = snap.data() ?? <String, dynamic>{};
-    String value(String key) => (d[key] as String?) ?? '';
+    final data = snapshot.data() ?? <String, dynamic>{};
+    String value(String key) => (data[key] as String?) ?? '';
     return StaffMember(
-      id: snap.id,
-      staffNo: value('staffNo').isEmpty ? snap.id : value('staffNo'),
+      id: snapshot.id,
+      staffNo: value('staffNo').isEmpty ? snapshot.id : value('staffNo'),
       fullName: value('fullName'),
       firstName: value('firstName'),
       middleName: value('middleName'),
       lastName: value('lastName'),
-      designation: value('designation'),
       roleType: value('roleType'),
+      designation: value('designation'),
       phone: value('phone'),
       email: value('email'),
+      alternateEmail: value('alternateEmail'),
       whatsapp: value('whatsapp'),
       joinDate: value('joinDate'),
       qualification: value('qualification'),
@@ -289,7 +290,6 @@ class StaffMember {
       dateOfBirth: value('dateOfBirth'),
       gender: value('gender'),
       nationality: value('nationality'),
-      alternateEmail: value('alternateEmail'),
       emergencyContactName: value('emergencyContactName'),
       emergencyContactPhone: value('emergencyContactPhone'),
       presentAddress: value('presentAddress'),
@@ -302,8 +302,7 @@ class StaffMember {
       subjectSpecialization: value('subjectSpecialization'),
       experienceYears: value('experienceYears'),
       previousEmployer: value('previousEmployer'),
-      accountUid: value('accountUid'),
-      active: d['active'] != false,
+      active: data['active'] != false,
     );
   }
 }
@@ -315,6 +314,7 @@ class TeacherAssignment {
     required this.classId,
     required this.subject,
     required this.active,
+    this.className = '',
   });
 
   final String id;
@@ -322,23 +322,24 @@ class TeacherAssignment {
   final String classId;
   final String subject;
   final bool active;
+  final String className;
 
   factory TeacherAssignment.fromSnapshot(
-    DocumentSnapshot<Map<String, dynamic>> snap,
+    DocumentSnapshot<Map<String, dynamic>> snapshot,
   ) {
-    final d = snap.data() ?? <String, dynamic>{};
+    final data = snapshot.data() ?? <String, dynamic>{};
     return TeacherAssignment(
-      id: snap.id,
-      staffId: (d['staffId'] as String?) ?? '',
-      classId: (d['classId'] as String?) ?? '',
-      subject: (d['subject'] as String?) ?? '',
-      active: d['active'] != false,
+      id: snapshot.id,
+      staffId: (data['staffId'] as String?) ?? '',
+      classId: (data['classId'] as String?) ?? '',
+      subject: (data['subject'] as String?) ?? '',
+      active: data['active'] != false,
+      className: (data['className'] as String?) ?? '',
     );
   }
 }
 
-/// Small online-first staff and teaching-assignment catalog.
-/// Soft-archive staff/assignments: no IDs or historical links are deleted.
+/// Online-first staff and assignment catalog. Records are soft-archived.
 class StaffRepository {
   StaffRepository({FirebaseFirestore? firestore})
       : _db = firestore ?? FirebaseFirestore.instance;
@@ -350,15 +351,25 @@ class StaffRepository {
       .orderBy('searchName')
       .limit(500)
       .snapshots()
-      .map((snap) =>
-          snap.docs.map(StaffMember.fromSnapshot).toList());
+      .map((snapshot) =>
+          snapshot.docs.map(StaffMember.fromSnapshot).toList());
 
   Stream<List<TeacherAssignment>> watchAssignments() => _db
       .collection('teacher_assignments')
       .limit(1000)
       .snapshots()
-      .map((snap) =>
-          snap.docs.map(TeacherAssignment.fromSnapshot).toList());
+      .map((snapshot) =>
+          snapshot.docs.map(TeacherAssignment.fromSnapshot).toList());
+
+  Stream<List<TeacherAssignment>> watchAssignmentsForStaff(String staffId) =>
+      _db.collection('teacher_assignments')
+          .where('staffId', isEqualTo: staffId)
+          .limit(1000)
+          .snapshots()
+          .map((snapshot) => snapshot.docs
+              .map(TeacherAssignment.fromSnapshot)
+              .where((assignment) => assignment.active)
+              .toList());
 
   Future<void> createStaff(StaffInput input) async {
     final error = input.validate();
@@ -367,32 +378,35 @@ class StaffRepository {
     final counter = _db.collection('counters')
         .doc('staff_registration_${year}');
     try {
-      await _db.runTransaction((tx) async {
-      final snap = await tx.get(counter);
-      final next = ((snap.data()?['last'] as num?)?.toInt() ?? 0) + 1;
-      final number = staffNumber(year, next);
-      final ref = _db.collection('staff').doc(number);
-      final existing = await tx.get(ref);
-      if (existing.exists) {
-        throw StateError(
-          'Staff number already exists. Check the staff registration counter.',
-        );
-      }
-      tx.set(counter, {'last': next}, SetOptions(merge: true));
-      tx.set(ref, {
-        ...input.toFirestoreFields(),
-        'staffNo': number,
-        'active': true,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await _db.runTransaction((transaction) async {
+        final counterSnapshot = await transaction.get(counter);
+        final next = ((counterSnapshot.data()?['last'] as num?)?.toInt() ?? 0) + 1;
+        final number = staffNumber(year, next);
+        final staffRef = _db.collection('staff').doc(number);
+        final existing = await transaction.get(staffRef);
+        if (existing.exists) {
+          throw StateError(
+            'Staff number already exists. Check the staff registration counter.',
+          );
+        }
+        transaction.set(counter, {
+          'last': next,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        transaction.set(staffRef, {
+          ...input.toFirestoreFields(),
+          'staffNo': number,
+          'active': true,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       });
     } on FirebaseException catch (error) {
       if (error.code == 'permission-denied') {
         throw StateError(
-          'Staff registration was blocked by Firestore Rules. '
-          'Publish the latest firestore.rules from GitHub in Firebase Console, '
-          'then confirm you are signed in as the approved school owner.',
+          'Staff registration was blocked by Firestore Rules. Publish the '
+          'latest firestore.rules from GitHub in Firebase Console, then '
+          'confirm you are signed in as the approved school owner.',
         );
       }
       rethrow;
@@ -416,200 +430,10 @@ class StaffRepository {
     });
   }
 
-  Future<void> assignTeacher({
-    required String staffId,
-    required String classId,
-    required String subject,
-  }) async {
-    final clean = subject.trim();
-    if (clean.length > 60) {
-      throw ArgumentError('Subject must be 60 characters or less.');
-    }
-    final id = teacherAssignmentId(staffId, classId, clean);
-    final ref = _db.collection('teacher_assignments').doc(id);
-    final staffRef = _db.collection('staff').doc(staffId);
-    final classRef = _db.collection('classes').doc(classId);
-
-    await _db.runTransaction((tx) async {
-      final staff = await tx.get(staffRef);
-      final schoolClass = await tx.get(classRef);
-      final existing = await tx.get(ref);
-      if (!staff.exists || staff.data()?['active'] == false ||
-          staff.data()?['roleType'] != 'teacher') {
-        throw StateError('Choose an active teaching staff member.');
-      }
-      if (!schoolClass.exists || schoolClass.data()?['active'] == false) {
-        throw StateError('Choose an active class and section.');
-      }
-      if (existing.exists && existing.data()?['active'] != false) {
-        throw StateError('This teacher already teaches that subject here.');
-      }
-      if (existing.exists) {
-        tx.update(ref, {
-          'active': true,
-          'subject': clean,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      } else {
-        tx.set(ref, {
-          'staffId': staffId,
-          'classId': classId,
-          'subject': clean,
-          'active': true,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-    });
-  }
-
-  Future<void> setAssignmentActive(String id, bool active) async {
-    if (id.isEmpty || id.contains('/')) {
-      throw ArgumentError('Invalid assignment.');
-    }
-    await _db.collection('teacher_assignments').doc(id).update({
-      'active': active,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-}
-).hasMatch(value))
-      .toSet().toList();
-
-  StaffInput get asInput => StaffInput(
-    firstName: firstName,
-    middleName: middleName,
-    lastName: lastName,
-    roleType: roleType,
-    designation: designation,
-    phone: phone,
-    email: email,
-    whatsapp: whatsapp,
-    joinDate: joinDate,
-    qualification: qualification,
-    address: address,
-  );
-
-  factory StaffMember.fromSnapshot(
-    DocumentSnapshot<Map<String, dynamic>> snap,
-  ) {
-    final d = snap.data() ?? <String, dynamic>{};
-    String value(String key) => (d[key] as String?) ?? '';
-    return StaffMember(
-      id: snap.id,
-      staffNo: value('staffNo').isEmpty ? snap.id : value('staffNo'),
-      fullName: value('fullName'),
-      firstName: value('firstName'),
-      middleName: value('middleName'),
-      lastName: value('lastName'),
-      designation: value('designation'),
-      roleType: value('roleType'),
-      phone: value('phone'),
-      email: value('email'),
-      whatsapp: value('whatsapp'),
-      joinDate: value('joinDate'),
-      qualification: value('qualification'),
-      address: value('address'),
-      active: d['active'] != false,
-    );
-  }
-}
-
-class TeacherAssignment {
-  const TeacherAssignment({
-    required this.id,
-    required this.staffId,
-    required this.classId,
-    required this.subject,
-    required this.active,
-  });
-
-  final String id;
-  final String staffId;
-  final String classId;
-  final String subject;
-  final bool active;
-
-  factory TeacherAssignment.fromSnapshot(
-    DocumentSnapshot<Map<String, dynamic>> snap,
-  ) {
-    final d = snap.data() ?? <String, dynamic>{};
-    return TeacherAssignment(
-      id: snap.id,
-      staffId: (d['staffId'] as String?) ?? '',
-      classId: (d['classId'] as String?) ?? '',
-      subject: (d['subject'] as String?) ?? '',
-      active: d['active'] != false,
-    );
-  }
-}
-
-/// Small online-first staff and teaching-assignment catalog.
-/// Soft-archive staff/assignments: no IDs or historical links are deleted.
-class StaffRepository {
-  StaffRepository({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
-
-  final FirebaseFirestore _db;
-
-  Stream<List<StaffMember>> watchStaff() => _db
-      .collection('staff')
-      .orderBy('searchName')
-      .limit(500)
-      .snapshots()
-      .map((snap) =>
-          snap.docs.map(StaffMember.fromSnapshot).toList());
-
-  Stream<List<TeacherAssignment>> watchAssignments() => _db
-      .collection('teacher_assignments')
-      .limit(1000)
-      .snapshots()
-      .map((snap) =>
-          snap.docs.map(TeacherAssignment.fromSnapshot).toList());
-
-  Future<void> createStaff(StaffInput input) async {
-    final error = input.validate();
-    if (error != null) throw ArgumentError(error);
-    final year = DateTime.now().year;
-    final counter = _db.collection('counters')
-        .doc('staff_registration_${year}');
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(counter);
-      final next = ((snap.data()?['last'] as num?)?.toInt() ?? 0) + 1;
-      final number = staffNumber(year, next);
-      final ref = _db.collection('staff').doc(number);
-      final existing = await tx.get(ref);
-      if (existing.exists) {
-        throw StateError(
-          'Staff number already exists. Check the staff registration counter.',
-        );
-      }
-      tx.set(counter, {'last': next}, SetOptions(merge: true));
-      tx.set(ref, {
-        ...input.toFirestoreFields(),
-        'staffNo': number,
-        'active': true,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    });
-  }
-
-  Future<void> updateStaff(String id, StaffInput input) async {
-    final error = input.validate();
-    if (error != null) throw ArgumentError(error);
-    if (id.isEmpty || id.contains('/')) throw ArgumentError('Invalid staff ID');
-    await _db.collection('staff').doc(id).update({
-      ...input.toFirestoreFields(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> setStaffActive(String id, bool active) async {
-    await _db.collection('staff').doc(id).update({
-      'active': active,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+  String _classLabel(Map<String, dynamic> data) {
+    final name = (data['name'] as String?) ?? '';
+    final section = (data['section'] as String?) ?? '';
+    return [name, section].where((value) => value.isNotEmpty).join(' – ');
   }
 
   Future<void> assignTeacher({
@@ -617,40 +441,44 @@ class StaffRepository {
     required String classId,
     required String subject,
   }) async {
-    final clean = subject.trim();
-    if (clean.length > 60) {
-      throw ArgumentError('Subject must be 60 characters or less.');
+    final cleanSubject = subject.trim();
+    if (cleanSubject.isEmpty || cleanSubject.length > 60) {
+      throw ArgumentError('Enter a subject of 1 to 60 characters.');
     }
-    final id = teacherAssignmentId(staffId, classId, clean);
-    final ref = _db.collection('teacher_assignments').doc(id);
+    final assignmentId = teacherAssignmentId(staffId, classId, cleanSubject);
+    final assignmentRef = _db.collection('teacher_assignments').doc(assignmentId);
     final staffRef = _db.collection('staff').doc(staffId);
     final classRef = _db.collection('classes').doc(classId);
 
-    await _db.runTransaction((tx) async {
-      final staff = await tx.get(staffRef);
-      final schoolClass = await tx.get(classRef);
-      final existing = await tx.get(ref);
-      if (!staff.exists || staff.data()?['active'] == false ||
-          staff.data()?['roleType'] != 'teacher') {
+    await _db.runTransaction((transaction) async {
+      final staffSnapshot = await transaction.get(staffRef);
+      final classSnapshot = await transaction.get(classRef);
+      final existing = await transaction.get(assignmentRef);
+      if (!staffSnapshot.exists ||
+          staffSnapshot.data()?['active'] != true ||
+          staffSnapshot.data()?['roleType'] != 'teacher') {
         throw StateError('Choose an active teaching staff member.');
       }
-      if (!schoolClass.exists || schoolClass.data()?['active'] == false) {
+      if (!classSnapshot.exists || classSnapshot.data()?['active'] != true) {
         throw StateError('Choose an active class and section.');
       }
       if (existing.exists && existing.data()?['active'] != false) {
         throw StateError('This teacher already teaches that subject here.');
       }
+      final className = _classLabel(classSnapshot.data() ?? {});
       if (existing.exists) {
-        tx.update(ref, {
+        transaction.update(assignmentRef, {
           'active': true,
-          'subject': clean,
+          'subject': cleanSubject,
+          'className': className,
           'updatedAt': FieldValue.serverTimestamp(),
         });
       } else {
-        tx.set(ref, {
+        transaction.set(assignmentRef, {
           'staffId': staffId,
           'classId': classId,
-          'subject': clean,
+          'className': className,
+          'subject': cleanSubject,
           'active': true,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
