@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../data/school_repository.dart';
+import '../data/school_errors.dart';
 
 class ClassesPage extends StatefulWidget {
-  const ClassesPage({super.key});
+  const ClassesPage({super.key, this.classesStream});
+
+  final Stream<List<SchoolClass>>? classesStream;
 
   @override
   State<ClassesPage> createState() => _ClassesPageState();
@@ -10,7 +15,62 @@ class ClassesPage extends StatefulWidget {
 
 class _ClassesPageState extends State<ClassesPage> {
   final _repository = SchoolRepository();
-  late final Stream<List<SchoolClass>> _stream = _repository.watchClasses();
+  late Stream<List<SchoolClass>> _stream =
+      widget.classesStream ?? _repository.watchClasses();
+  Timer? _loadTimer;
+  bool _loadingTooLong = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _armLoadTimer();
+  }
+
+  void _armLoadTimer() {
+    _loadTimer?.cancel();
+    _loadTimer = Timer(const Duration(seconds: 12), () {
+      if (mounted) setState(() => _loadingTooLong = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _loadTimer?.cancel();
+    super.dispose();
+  }
+
+  void _refresh() {
+    setState(() {
+      _loadingTooLong = false;
+      _stream = widget.classesStream ?? _repository.watchClasses();
+    });
+    _armLoadTimer();
+  }
+
+  Future<void> _verifyConnection() async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Checking Firebase connection…')),
+    );
+    try {
+      await _repository.verifyFirestoreConnection();
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Firestore is reachable. Try saving a class.')),
+      );
+      _refresh();
+    } catch (error) {
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
+          content: Text(schoolErrorMessage(error)),
+        ),
+      );
+    }
+  }
 
   Future<void> _addClass() async {
     final saved = await showDialog<bool>(
@@ -18,6 +78,7 @@ class _ClassesPageState extends State<ClassesPage> {
       builder: (context) => _CreateClassDialog(repository: _repository),
     );
     if (mounted && saved == true) {
+      _refresh();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Class added successfully.')),
       );
@@ -31,10 +92,10 @@ class _ClassesPageState extends State<ClassesPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(active ? 'Class reactivated.' : 'Class archived.')),
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not update class. Please retry.')),
+        SnackBar(content: Text(schoolErrorMessage(error))),
       );
     }
   }
@@ -45,6 +106,18 @@ class _ClassesPageState extends State<ClassesPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Classes & sections', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        actions: [
+          IconButton(
+            tooltip: 'Test Firebase connection',
+            onPressed: _verifyConnection,
+            icon: const Icon(Icons.cloud_outlined),
+          ),
+          IconButton(
+            tooltip: 'Reload classes',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Center(
@@ -76,15 +149,39 @@ class _ClassesPageState extends State<ClassesPage> {
                       stream: _stream,
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
-                          return const _ClassState(
-                            icon: Icons.wifi_off_rounded,
-                            title: 'Classes unavailable',
-                            subtitle: 'Check your connection and try again.',
+                          _loadTimer?.cancel();
+                          return _ClassState(
+                            icon: Icons.cloud_off_outlined,
+                            title: 'Classes could not load',
+                            subtitle: schoolErrorMessage(snapshot.error!),
+                            action: OutlinedButton.icon(
+                              onPressed: _refresh,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Retry loading classes'),
+                            ),
                           );
                         }
                         if (!snapshot.hasData) {
-                          return const Center(child: CircularProgressIndicator());
+                          return _ClassState(
+                            icon: _loadingTooLong
+                                ? Icons.wifi_off_outlined
+                                : Icons.hourglass_top_outlined,
+                            title: _loadingTooLong
+                                ? 'Firestore has not responded'
+                                : 'Loading classes',
+                            subtitle: _loadingTooLong
+                                ? 'Check mobile data or Wi-Fi, or use the cloud icon above to test Firebase. You can still tap Add class.'
+                                : 'Your classes will appear here. Add class is available above.',
+                            action: _loadingTooLong
+                                ? OutlinedButton.icon(
+                                    onPressed: _refresh,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Retry'),
+                                  )
+                                : null,
+                          );
                         }
+                        _loadTimer?.cancel();
                         final classes = snapshot.data!;
                         if (classes.isEmpty) {
                           return _ClassState(
@@ -210,13 +307,13 @@ class _CreateClassDialogState extends State<_CreateClassDialog> {
     if (!_formKey.currentState!.validate() || _saving) return;
     setState(() { _saving = true; _error = null; });
     try {
-      await widget.repository.createClass(name: _name.text, section: _section.text);
+      await widget.repository
+          .createClass(name: _name.text, section: _section.text)
+          .timeout(const Duration(seconds: 25));
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       if (mounted) {
-        setState(() => _error = error is StateError || error is ArgumentError
-            ? error.toString().replaceFirst(RegExp(r'^(Bad state|Invalid argument):\s*'), '')
-            : 'Could not save. Check your connection.');
+        setState(() => _error = schoolErrorMessage(error));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -226,6 +323,7 @@ class _CreateClassDialogState extends State<_CreateClassDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: const Text('Add a class', style: TextStyle(fontSize: 18)),
       content: SizedBox(
         width: 340,
