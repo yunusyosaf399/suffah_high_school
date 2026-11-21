@@ -5,7 +5,7 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 
 ## Current stack
 - **Firebase Authentication**: Email/password for owner, principal and provisioned staff/parent accounts
-- **Cloud Firestore**: owner profile, school classes, and student admission records
+- **Cloud Firestore**: school users, classes, admission records and per-student daily attendance
 - **Flutter**: compact, responsive interface for phones, tablets and wider screens
 - **GitHub Actions**: automatically tests, analyzes and builds the Android debug APK
 
@@ -13,9 +13,10 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Firebase owner sign-in, sign-out and profile verification
 - Owner dashboard with Firestore summary counts
 - Class/section creation, listing and archival
-- Seven-step student admission wizard with read-only ST-YYYY-XXXX registration, final Review & Admit, save-later drafts and optional uploads
+- Six-step student admission wizard with read-only ST-YYYY-XXXX registration, final Review & Admit and resumable drafts (uploads deferred)
 - Read-only admitted student profiles; only owner/principal can open the edit wizard
 - Owner-only Users module: create Firebase Auth accounts, assign school roles, suspend/reactivate school access
+- Daily class attendance: Present/Absent/Late/Leave, explicit unmarked states, date history and changed-only Firestore saves
 - Student search, class filters and archival
 - Dashboard global search preview (cross-module search is planned; no live results yet)
 - Classes page includes an explicit Firestore connection diagnostic, retries and error messages
@@ -24,10 +25,11 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Error, loading, empty and confirmation states
 
 ## Next priorities
-Daily attendance, staff/teacher assignments, fees and receipts, examinations,
+Staff/teacher assignments, fees and receipts, examinations,
 parent accounts linking multiple children, notices and messaging.
 
-See [student profile and Users rules](docs/PROFILE_AND_USERS.md),
+See [daily attendance](docs/ATTENDANCE.md),
+[student profile and Users rules](docs/PROFILE_AND_USERS.md),
 [admissions setup](docs/ADMISSIONS_WIZARD.md),
 [global search scope](docs/GLOBAL_SEARCH_SPEC.md),
 [three-month delivery plan](docs/RELEASE_PLAN.md) and
