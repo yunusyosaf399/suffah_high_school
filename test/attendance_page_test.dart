@@ -65,6 +65,13 @@ void main() {
     expect(find.text('Unmarked: 1'), findsOneWidget);
     expect(find.text('Absent: 0'), findsOneWidget);
     expect(find.text('Ali Khan'), findsOneWidget);
+    // The register is deliberately scrollable; this student may be below
+    // the initial viewport on a compact phone.
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('attendance_student_ST-2026-0002')),
+      130,
+      scrollable: find.byKey(const Key('attendance_scroll_view')),
+    );
     expect(find.text('Aisha Khan'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('mark_ST-2026-0002_absent')));
@@ -112,7 +119,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Attendance saved'), findsOneWidget);
     final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Attendance saved'),
+      find.byWidgetPredicate((widget) => widget is FilledButton),
     );
     expect(button.onPressed, isNull);
   });
