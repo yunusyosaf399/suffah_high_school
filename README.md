@@ -30,8 +30,8 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Error, loading, empty and confirmation states
 
 ## Next priorities
-Staff daily attendance, owner payroll entry and receipt publishing, result cards and exports,
-parent accounts linking multiple children, notices and messaging.
+Staff daily attendance, result cards and exports, parent accounts linking multiple children,
+notices and messaging.
 
 See [staff and teacher assignments](docs/STAFF_AND_ASSIGNMENTS.md),
 [daily attendance](docs/ATTENDANCE.md),
