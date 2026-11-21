@@ -99,7 +99,7 @@ void main() {
     expect(find.text('Review your information'), findsOneWidget);
     await tester.tap(find.byKey(const Key('submit_staff_registration')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Submit staff'));
+    await tester.tap(find.byKey(const Key('confirm_staff_registration')));
     await tester.pumpAndSettle();
 
     expect(submitted?.fullName, 'Aisha Khan');
