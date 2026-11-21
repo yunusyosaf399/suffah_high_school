@@ -5,7 +5,7 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 
 ## Current stack
 - **Firebase Authentication**: Email/password for owner, principal and provisioned staff/parent accounts
-- **Cloud Firestore**: school users, classes, admission records per-student daily attendance, staff records and teaching assignments
+- **Cloud Firestore**: school users, classes, admissions, daily attendance, staff, teacher assignments, classwork, examinations and privacy-safe class rosters
 - **Flutter**: compact, responsive interface for phones, tablets and wider screens
 - **GitHub Actions**: automatically tests, analyzes and builds the Android debug APK
 
@@ -16,7 +16,11 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Six-step student admission wizard with read-only ST-YYYY-XXXX registration, final Review & Admit and resumable drafts (uploads deferred)
 - Read-only admitted student profiles; only owner/principal can open the edit wizard
 - Owner-only Users module: create Firebase Auth accounts, assign school roles, suspend/reactivate school access
-- Staff directory: add/edit/archive staff, read-only profiles, and class/subject teacher assignments
+- Staff registration wizard: Name & Guardian, Contact, Address, Education, Review and Submit; permanent employee IDs, profile editing and archive/restore
+- Owner can create a teacher login by selecting an active teacher profile and choosing one of its saved email addresses
+- Dedicated teacher portal: assigned classes, create assignments and homework, view assigned examinations, enter marks, and read personal payroll/salary receipts
+- Owner/principal examination publishing for assigned classes; student name/roll-number projections keep private guardian and contact data out of teacher views
+- Staff directory: search, profile details, archive/restore and class/subject teacher assignments
 - Daily class attendance: Present/Absent/Late/Leave, explicit unmarked states, date history and changed-only Firestore saves
 - Student search, class filters and archival
 - Dashboard global search preview (cross-module search is planned; no live results yet)
@@ -26,7 +30,7 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Error, loading, empty and confirmation states
 
 ## Next priorities
-Teacher-specific access and staff attendance, fees and receipts, examinations,
+Staff daily attendance, owner payroll entry and receipt publishing, result cards and exports,
 parent accounts linking multiple children, notices and messaging.
 
 See [staff and teacher assignments](docs/STAFF_AND_ASSIGNMENTS.md),
