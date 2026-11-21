@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/admission_repository.dart';
-import '../data/admission_storage.dart';
 import '../data/school_errors.dart';
 import '../data/school_repository.dart';
 
@@ -42,7 +41,6 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     'Guardian',
     'Academic',
     'Health',
-    'Documents',
     'Review',
   ];
 
@@ -66,7 +64,6 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
 
   final _inputs = <String, TextEditingController>{};
   late final AdmissionRepository _repository = AdmissionRepository();
-  late final AdmissionStorage _storage = AdmissionStorage();
   final _attachments = <String, Map<String, dynamic>>{};
   late final TabController _tabs;
   Future<void> _saveQueue = Future<void>.value();
@@ -567,114 +564,6 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       lines: 3, maxLength: 500),
   ]);
 
-  Future<void> _uploadPhoto() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final path = await _storage.uploadProfilePhoto(widget.record.registrationNo);
-      if (path == null) return;
-      _photoPath = path;
-      _revision++;
-      await _persist();
-      _showMessage('Student photo uploaded successfully.');
-    } catch (error) {
-      _showMessage('Photo upload unavailable: ${schoolErrorMessage(error)}');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _uploadDocument(String type) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final file = await _storage.uploadDocument(
-        widget.record.registrationNo, type);
-      if (file == null) return;
-      _attachments[type] = file;
-      _revision++;
-      await _persist();
-      _showMessage('Document uploaded successfully.');
-    } catch (error) {
-      _showMessage('Upload unavailable: ${schoolErrorMessage(error)}');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Widget _documentsPane() {
-    const kinds = {
-      'birth_certificate': 'Birth certificate',
-      'student_id': 'Student ID / B-Form',
-      'guardian_id': 'Parent / guardian ID',
-      'previous_transcript': 'Previous results / transcript',
-      'transfer_certificate': 'Transfer certificate',
-      'other': 'Other document',
-    };
-    final colors = Theme.of(context).colorScheme;
-    return _pane('documents', [
-      _heading('Photos and supporting documents',
-        hint: 'Optional. Save admission drafts even when document storage is not enabled.'),
-      Card(
-        margin: const EdgeInsets.only(bottom: 16),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Icon(Icons.account_circle_outlined, size: 36,
-                color: colors.primary),
-              const SizedBox(width: 12),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Passport-style photo',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 4),
-                  Text(_photoPath.isEmpty
-                      ? 'Not uploaded • WebP, maximum 100 KB'
-                      : 'Photo uploaded',
-                    style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant)),
-                ],
-              )),
-              TextButton(onPressed: _busy ? null : _uploadPhoto,
-                child: Text(_photoPath.isEmpty ? 'Upload' : 'Replace')),
-            ],
-          ),
-        ),
-      ),
-      for (final entry in kinds.entries)
-        Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: Icon(_attachments.containsKey(entry.key)
-                ? Icons.check_circle_outline_rounded
-                : Icons.description_outlined, color: colors.primary),
-            title: Text(entry.value,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-            subtitle: Text(
-              _attachments[entry.key]?['name']?.toString()
-                  ?? 'PDF or image • maximum 5 MB',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant)),
-            trailing: TextButton(
-              onPressed: _busy ? null : () => _uploadDocument(entry.key),
-              child: Text(_attachments.containsKey(entry.key)
-                  ? 'Replace' : 'Upload'),
-            ),
-          ),
-        ),
-      const SizedBox(height: 13),
-      Text(
-        'Cloud Storage requires Firebase Blaze billing and the school’s '
-        'Storage access rules. If uploads are unavailable, finish the '
-        'admission now and attach documents later.',
-        style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
-      ),
-    ]);
-  }
-
-
   static const _reviewLabels = <String, Map<String, String>>{
     'student': {
       'firstName': 'First name', 'middleName': 'Middle name',
@@ -879,7 +768,6 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
               _guardianPane(),
               _academicPane(),
               _healthPane(),
-              _documentsPane(),
               _reviewPane(),
             ],
           ),
