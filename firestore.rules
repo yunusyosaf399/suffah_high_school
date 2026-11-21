@@ -58,7 +58,9 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'
         && exists(/databases/$(database)/documents/teacher_class_links/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.staffId + '__' + classId))
-        && get(/databases/$(database)/documents/teacher_class_links/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.staffId + '__' + classId)).data.active == true;
+        && get(/databases/$(database)/documents/teacher_class_links/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.staffId + '__' + classId)).data.active == true
+        && exists(/databases/$(database)/documents/classes/$(classId))
+        && get(/databases/$(database)/documents/classes/$(classId)).data.active == true;
     }
 
     function activeTeacherAssignment(assignmentId, staffId, classId, subject) {
@@ -67,6 +69,8 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.staffId == staffId
         && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.classId == classId
         && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.subject == subject
+        && exists(/databases/$(database)/documents/classes/$(classId))
+        && get(/databases/$(database)/documents/classes/$(classId)).data.active == true
         && isLinkedTeacher(staffId);
     }
 
