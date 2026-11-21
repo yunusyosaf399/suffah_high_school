@@ -11,7 +11,7 @@ String schoolErrorMessage(Object error) {
   if (error is FirebaseException) {
     switch (error.code) {
       case 'permission-denied':
-        return 'Firestore rejected this request. For staff registration, publish '
+        return 'Firestore Rules are denying this request. For staff registration, publish '
             'the latest firestore.rules from GitHub in Firebase Console → '
             'Firestore Database → Rules, then sign in with the approved school '
             'owner or principal account. (permission-denied)';
