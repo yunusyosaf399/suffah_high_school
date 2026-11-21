@@ -70,6 +70,10 @@ void main() {
     await tester.scrollUntilVisible(
       find.byKey(const Key('attendance_student_ST-2026-0002')),
       130,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('attendance_scroll_view')),
+        matching: find.byType(Scrollable),
+      ),
     );
     expect(find.text('Aisha Khan'), findsOneWidget);
 
