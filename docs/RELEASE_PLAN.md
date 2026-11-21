@@ -33,7 +33,7 @@
 
 ## Data notes for present milestone
 - `attendance_days/{classId}_YYYYMMDD/marks/{studentId}`: individual daily status per admitted active student, plus a small day metadata document. Marking only changed students reduces Firestore writes.
-- See [ATTENDANCE.md](ATTENDANCE.md) and [STAFF_AND_ASSIGNMENTS.md](STAFF_AND_ASSIGNMENTS.md); staff attendance, owner-side payroll entry, results cards, UID-to-parent linking and aggregated reporting remain future work.
+- See [ATTENDANCE.md](ATTENDANCE.md) and [STAFF_AND_ASSIGNMENTS.md](STAFF_AND_ASSIGNMENTS.md); staff attendance, printable/exportable salary receipts, results cards, UID-to-parent linking and aggregated reporting remain future work.
 - `classes/{classId}`: `name`, `section`, `sortKey`, `active`, `createdAt`.
 - `students/{admissionNo}`: `admissionNo`, `fullName`, `searchName`, `classId`, `gender`, `rollNo`, `guardianName`, `guardianPhone`, `active`, `parentUids` (empty until parent module), timestamps.
 - Stable admission number as document ID blocks duplicates. Archive via `active=false`; no destructive deletion.
