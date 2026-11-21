@@ -9,9 +9,9 @@ service cloud.firestore {
 
     function isPrincipal() {
       return request.auth != null
-        && exists(/databases/${database}/documents/users/${request.auth.uid})
-        && get(/databases/${database}/documents/users/${request.auth.uid}).data.active == true
-        && get(/databases/${database}/documents/users/${request.auth.uid}).data.role == 'principal';
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'principal';
     }
 
     function canManageAdmissions() {
