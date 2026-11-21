@@ -375,6 +375,14 @@ class StaffRepository {
   /// This is an owner/principal migration for assignments created before the
   /// teacher portal was enabled.
   Future<int> syncTeacherClassLinks() async {
+    final marker = _db.collection('system_migrations')
+        .doc('teacher_class_links_v1');
+    final markerSnapshot = await marker.get(
+      const GetOptions(source: Source.server),
+    );
+    if (markerSnapshot.data()?['completed'] == true) {
+      return (markerSnapshot.data()?['count'] as num?)?.toInt() ?? 0;
+    }
     final snapshot = await _db.collection('teacher_assignments')
         .limit(1000).get(const GetOptions(source: Source.server));
     final grouped = <String, Map<String, dynamic>>{};
@@ -408,6 +416,11 @@ class StaffRepository {
       }
       await batch.commit();
     }
+    await marker.set({
+      'completed': true,
+      'count': grouped.length,
+      'completedAt': FieldValue.serverTimestamp(),
+    });
     return grouped.length;
   }
 
