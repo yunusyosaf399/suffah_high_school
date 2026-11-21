@@ -266,10 +266,13 @@ class SchoolRepository {
       final batch = _db.batch();
       batch.update(studentRef, fields);
       if (oldClassId.isNotEmpty && oldClassId != classId) {
-        batch.set(_rosterRef(oldClassId, existingId), {
-          'active': false,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        batch.set(_rosterRef(oldClassId, existingId), _rosterFields(
+          studentId: existingId,
+          fullName: (oldSnapshot.data()?['fullName'] as String?) ?? name,
+          rollNo: (oldSnapshot.data()?['rollNo'] as String?) ?? rollNo.trim(),
+          classId: oldClassId,
+          active: false,
+        ), SetOptions(merge: true));
       }
       batch.set(_rosterRef(classId, existingId), _rosterFields(
         studentId: existingId,
@@ -319,10 +322,14 @@ class SchoolRepository {
       'updatedAt': FieldValue.serverTimestamp(),
     });
     if (classId.isNotEmpty) {
-      batch.set(_rosterRef(classId, id), {
-        'active': active,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final data = snapshot.data() ?? <String, dynamic>{};
+      batch.set(_rosterRef(classId, id), _rosterFields(
+        studentId: id,
+        fullName: (data['fullName'] as String?) ?? '',
+        rollNo: (data['rollNo'] as String?) ?? '',
+        classId: classId,
+        active: active,
+      ), SetOptions(merge: true));
     }
     await batch.commit();
   }
