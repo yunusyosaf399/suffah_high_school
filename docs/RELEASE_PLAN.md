@@ -18,7 +18,7 @@
 | 9–10 | Parent profiles, one-to-many child links, notifications, in-app messages | Parents see only linked children, fees, attendance and results; reminders work. |
 | 11–12 | Import 400 records, client feedback, device testing, backups and recovery | Stakeholder acceptance, reconciliation checks, restore drill, signed production build. |
 
-**Current milestone:** Android login and owner dashboard built. Live class management and basic student admissions are being implemented; the Students page must remain usable while class data loads, with a permanent Add Student / Manage Classes action. Global search UI is preview-only; these features are not yet declared client-accepted.
+**Current milestone:** Seven-step admissions with final Review & Admit, draft recovery, read-only admitted student profiles, explicit owner/principal edit access, and an owner-only Users module for provisioning Firebase Auth sign-ins. App code and rule files are in GitHub; live Firebase rules must be published and accepted on actual devices before this is client-ready. Global search is preview-only.
 
 ## UX/product design contract
 - Compact, readable typography: typically 11–14 sp for supporting/body text and 16–20 sp for headings.
@@ -36,7 +36,7 @@
 - `students/{admissionNo}`: `admissionNo`, `fullName`, `searchName`, `classId`, `gender`, `rollNo`, `guardianName`, `guardianPhone`, `active`, `parentUids` (empty until parent module), timestamps.
 - Stable admission number as document ID blocks duplicates. Archive via `active=false`; no destructive deletion.
 - The students screen currently loads up to 1,000 records at once; review pagination, exports, and performance before exceeding that bound.
-- The current Firestore rules only allow the owner UID. Do not give the APK to parents or staff until role-based rules are built and verified.
+- Updated Firestore source rules allow owner/principal admission management and owner-only user provisioning, but **must be manually published and tested in Firebase Console**; Github builds do not deploy these rules. Staff/parent sign-ins show placeholders without school data. See [PROFILE_AND_USERS.md](PROFILE_AND_USERS.md).
 
 ## Client-ready definition
 A debug APK is NOT a production release. Before using real student data in production:
