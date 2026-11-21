@@ -7,12 +7,14 @@ import '../data/school_repository.dart';
 import '../data/admission_repository.dart';
 import 'admission_wizard_page.dart';
 import 'classes_page.dart';
+import 'student_profile_page.dart';
 
 /// The admission CTA, filters and student list render separately, so a
 /// failing classes stream cannot blank the entire student-management screen.
 class StudentsPage extends StatefulWidget {
-  const StudentsPage({super.key, this.classesStream, this.studentsStream});
+  const StudentsPage({super.key, this.role = 'viewer', this.classesStream, this.studentsStream});
 
+  final String role;
   final Stream<List<SchoolClass>>? classesStream;
   final Stream<List<StudentRecord>>? studentsStream;
 
@@ -24,6 +26,7 @@ class _StudentsPageState extends State<StudentsPage> {
   late final SchoolRepository _repo = SchoolRepository();
   late final AdmissionRepository _admissions = AdmissionRepository();
   bool _openingAdmission = false;
+  bool get _canEdit => canEditAdmittedStudent(widget.role);
   late Stream<List<SchoolClass>> _classes =
       widget.classesStream ?? _repo.watchClasses();
   late Stream<List<StudentRecord>> _students =
@@ -82,6 +85,7 @@ class _StudentsPageState extends State<StudentsPage> {
   }
 
   Future<void> _beginAdmission() async {
+    if (!_canEdit) return;
     if (!_classesLoaded || !_loadedClasses.any((c) => c.active)) {
       await _manageClasses();
       return;
@@ -142,7 +146,21 @@ class _StudentsPageState extends State<StudentsPage> {
     }
   }
 
+  Future<void> _openProfile(StudentRecord student) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => StudentProfilePage(
+          studentId: student.id,
+          role: widget.role,
+          classes: _loadedClasses,
+        ),
+      ),
+    );
+    if (mounted) _refreshStudents();
+  }
+
   Future<void> _setActive(StudentRecord student, bool active) async {
+    if (!_canEdit) return;
     try {
       await _repo.setStudentActive(student.id, active);
       if (!mounted) return;
@@ -228,7 +246,7 @@ class _StudentsPageState extends State<StudentsPage> {
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _openingAdmission ? null : _beginAdmission,
+                  onPressed: _canEdit && !_openingAdmission ? _beginAdmission : null,
                   icon: const Icon(Icons.person_add_alt_1, size: 19),
                   label: Text(_openingAdmission ? 'Preparing admission…' : 'Add student'),
                 ),
@@ -377,7 +395,7 @@ class _StudentsPageState extends State<StudentsPage> {
                     }
                     final all = snapshot.data!;
                     final shown = all.where((student) {
-                      if (_activeOnly && !student.active) return false;
+                      if (_activeOnly && !student.active && !student.isDraft) return false;
                       if (_classFilter.isNotEmpty &&
                           student.classId != _classFilter) return false;
                       if (_query.isEmpty) return true;
@@ -441,25 +459,39 @@ class _StudentsPageState extends State<StudentsPage> {
                                   style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
                                 ),
                                 isThreeLine: true,
-                                onTap: () => _openEditor(_loadedClasses, student),
-                                trailing: PopupMenuButton<String>(
-                                  tooltip: 'Student options',
-                                  onSelected: (action) {
-                                    if (action == 'edit') {
-                                      _openEditor(_loadedClasses, student);
-                                    } else {
-                                      _setActive(student, action == 'activate');
-                                    }
-                                  },
-                                  itemBuilder: (_) => [
-                                    const PopupMenuItem(
-                                      value: 'edit', child: Text('Edit student')),
-                                    PopupMenuItem(
-                                      value: student.active ? 'archive' : 'activate',
-                                      child: Text(student.active
-                                          ? 'Archive student' : 'Reactivate student')),
-                                  ],
-                                ),
+                                onTap: () => student.isDraft
+                                    ? _openEditor(_loadedClasses, student)
+                                    : _openProfile(student),
+                                trailing: !_canEdit
+                                    ? const Icon(Icons.chevron_right_rounded)
+                                    : PopupMenuButton<String>(
+                                        tooltip: 'Student options',
+                                        onSelected: (action) {
+                                          if (action == 'open') {
+                                            if (student.isDraft) {
+                                              _openEditor(_loadedClasses, student);
+                                            } else {
+                                              _openProfile(student);
+                                            }
+                                          } else {
+                                            _setActive(student, action == 'activate');
+                                          }
+                                        },
+                                        itemBuilder: (_) => [
+                                          PopupMenuItem(
+                                            value: 'open',
+                                            child: Text(student.isDraft
+                                                ? 'Resume draft'
+                                                : 'View profile')),
+                                          if (!student.isDraft)
+                                            PopupMenuItem(
+                                              value: student.active
+                                                  ? 'archive' : 'activate',
+                                              child: Text(student.active
+                                                  ? 'Archive student'
+                                                  : 'Reactivate student')),
+                                        ],
+                                      ),
                               ),
                             ),
                           );
