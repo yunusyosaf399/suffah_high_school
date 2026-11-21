@@ -151,7 +151,7 @@ class _UsersPageState extends State<UsersPage> {
                                 const SizedBox(width: 10),
                                 const Expanded(
                                   child: Text(
-                                    'Principal admission editing needs updated Firestore Rules. Other user dashboards will be expanded later.',
+                                    'Teacher accounts must be linked to an active staff profile. Each role receives only its approved school modules.',
                                     style: TextStyle(fontSize: 11)),
                                 ),
                               ],
