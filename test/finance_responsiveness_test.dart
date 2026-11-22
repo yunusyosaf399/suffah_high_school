@@ -45,10 +45,14 @@ class _FinanceTestRepository extends FinanceRepository {
   );
 
   @override
-  Stream<List<FinanceBill>> watchSalaryBills() {
+  Future<List<FinanceBill>> loadSalaryBills() async {
     salarySubscriptions++;
-    return Stream.value(salaryRecords);
+    return salaryRecords;
   }
+
+  @override
+  Stream<List<FinanceBill>> watchSalaryBills() =>
+      Stream.value(salaryRecords);
 
   @override
   Stream<List<FinanceBill>> watchFeeBills() {
@@ -76,6 +80,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Teacher Muhammad Khan'), findsWidgets);
     expect(find.textContaining('Remaining Rs 25,000.00'), findsOneWidget);
+    expect(find.byKey(const Key('salary_loaded_count')), findsOneWidget);
     expect(find.byKey(const Key('finance_pay_salary_SAL-202611-EMP-001')),
         findsOneWidget);
     expect(repository.salarySubscriptions, 1);
@@ -86,7 +91,7 @@ void main() {
     await tester.tap(find.text('Show fully paid salaries'));
     await tester.pumpAndSettle();
     expect(repository.salarySubscriptions, 1,
-        reason: 'Typing and toggling filters must not open more Firestore streams.');
+        reason: 'Typing and toggling filters must not repeat salary server queries.');
 
     await tester.tap(find.byKey(const Key('finance_refresh_salaries')));
     await tester.pumpAndSettle();
@@ -144,7 +149,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(repository.salarySubscriptions, 0,
-        reason: 'Inactive finance tabs must not subscribe to Firestore.');
+        reason: 'Inactive finance tabs must not query the salary collection.');
 
     // Visit Generate Finance, then advance to Pay Salary.
     for (var i = 0; i < 5; i++) {
@@ -155,6 +160,7 @@ void main() {
     expect(find.textContaining('Teacher One'), findsOneWidget);
     expect(find.textContaining('Teacher Two'), findsOneWidget);
     expect(find.textContaining('October 2026'), findsNWidgets(2));
+    expect(find.text('2 saved salaries loaded · 2 shown'), findsOneWidget);
     expect(repository.salarySubscriptions, 1);
 
     // Navigate away and return; the visible content must match selected tab.
