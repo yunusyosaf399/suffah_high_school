@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/school_errors.dart';
+import '../data/class_subject_repository.dart';
 import '../data/school_repository.dart';
 import '../data/staff_repository.dart';
 import 'staff_registration_page.dart';
@@ -19,6 +20,7 @@ class StaffPage extends StatefulWidget {
     this.classesStream,
     this.onSaveStaff,
     this.onAssignTeacher,
+    this.subjectsForClass,
   });
 
   final String role;
@@ -27,6 +29,7 @@ class StaffPage extends StatefulWidget {
   final Stream<List<SchoolClass>>? classesStream;
   final StaffSaveAction? onSaveStaff;
   final TeacherAssignAction? onAssignTeacher;
+  final Stream<List<ClassSubject>> Function(String classId)? subjectsForClass;
 
   @override
   State<StaffPage> createState() => _StaffPageState();
@@ -101,18 +104,23 @@ class _StaffPageState extends State<StaffPage>
     ));
   }
 
-  Future<void> _assignTeacher() async {
+  Future<void> _assignTeacher({StaffMember? initial}) async {
     if (!_canEdit) return;
-    final teachers = _staffCache
-        .where((staff) => staff.isTeacher && staff.active)
-        .toList();
-    final classes = _classesCache.where((c) => c.active).toList();
+    final teachers = _staffCache.where((s) => s.isTeacher && s.active).toList();
+    List<SchoolClass> available;
+    try {
+      available = _classesCache.isNotEmpty
+        ? _classesCache
+        : await (widget.classesStream ?? _schoolRepo.watchClasses()).first;
+    } catch (error) {
+      _showError(error);
+      return;
+    }
+    if (!mounted) return;
+    final classes = available.where((s) => s.active).toList();
     if (teachers.isEmpty || classes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(
-          'Add an active teacher and class before making assignments.',
-        )),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Add an active teacher and class before making assignments.')));
       return;
     }
     final saved = await showDialog<bool>(
@@ -120,21 +128,23 @@ class _StaffPageState extends State<StaffPage>
       builder: (_) => _AssignTeacherDialog(
         teachers: teachers,
         classes: classes,
-        onSave: (staffId, classId, subject) =>
-            widget.onAssignTeacher != null
-                ? widget.onAssignTeacher!(staffId, classId, subject)
-                : _repo.assignTeacher(
-                    staffId: staffId,
-                    classId: classId,
-                    subject: subject,
-                  ),
+        initialStaffId: initial?.id,
+        subjectsForClass: widget.subjectsForClass ??
+            ClassSubjectRepository().watchSubjects,
+        onSave: (staffId, subjects) async {
+          if (widget.onAssignTeacher != null) {
+            for (final subject in subjects) {
+              await widget.onAssignTeacher!(staffId, subject.classId, subject.name);
+            }
+          } else {
+            await _repo.assignTeacherSubjects(staffId: staffId, subjects: subjects);
+          }
+        },
       ),
     );
     if (!mounted || saved != true) return;
-    // Firestore snapshot streams update automatically after writes.
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Teacher assignment saved.'),
-    ));
+      content: Text('Teaching subjects assigned successfully.')));
   }
 
   Future<void> _toggleStaff(StaffMember staff, bool active) async {
@@ -239,7 +249,22 @@ class _StaffPageState extends State<StaffPage>
                   _detail('City', staff.city),
                   _detail('Country', staff.country),
                   _detail('Status', staff.active ? 'Active' : 'Archived'),
-                  if (_canEdit) ...[
+                  if (_canEdit && staff.isTeacher && staff.active) ...[
+                     const SizedBox(height: 12),
+                     SizedBox(
+                       width: double.infinity,
+                       child: OutlinedButton.icon(
+                         key: const Key('assign_profile_subjects'),
+                         onPressed: () {
+                           Navigator.pop(context);
+                           _assignTeacher(initial: staff);
+                         },
+                         icon: const Icon(Icons.library_books_outlined),
+                         label: const Text('Assign classes & subjects'),
+                       ),
+                     ),
+                   ],
+                   if (_canEdit) ...[
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
@@ -582,7 +607,7 @@ class _StaffPageState extends State<StaffPage>
                 width: double.infinity,
                 child: FilledButton.icon(
                   key: Key(_tabs.index == 0 ? 'add_staff' : 'assign_teacher'),
-                  onPressed: _tabs.index == 0 ? _addStaff : _assignTeacher,
+                  onPressed: _tabs.index == 0 ? () => _addStaff() : () => _assignTeacher(),
                   icon: Icon(_tabs.index == 0
                       ? Icons.person_add_alt_1_rounded
                       : Icons.playlist_add_check_rounded),
