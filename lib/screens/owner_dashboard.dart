@@ -261,51 +261,62 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: shownModules.length,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: gridColumns,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                        mainAxisExtent: 142,
-                      ),
-                      itemBuilder: (context, index) {
-                        final item = shownModules[index];
-                        return Card(
-                          elevation: 0,
-                          margin: EdgeInsets.zero,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () => _openModule(_modules.indexOf(item)),
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
+                    // A single vertical Scrollable owns the entire dashboard.
+                    // Avoid a nested GridView: it can swallow swipe gestures
+                    // on the module cards on some Android devices.
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final item in shownModules)
+                          SizedBox(
+                            width: (maxWidth - 34 - (gridColumns - 1) * 10) /
+                                gridColumns,
+                            height: 142,
+                            child: Card(
+                              elevation: 0,
+                              margin: EdgeInsets.zero,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () => _openModule(_modules.indexOf(item)),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Icon(item.icon, color: scheme.primary, size: 27),
+                                      Row(
+                                        children: [
+                                          Icon(item.icon, color: scheme.primary,
+                                              size: 27),
+                                          const Spacer(),
+                                          if (item.available)
+                                            Icon(Icons.arrow_outward_rounded,
+                                                size: 15, color: scheme.primary)
+                                          else
+                                            Text('Soon',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: scheme.onSurfaceVariant)),
+                                        ],
+                                      ),
                                       const Spacer(),
-                                      if (item.available)
-                                        Icon(Icons.arrow_outward_rounded, size: 15, color: scheme.primary)
-                                      else
-                                        Text('Soon', style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+                                      Text(item.title, maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 4),
+                                      Text(item.subtitle, maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(fontSize: 10,
+                                              color: scheme.onSurfaceVariant)),
                                     ],
                                   ),
-                                  const Spacer(),
-                                  Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                                  const SizedBox(height: 4),
-                                  Text(item.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        );
-                      },
+                      ],
                     ),
                     const SizedBox(height: 22),
                     Text('Suffah High School • Preview v0.7',
