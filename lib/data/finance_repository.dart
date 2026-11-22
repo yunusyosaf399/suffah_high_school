@@ -163,12 +163,20 @@ class FinanceRepository {
     if (!tuition && !transport) {
       throw ArgumentError('Select tuition, transport, or both.');
     }
-    final students = await loadStudents();
-    final classes = {for (final c in await loadClasses()) c.id: c};
-    final tuitionSetup = tuition ? await loadTuitionRates()
-        : <String, Map<String, dynamic>>{};
-    final transportSetup = transport ? await loadTransportRates()
-        : <String, Map<String, dynamic>>{};
+    // Start independent setup reads together instead of waiting for four
+    // separate network round trips.
+    final studentsRequest = loadStudents();
+    final classesRequest = loadClasses();
+    final tuitionRequest = tuition
+        ? loadTuitionRates()
+        : Future.value(<String, Map<String, dynamic>>{});
+    final transportRequest = transport
+        ? loadTransportRates()
+        : Future.value(<String, Map<String, dynamic>>{});
+    final students = await studentsRequest;
+    final classes = {for (final c in await classesRequest) c.id: c};
+    final tuitionSetup = await tuitionRequest;
+    final transportSetup = await transportRequest;
     final prepared = <({String id, Map<String, dynamic> data})>[];
     var missing = 0;
     final uid = _uid;
@@ -215,14 +223,13 @@ class FinanceRepository {
     for (var start = 0; start < prepared.length; start += 30) {
       final part = prepared.skip(start).take(30).toList();
       final counts = await _db.runTransaction((tx) async {
-        final existingDocs = <String, bool>{};
-        for (final item in part) {
-          existingDocs[item.id] = (await tx.get(feeBills.doc(item.id))).exists;
-        }
+        final existingDocs = await Future.wait(
+          part.map((item) => tx.get(feeBills.doc(item.id))),
+        );
         var newCount = 0;
-        for (final item in part) {
-          if (existingDocs[item.id] == true) continue;
-          tx.set(feeBills.doc(item.id), item.data);
+        for (var i = 0; i < part.length; i++) {
+          if (existingDocs[i].exists) continue;
+          tx.set(feeBills.doc(part[i].id), part[i].data);
           newCount++;
         }
         return newCount;
@@ -311,8 +318,10 @@ class FinanceRepository {
 
   Future<FinanceGenerationResult> generateSalaries(String month) async {
     _requireGenerationMonth(month);
-    final teachers = await loadTeachers();
-    final rates = await loadSalaryRates();
+    final teachersRequest = loadTeachers();
+    final ratesRequest = loadSalaryRates();
+    final teachers = await teachersRequest;
+    final rates = await ratesRequest;
     final uid = _uid;
     final prepared = <({String id, Map<String, dynamic> data})>[];
     var missing = 0;
@@ -343,18 +352,18 @@ class FinanceRepository {
     }
     var created = 0;
     for (var start = 0; start < prepared.length; start += 30) {
-      final chunk = prepared.skip(start).take(30);
+      final chunk = prepared.skip(start).take(30).toList();
       created += await _db.runTransaction((tx) async {
-        final pending = <({String id, Map<String, dynamic> data})>[];
-        for (final item in chunk) {
-          if (!(await tx.get(salaryBills.doc(item.id))).exists) {
-            pending.add(item);
-          }
+        final existing = await Future.wait(
+          chunk.map((item) => tx.get(salaryBills.doc(item.id))),
+        );
+        var added = 0;
+        for (var i = 0; i < chunk.length; i++) {
+          if (existing[i].exists) continue;
+          tx.set(salaryBills.doc(chunk[i].id), chunk[i].data);
+          added++;
         }
-        for (final item in pending) {
-          tx.set(salaryBills.doc(item.id), item.data);
-        }
-        return pending.length;
+        return added;
       });
     }
     return FinanceGenerationResult(
