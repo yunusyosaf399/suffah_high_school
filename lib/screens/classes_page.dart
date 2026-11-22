@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../data/school_errors.dart';
 import '../data/school_repository.dart';
+import 'class_subjects_page.dart';
 
 /// No nested Expanded/Center chains: always render the toolbar and action bar.
 class ClassesPage extends StatefulWidget {
@@ -157,7 +158,7 @@ class _ClassesPageState extends State<ClassesPage> {
                         Text('Academic setup', style: Theme.of(context)
                             .textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                         const SizedBox(height: 5),
-                        Text('Create class sections before admitting students.',
+                        Text('Create class sections, then tap any class to manage subjects.',
                           style: TextStyle(fontSize: 12, color: color.onSurfaceVariant)),
                       ],
                     ),
@@ -216,6 +217,9 @@ class _ClassesPageState extends State<ClassesPage> {
                             child: Card(
                               margin: EdgeInsets.zero,
                               child: ListTile(
+                                 key: Key('open_class_subjects_${item.id}'),
+                                 onTap: () => Navigator.of(context).push(
+                                   MaterialPageRoute(builder: (_) => ClassSubjectsPage(schoolClass: item))),
                                 leading: CircleAvatar(
                                   backgroundColor: color.primaryContainer,
                                   foregroundColor: color.onPrimaryContainer,
@@ -223,7 +227,7 @@ class _ClassesPageState extends State<ClassesPage> {
                                 ),
                                 title: Text(item.label,
                                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                                subtitle: Text(item.active ? 'Active class' : 'Archived class',
+                                subtitle: Text(item.active ? 'Active class · Tap to manage subjects' : 'Archived class · View subjects',
                                   style: TextStyle(fontSize: 11, color: color.onSurfaceVariant)),
                                 trailing: PopupMenuButton<bool>(
                                   tooltip: 'Class options',
