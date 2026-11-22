@@ -165,6 +165,8 @@ class FinanceEntry {
     this.description = '',
     this.method = '',
     this.reference = '',
+    this.payerName = '',
+    this.recipientName = '',
     this.createdAt,
   });
 
@@ -181,6 +183,8 @@ class FinanceEntry {
   final String description;
   final String method;
   final String reference;
+  final String payerName;
+  final String recipientName;
   final DateTime? createdAt;
 
   factory FinanceEntry.fromSnapshot(
@@ -201,6 +205,8 @@ class FinanceEntry {
       description: (data['description'] as String?) ?? '',
       method: (data['method'] as String?) ?? '',
       reference: (data['reference'] as String?) ?? '',
+      payerName: (data['payerName'] as String?) ?? '',
+      recipientName: (data['recipientName'] as String?) ?? '',
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
     );
   }
