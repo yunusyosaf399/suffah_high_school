@@ -30,12 +30,38 @@ class _FinancePageState extends State<FinancePage>
   late final TabController _tabs;
   Future<FinanceScope>? _scope;
   int _scopeVersion = 0;
+  int _selectedTab = 0;
+  double _dragDistance = 0;
 
   @override
   void initState() {
     super.initState();
     // Initialize before build, including for roles that have no finance access.
     _tabs = TabController(length: 8, vsync: this);
+    _tabs.addListener(_syncTab);
+  }
+
+  void _syncTab() {
+    // TabController.index changes at the start of animateTo(). Show the
+    // matching content immediately instead of waiting for PageView to settle.
+    if (mounted && _selectedTab != _tabs.index) {
+      setState(() => _selectedTab = _tabs.index);
+    }
+  }
+
+  void _changeTab(int index) {
+    if (index < 0 || index >= _tabs.length || index == _tabs.index) return;
+    _tabs.animateTo(index);
+  }
+
+  void _handleSwipe(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (_dragDistance < -70 || velocity < -350) {
+      _changeTab(_tabs.index + 1);
+    } else if (_dragDistance > 70 || velocity > 350) {
+      _changeTab(_tabs.index - 1);
+    }
+    _dragDistance = 0;
   }
 
   bool get _canManage => widget.role == 'owner' || widget.role == 'principal';
@@ -62,6 +88,7 @@ class _FinancePageState extends State<FinancePage>
 
   @override
   void dispose() {
+    _tabs.removeListener(_syncTab);
     _tabs.dispose();
     super.dispose();
   }
@@ -80,19 +107,13 @@ class _FinancePageState extends State<FinancePage>
           IconButton(
             key: const Key('finance_previous_tab'),
             tooltip: 'Previous finance tab',
-            onPressed: () {
-              if (_tabs.index > 0) _tabs.animateTo(_tabs.index - 1);
-            },
+            onPressed: () => _changeTab(_tabs.index - 1),
             icon: const Icon(Icons.chevron_left),
           ),
           IconButton(
             key: const Key('finance_next_tab'),
             tooltip: 'Next finance tab',
-            onPressed: () {
-              if (_tabs.index < _tabs.length - 1) {
-                _tabs.animateTo(_tabs.index + 1);
-              }
-            },
+            onPressed: () => _changeTab(_tabs.index + 1),
             icon: const Icon(Icons.chevron_right),
           ),
           IconButton(
@@ -117,44 +138,66 @@ class _FinancePageState extends State<FinancePage>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabs,
-        physics: const PageScrollPhysics(),
-        children: [
-          _FinanceScopeTab(
-            key: ValueKey('fee-$_scopeVersion'),
-            loader: _load,
-            onRetry: _reload,
-            builder: (scope) => FinanceFeeSetupTab(
-              scope: scope, role: widget.role, repository: _repo),
-          ),
-          FinanceGenerateTab(repository: _repo),
-          _FinanceScopeTab(
-            key: ValueKey('one-time-$_scopeVersion'),
-            loader: _load,
-            onRetry: _reload,
-            builder: (scope) =>
-                FinanceOneTimeTab(scope: scope, repository: _repo),
-          ),
-          FinanceCollectionsTab(repository: _repo),
-          _FinanceScopeTab(
-            key: ValueKey('salary-$_scopeVersion'),
-            loader: _load,
-            onRetry: _reload,
-            builder: (scope) =>
-                FinanceSalarySetupTab(scope: scope, repository: _repo),
-          ),
-          FinancePaySalaryTab(
-            repository: _repo,
-            onSwipePrevious: () => _tabs.animateTo(4),
-            onSwipeNext: () => _tabs.animateTo(6),
-          ),
-          FinanceExpensesTab(repository: _repo),
-          FinanceAnalyticsTab(repository: _repo),
-        ],
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (_) => _dragDistance = 0,
+        onHorizontalDragUpdate: (details) =>
+            _dragDistance += details.primaryDelta ?? 0,
+        onHorizontalDragEnd: _handleSwipe,
+        child: SizedBox.expand(
+          // Build only the selected page. Keeping eight offscreen Finance
+          // tabs alive simultaneously caused excessive network subscriptions
+          // and could leave TabBar and TabBarView showing different pages.
+          child: _buildSelectedTab(),
+        ),
       ),
     );
   }
+  Widget _buildSelectedTab() {
+    switch (_selectedTab) {
+      case 0:
+        return _FinanceScopeTab(
+          key: ValueKey('fee-$_scopeVersion'),
+          loader: _load,
+          onRetry: _reload,
+          builder: (scope) => FinanceFeeSetupTab(
+            scope: scope, role: widget.role, repository: _repo),
+        );
+      case 1:
+        return FinanceGenerateTab(repository: _repo);
+      case 2:
+        return _FinanceScopeTab(
+          key: ValueKey('one-time-$_scopeVersion'),
+          loader: _load,
+          onRetry: _reload,
+          builder: (scope) =>
+              FinanceOneTimeTab(scope: scope, repository: _repo),
+        );
+      case 3:
+        return FinanceCollectionsTab(repository: _repo);
+      case 4:
+        return _FinanceScopeTab(
+          key: ValueKey('salary-$_scopeVersion'),
+          loader: _load,
+          onRetry: _reload,
+          builder: (scope) =>
+              FinanceSalarySetupTab(scope: scope, repository: _repo),
+        );
+      case 5:
+        return FinancePaySalaryTab(
+          repository: _repo,
+          onSwipePrevious: () => _changeTab(4),
+          onSwipeNext: () => _changeTab(6),
+        );
+      case 6:
+        return FinanceExpensesTab(repository: _repo);
+      case 7:
+        return FinanceAnalyticsTab(repository: _repo);
+      default:
+        return const FinanceEmpty('Choose a Finance tab.');
+    }
+  }
+
 }
 
 
