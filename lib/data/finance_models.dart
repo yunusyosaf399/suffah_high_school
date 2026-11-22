@@ -56,8 +56,8 @@ const financeOneTimeCategories = <String>[
   'Uniform Fee',
   'Fines',
   'Examination Fee',
-  'Promotion Fee',
-  'Second Tuition Fee',
+  'Promotions Fee',
+  '2nd Time Tuition Fee',
   'Other',
 ];
 
