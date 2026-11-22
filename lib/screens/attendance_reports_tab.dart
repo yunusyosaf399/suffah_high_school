@@ -289,7 +289,7 @@ class _AttendanceReportsTabState extends State<AttendanceReportsTab> {
                               width: 24,
                               height: rate == null
                                 ? 4
-                                : math.max(4, 125 * rate),
+                                : math.max(4.0, 125.0 * rate),
                               decoration: BoxDecoration(
                                 color: rate == null
                                   ? color.outlineVariant : color.primary,
