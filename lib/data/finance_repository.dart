@@ -479,10 +479,12 @@ class FinanceRepository {
     required String method,
     String reference = '',
     String notes = '',
+    String payerName = '',
   }) => _payBill(
     collection: feeBills, billId: billId, amountMinor: amountMinor,
     method: method, reference: reference, notes: notes,
     direction: 'credit', sourceType: 'fee',
+    payerName: payerName,
   );
 
   Future<String> paySalary({
@@ -518,6 +520,7 @@ class FinanceRepository {
     required String notes,
     required String direction,
     required String sourceType,
+    String payerName = '',
   }) async {
     if (amountMinor <= 0 || !financePaymentMethods.contains(method)) {
       throw ArgumentError('Enter a positive payment and valid method.');
@@ -555,6 +558,15 @@ class FinanceRepository {
         'currency': 'PKR',
         'displayName': data['studentName'] ?? data['staffName'] ??
             data['title'] ?? '',
+        'payerName': sourceType == 'fee'
+            ? (payerName.trim().isEmpty
+                ? (data['studentName'] ?? '')
+                : payerName.trim())
+            : '',
+        'recipientName': sourceType == 'salary'
+            ? (data['staffName'] ?? '')
+            : sourceType == 'recurring_expense'
+                ? (data['title'] ?? '') : '',
         'studentId': data['studentId'] ?? '',
         'staffId': data['staffId'] ?? '',
         'classId': data['classId'] ?? '',
@@ -599,6 +611,8 @@ class FinanceRepository {
       'amountMinor': amountMinor,
       'currency': 'PKR',
       'displayName': subcategory,
+      'payerName': '',
+      'recipientName': '',
       'studentId': '',
       'staffId': '',
       'classId': '',
