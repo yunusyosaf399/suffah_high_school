@@ -134,6 +134,10 @@ void main() {
     }
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 5);
     expect(find.text('Pay monthly salaries'), findsOneWidget);
+    // The StreamBuilder subscribes only after the salary page first mounts;
+    // allow the Stream.value event and its next frame to be delivered.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     expect(find.textContaining('Teacher Muhammad Khan'), findsWidgets);
 
     // Drag on the salary list itself, not on the tab strip.
