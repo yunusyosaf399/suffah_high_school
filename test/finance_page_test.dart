@@ -89,7 +89,7 @@ void main() {
               bill: bill,
               title: 'Collect fee',
               submitLabel: 'Record credit',
-              onPay: (amount, method, reference, notes) async {
+              onPay: (amount, method, reference, notes, payerName) async {
                 submitted = amount;
                 return 'TXN-001';
               },
