@@ -4,6 +4,7 @@ import '../data/attendance_repository.dart';
 import '../data/school_errors.dart';
 import '../data/school_repository.dart';
 import 'classes_page.dart';
+import 'attendance_teacher_assignments_page.dart';
 
 typedef AttendanceSaveCallback = Future<void> Function(
   String classId,
@@ -19,6 +20,7 @@ class AttendancePage extends StatefulWidget {
   const AttendancePage({
     super.key,
     this.role = 'owner',
+    this.assignedClass,
     this.classesLoader,
     this.rosterLoader,
     this.marksLoader,
@@ -26,6 +28,8 @@ class AttendancePage extends StatefulWidget {
   });
 
   final String role;
+  /// A teacher can open only this class; the server verifies the assignment.
+  final SchoolClass? assignedClass;
   final Future<List<SchoolClass>> Function()? classesLoader;
   final Future<List<StudentRecord>> Function(String classId)? rosterLoader;
   final Future<Map<String, String>> Function(String classId, DateTime date)?
@@ -56,7 +60,8 @@ class _AttendancePageState extends State<AttendancePage> {
   String? _registerError;
   int _generation = 0;
 
-  bool get _canEdit => canManageAttendance(widget.role);
+  bool get _teacherClass => widget.role == 'teacher' && widget.assignedClass != null;
+  bool get _canEdit => canManageAttendance(widget.role) || _teacherClass;
 
   AttendanceSummary get _summary =>
       AttendanceSummary.fromMarks(_roster, _marks);
@@ -84,9 +89,10 @@ class _AttendancePageState extends State<AttendancePage> {
       _classError = null;
     });
     try {
-      final loaded = await (widget.classesLoader?.call()
-              ?? _school.watchClasses().first)
-          .timeout(const Duration(seconds: 22));
+      final loaded = _teacherClass
+          ? [widget.assignedClass!]
+          : await (widget.classesLoader?.call() ?? _school.watchClasses().first)
+              .timeout(const Duration(seconds: 22));
       if (!mounted) return;
       final active = loaded.where((c) => c.active).toList();
       active.sort((a, b) => a.label.compareTo(b.label));
@@ -198,9 +204,12 @@ class _AttendancePageState extends State<AttendancePage> {
     });
     try {
       final rosterFuture = widget.rosterLoader?.call(classId)
-          ?? _attendance.loadRoster(classId);
+          ?? (_teacherClass
+              ? _attendance.loadSafeRoster(classId)
+              : _attendance.loadRoster(classId));
       final marksFuture = widget.marksLoader?.call(classId, _date)
-          ?? _attendance.loadMarks(classId, _date);
+          ?? _attendance.loadMarks(classId, _date,
+              forAttendanceTeacher: _teacherClass);
       final roster = await rosterFuture;
       final marks = await marksFuture;
       if (!mounted || generation != _generation) return;
@@ -248,7 +257,8 @@ class _AttendancePageState extends State<AttendancePage> {
         await widget.saveOverride!(classId, _date, changes);
       } else {
         await _attendance.saveChanges(
-          classId: classId, date: _date, changes: changes);
+          classId: classId, date: _date, changes: changes,
+          forAttendanceTeacher: _teacherClass);
       }
       if (!mounted) return;
       setState(() {
@@ -417,6 +427,14 @@ class _AttendancePageState extends State<AttendancePage> {
         title: const Text('Student attendance', style: TextStyle(
           fontSize: 17, fontWeight: FontWeight.w700)),
         actions: [
+          if (canManageAttendance(widget.role))
+            IconButton(
+              tooltip: 'Assign class attendance teachers',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) =>
+                  AttendanceTeacherAssignmentsPage(role: widget.role))),
+              icon: const Icon(Icons.assignment_ind_outlined),
+            ),
           IconButton(
             tooltip: 'Reload attendance',
             onPressed: _saving ? null : _refresh,
@@ -471,7 +489,9 @@ class _AttendancePageState extends State<AttendancePage> {
                             fontWeight: FontWeight.w800)),
                         const SizedBox(height: 4),
                         Text(
-                          'Choose a class and date. Unmarked is not the same as absent.',
+                          _teacherClass
+                            ? 'Only your assigned class is shown. Unmarked is not absent.'
+                            : 'Choose a class and date. Unmarked is not the same as absent.',
                           style: TextStyle(
                             fontSize: 11, color: color.onSurfaceVariant)),
                         const SizedBox(height: 12),
@@ -500,7 +520,7 @@ class _AttendancePageState extends State<AttendancePage> {
                                       child: Text(c.label,
                                         overflow: TextOverflow.ellipsis)))
                                     .toList(),
-                                onChanged: _saving || _classesLoading
+                                onChanged: _saving || _classesLoading || _teacherClass
                                     ? null : _changeClass,
                               ),
                             ),
@@ -515,7 +535,7 @@ class _AttendancePageState extends State<AttendancePage> {
                             ),
                           ],
                         ),
-                        if (!_classesLoading && _classes.isEmpty) ...[
+                        if (!_teacherClass && !_classesLoading && _classes.isEmpty) ...[
                           const SizedBox(height: 9),
                           OutlinedButton.icon(
                             onPressed: _openClassSetup,
