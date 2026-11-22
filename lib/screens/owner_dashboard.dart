@@ -9,6 +9,8 @@ import 'staff_page.dart';
 import 'examinations_page.dart';
 import 'global_search_page.dart';
 import 'users_page.dart';
+import 'finance_page.dart';
+import 'finance_analytics_tab.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({super.key, required this.displayName, this.role = 'owner'});
@@ -23,21 +25,26 @@ class OwnerDashboard extends StatefulWidget {
 class _OwnerDashboardState extends State<OwnerDashboard> {
   final _repository = SchoolRepository();
   late Future<SchoolSummary> _summary = _repository.loadSummary();
+  int _financeRevision = 0;
 
   static const _modules = [
     _DashboardModule('Students', Icons.groups_outlined, 'Admissions & profiles', true),
     _DashboardModule('Classes', Icons.school_outlined, 'Classes & sections', true),
     _DashboardModule('Attendance', Icons.fact_check_outlined, 'Daily class registers', true),
-    _DashboardModule('Fees & accounts', Icons.receipt_long_outlined, 'Fees & payments', false),
+    _DashboardModule('Fees & Finance', Icons.receipt_long_outlined, 'Billing, salary, expenses & ledger', true),
     _DashboardModule('Examinations', Icons.assignment_outlined, 'Marks & results', true),
     _DashboardModule('Staff', Icons.badge_outlined, 'Team & assignments', true),
     _DashboardModule('Parents', Icons.family_restroom_outlined, 'Families & children', false),
     _DashboardModule('Messages', Icons.forum_outlined, 'School communications', false),
     _DashboardModule('Users', Icons.manage_accounts_outlined, 'Staff and parent sign-ins', true),
+    _DashboardModule('Inventory & Canteen', Icons.inventory_2_outlined, 'Books, stationery and stock (planned)', false),
   ];
 
   void _refresh() {
-    if (mounted) setState(() => _summary = _repository.loadSummary());
+    if (mounted) setState(() {
+      _summary = _repository.loadSummary();
+      _financeRevision++;
+    });
   }
 
   Future<void> _openModule(int index) async {
@@ -59,6 +66,13 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           builder: (_) => AttendancePage(role: widget.role),
         ),
       );
+      return;
+    }
+    if (index == 3) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(builder: (_) => FinancePage(role: widget.role)),
+      );
+      _refresh();
       return;
     }
     if (index == 4) {
@@ -173,7 +187,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                                 const Text('Manage your school',
                                   style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Colors.white)),
                                 const SizedBox(height: 8),
-                                Text('Manage admissions, attendance, staff and examinations.',
+                                Text('Manage admissions, attendance, finance, staff and examinations.',
                                   style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.88))),
                               ],
                             ),
@@ -216,6 +230,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                           ],
                         );
                       },
+                    ),
+                    const SizedBox(height: 18),
+                    FinanceDashboardPreview(
+                      key: ValueKey(_financeRevision),
                     ),
                     const SizedBox(height: 27),
                     Row(
