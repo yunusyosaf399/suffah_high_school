@@ -99,7 +99,7 @@ class _FinanceFeeSetupTabState extends State<FinanceFeeSetupTab> {
     );
     amount.dispose();
     if (saved == true && mounted) {
-      setState(() => _rates = _load());
+      setState(() { _rates = _load(); });
       financeSnack(context, 'Monthly tuition rate saved for the class.');
     }
   }
@@ -177,7 +177,7 @@ class _FinanceFeeSetupTabState extends State<FinanceFeeSetupTab> {
     );
     amount.dispose();
     if (saved == true && mounted) {
-      setState(() => _rates = _load());
+      setState(() { _rates = _load(); });
       financeSnack(context, 'Individual transport rates saved.');
     }
   }
