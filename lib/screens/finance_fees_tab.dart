@@ -251,8 +251,6 @@ class FinanceGenerateTab extends StatefulWidget {
 }
 
 class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
-  late Future<Map<String, int>> _scheduleDays =
-      widget.repository.loadGenerationDays();
   String _month = financeMonth(DateTime.now());
   bool _tuition = true;
   bool _transport = false;
@@ -262,7 +260,13 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
   String? _result;
 
   Future<void> _editGenerationDay() async {
-    final prior = await _scheduleDays;
+    Map<String, int> prior;
+    try {
+      prior = await widget.repository.loadGenerationDays();
+    } catch (error) {
+      if (mounted) financeSnack(context, schoolErrorMessage(error));
+      return;
+    }
     if (!mounted) return;
     var category = 'tuition';
     var day = prior[category] ?? 1;
@@ -336,7 +340,6 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
       ),
     );
     if (success == true && mounted) {
-      setState(() => _scheduleDays = widget.repository.loadGenerationDays());
       financeSnack(context, 'Preferred generation day saved. '
           'Automatic execution is still disabled.');
     }
