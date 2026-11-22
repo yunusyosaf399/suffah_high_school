@@ -492,7 +492,7 @@ class _AttendancePageState extends State<AttendancePage>
             ),
           ),
         ),
-      ),
+      ) : null,
       body: TabBarView(
         controller: _tabs,
         children: [
@@ -706,6 +706,7 @@ class _AttendancePageState extends State<AttendancePage>
                       ),
                     ),
                   ),
+          ),
         ],
       ),
     );
