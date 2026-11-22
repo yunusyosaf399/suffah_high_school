@@ -25,11 +25,14 @@ class FinanceGenerationResult {
 
 class FinanceRepository {
   FinanceRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
-      : _db = firestore ?? FirebaseFirestore.instance,
-        _auth = auth ?? FirebaseAuth.instance;
+      : _givenDb = firestore, _givenAuth = auth;
 
-  final FirebaseFirestore _db;
-  final FirebaseAuth _auth;
+  final FirebaseFirestore? _givenDb;
+  final FirebaseAuth? _givenAuth;
+  // Lazy initialization allows UI/widget tests to inject fake repository methods.
+  late final FirebaseFirestore _db =
+      _givenDb ?? FirebaseFirestore.instance;
+  late final FirebaseAuth _auth = _givenAuth ?? FirebaseAuth.instance;
 
   CollectionReference<Map<String, dynamic>> get tuitionRates =>
       _db.collection('finance_tuition_rates');
