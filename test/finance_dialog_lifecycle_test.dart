@@ -142,6 +142,9 @@ void main() {
     await tester.tap(find.byKey(const Key('select_transport_students')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('finance_select_ST-001')));
+    // Rebuild the picker so its initially disabled Apply button becomes enabled.
+    await tester.pumpAndSettle();
+    expect(find.text('Apply (1)'), findsOneWidget);
     await tester.tap(find.byKey(const Key('finance_apply_student_selection')));
     await tester.pumpAndSettle();
     expect(find.text('1 students selected'), findsOneWidget);
