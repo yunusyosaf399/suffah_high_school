@@ -20,7 +20,7 @@ class ClassSubjectsPage extends StatefulWidget {
 }
 
 class _ClassSubjectsPageState extends State<ClassSubjectsPage> {
-  final _repo = ClassSubjectRepository();
+  late final ClassSubjectRepository _repo = ClassSubjectRepository();
   late final Stream<List<ClassSubject>> _stream =
       widget.subjectsStream ?? _repo.watchSubjects(widget.schoolClass.id);
 
