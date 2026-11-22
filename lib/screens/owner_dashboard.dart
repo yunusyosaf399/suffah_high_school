@@ -9,7 +9,6 @@ import 'staff_page.dart';
 import 'examinations_page.dart';
 import 'global_search_page.dart';
 import 'users_page.dart';
-import 'payroll_page.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({super.key, required this.displayName, this.role = 'owner'});
@@ -35,7 +34,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Parents', Icons.family_restroom_outlined, 'Families & children', false),
     _DashboardModule('Messages', Icons.forum_outlined, 'School communications', false),
     _DashboardModule('Users', Icons.manage_accounts_outlined, 'Staff and parent sign-ins', true),
-    _DashboardModule('Payroll', Icons.payments_outlined, 'Salary & receipts', true),
   ];
 
   void _refresh() {
@@ -75,15 +73,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       await Navigator.of(context).push<void>(
         MaterialPageRoute(
           builder: (_) => StaffPage(role: widget.role),
-        ),
-      );
-      return;
-    }
-    if (index == 9 &&
-        (widget.role == 'owner' || widget.role == 'principal')) {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => PayrollPage(role: widget.role),
         ),
       );
       return;
@@ -184,7 +173,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                                 const Text('Manage your school',
                                   style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Colors.white)),
                                 const SizedBox(height: 8),
-                                Text('Manage admissions, attendance, staff, examinations and payroll.',
+                                Text('Manage admissions, attendance, staff and examinations.',
                                   style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.88))),
                               ],
                             ),
