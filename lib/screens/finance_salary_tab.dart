@@ -168,7 +168,7 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
         bill: bill,
         title: 'Pay teacher salary',
         submitLabel: 'Pay salary & record debit',
-        onPay: (amount, method, reference, notes) =>
+        onPay: (amount, method, reference, notes, payerName) =>
             widget.repository.paySalary(
               billId: bill.id,
               amountMinor: amount,
