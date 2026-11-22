@@ -110,6 +110,33 @@ void main() {
     expect(changes, {'ST-2026-0002': 'present'});
   });
 
+  testWidgets('attendance screen offers reports and analytics tab',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: AttendancePage(
+        classesLoader: () async => classes,
+        rosterLoader: (_) async => roster,
+        marksLoader: (_, date) async => date.day == DateTime.now().day
+            ? {'ST-2026-0001': 'present'}
+            : {},
+        saveOverride: (_, __, ___) async {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Daily Register'), findsOneWidget);
+    expect(find.text('Reports & Analytics'), findsOneWidget);
+    await tester.tap(find.text('Reports & Analytics'));
+    await tester.pumpAndSettle();
+    expect(find.text('Attendance reports & analytics'), findsOneWidget);
+    expect(find.byKey(const Key('attendance_breakdown_chart')),
+        findsOneWidget);
+    expect(find.text('7-day attendance'), findsOneWidget);
+    await tester.tap(find.text('Daily Register'));
+    await tester.pumpAndSettle();
+    expect(find.text('Daily class register'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('restricted roles cannot alter attendance', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: AttendancePage(
