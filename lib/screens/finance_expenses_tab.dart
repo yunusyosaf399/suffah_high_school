@@ -23,7 +23,7 @@ class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
   }
 
   void _loadPlans() {
-    setState(() => _plans = _fetchPlans());
+    setState(() { _plans = _fetchPlans(); });
   }
 
   Future<List<QueryExpensePlan>> _fetchPlans() async {
