@@ -137,8 +137,18 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
     Padding(
       padding: const EdgeInsets.all(14),
       child: Column(children: [
-        Text('Pay monthly salaries',
-          style: Theme.of(context).textTheme.titleMedium),
+        Row(children: [
+          Expanded(child: Text('Pay monthly salaries',
+            style: Theme.of(context).textTheme.titleMedium)),
+          IconButton(
+            key: const Key('finance_refresh_salaries'),
+            tooltip: 'Reload generated salary bills',
+            onPressed: () => setState(() {
+              _salaryStream = widget.repository.watchSalaryBills();
+            }),
+            icon: const Icon(Icons.refresh),
+          ),
+        ]),
         const SizedBox(height: 6),
         const Text('Only confirmed payments go into the Debit ledger. '
             'Partial salary payment and remaining balances are tracked.',
@@ -194,26 +204,50 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
           itemCount: records.length,
           itemBuilder: (context, i) {
             final bill = records[i];
-            return Card(child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 5),
-              child: ListTile(
-                key: Key('salary_bill_${bill.id}'),
-                title: Text('${bill.staffName} · ${financeMonthLabel(bill.month)}'),
-                subtitle: Text(
-                  'Basic ${financeMoney(bill.basicMinor)} · '
-                  'Allowances ${financeMoney(bill.allowanceMinor)} · '
-                  'Bonus ${financeMoney(bill.bonusMinor)}\n'
-                  'Total ${financeMoney(bill.amountMinor)} · '
-                  'Paid ${financeMoney(bill.paidMinor)}\n'
-                  'Remaining ${financeMoney(bill.remainingMinor)}'),
-                isThreeLine: true,
-                trailing: bill.isPaid
-                    ? const Icon(Icons.check_circle_outline)
-                    : FilledButton(
-                        onPressed: () => _pay(bill),
-                        child: const Text('Pay')),
+            return Card(
+              key: Key('salary_bill_${bill.id}'),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${bill.staffName} · ${financeMonthLabel(bill.month)}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Basic ${financeMoney(bill.basicMinor)} · '
+                      'Allowances ${financeMoney(bill.allowanceMinor)} · '
+                      'Bonus ${financeMoney(bill.bonusMinor)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Total ${financeMoney(bill.amountMinor)} · '
+                      'Paid ${financeMoney(bill.paidMinor)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 5),
+                    Row(children: [
+                      Expanded(child: Text(
+                        'Remaining ${financeMoney(bill.remainingMinor)}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      )),
+                      const SizedBox(width: 8),
+                      if (bill.isPaid)
+                        const Icon(Icons.check_circle_outline, size: 22)
+                      else
+                        FilledButton(
+                          key: Key('finance_pay_salary_${bill.id}'),
+                          onPressed: () => _pay(bill),
+                          child: const Text('Pay'),
+                        ),
+                    ]),
+                  ],
+                ),
               ),
-            ));
+            );
           },
         );
       },
