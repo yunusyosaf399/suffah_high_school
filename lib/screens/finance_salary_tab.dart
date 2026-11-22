@@ -92,8 +92,23 @@ class FinancePaySalaryTab extends StatefulWidget {
 }
 
 class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
+  late Stream<List<FinanceBill>> _salaryStream;
   String _query = '';
   bool _includePaid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _salaryStream = widget.repository.watchSalaryBills();
+  }
+
+  @override
+  void didUpdateWidget(covariant FinancePaySalaryTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repository != widget.repository) {
+      _salaryStream = widget.repository.watchSalaryBills();
+    }
+  }
 
   Future<void> _pay(FinanceBill bill) async {
     final receipt = await showDialog<String>(
@@ -144,13 +159,20 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
       ]),
     ),
     Expanded(child: StreamBuilder<List<FinanceBill>>(
-      stream: widget.repository.watchSalaryBills(),
+      stream: _salaryStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return FinanceEmpty(schoolErrorMessage(snapshot.error!));
         }
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 14),
+              Text('Loading generated salaries…'),
+            ],
+          ));
         }
         final records = snapshot.data!.where((bill) =>
           (_includePaid || !bill.isPaid) &&
@@ -158,8 +180,14 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
            bill.month.toLowerCase().contains(_query) ||
            bill.id.toLowerCase().contains(_query))).toList();
         if (records.isEmpty) {
-          return const FinanceEmpty('No matching monthly salaries. '
-              'Configure salary first, then use Generate Finance.');
+          return FinanceEmpty(_query.isNotEmpty
+              ? 'No salaries match this search. Clear the search or show paid records.'
+              : snapshot.data!.isEmpty
+                  ? 'No generated salary records were found. Open Generate '
+                      'Finance, select Teacher Salaries, and check the result '
+                      'for new bills, existing bills or missing setups.'
+                  : 'No unpaid salaries match this filter. Use Show fully '
+                      'paid salaries to view completed payments.');
         }
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
