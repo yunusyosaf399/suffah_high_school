@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suffah_high_school/data/school_repository.dart';
+import 'package:suffah_high_school/data/class_subject_repository.dart';
 import 'package:suffah_high_school/data/staff_repository.dart';
 import 'package:suffah_high_school/screens/staff_page.dart';
 
@@ -130,37 +131,85 @@ void main() {
     expect(find.byType(TextFormField), findsNothing);
   });
 
-  testWidgets('teacher can be assigned to class and subject', (tester) async {
-    String? staffId;
-    String? classId;
-    String? subject;
+  testWidgets('teacher chooses a subject from the class catalog', (tester) async {
+    final assigned = <String>[];
     await tester.pumpWidget(MaterialApp(
       home: StaffPage(
         staffStream: Stream.value(const [teacher]),
         assignmentsStream: Stream.value(<TeacherAssignment>[]),
         classesStream: Stream.value(classes),
-        onAssignTeacher: (staff, schoolClass, taughtSubject) async {
-          staffId = staff;
-          classId = schoolClass;
-          subject = taughtSubject;
+        subjectsForClass: (_) => Stream.value(const [
+          ClassSubject(id: 'mathematics', classId: 'grade-5-a',
+            name: 'Mathematics', active: true),
+        ]),
+        onAssignTeacher: (staffId, classId, subject) async {
+          expect(staffId, teacher.id);
+          assigned.add('$classId:$subject');
         },
       ),
     ));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Assignments'));
     await tester.pumpAndSettle();
-    expect(find.text('No teacher assignments yet'), findsOneWidget);
-    expect(find.text('Assign teacher'), findsOneWidget);
     await tester.tap(find.byKey(const Key('assign_teacher')));
     await tester.pumpAndSettle();
     expect(find.text('Class & section *'), findsOneWidget);
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Subject *'), 'Mathematics');
-    await tester.tap(find.text('Save assignment'));
+    await tester.tap(find.byKey(const Key('pick_subject_grade-5-a_mathematics')));
     await tester.pumpAndSettle();
-    expect(staffId, teacher.id);
-    expect(classId, 'grade-5-a');
-    expect(subject, 'Mathematics');
+    await tester.tap(find.byKey(const Key('save_teacher_subjects')));
+    await tester.pumpAndSettle();
+    expect(assigned, ['grade-5-a:Mathematics']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('owner assigns multiple subjects across two classes at once',
+      (tester) async {
+    final assigned = <String>[];
+    const bothClasses = [
+      SchoolClass(id: 'grade-5-a', name: 'Grade 5', section: 'A', active: true),
+      SchoolClass(id: 'grade-6-b', name: 'Grade 6', section: 'B', active: true),
+    ];
+    await tester.pumpWidget(MaterialApp(home: StaffPage(
+      staffStream: Stream.value(const [teacher]),
+      assignmentsStream: Stream.value(<TeacherAssignment>[]),
+      classesStream: Stream.value(bothClasses),
+      subjectsForClass: (classId) => Stream.value(classId == 'grade-5-a'
+        ? const [
+            ClassSubject(id: 'mathematics', classId: 'grade-5-a',
+                name: 'Mathematics', active: true),
+            ClassSubject(id: 'english', classId: 'grade-5-a',
+                name: 'English', active: true),
+          ] : const [
+            ClassSubject(id: 'science', classId: 'grade-6-b',
+                name: 'Science', active: true),
+          ]),
+      onAssignTeacher: (staff, classId, subject) async {
+        assigned.add('$classId:$subject');
+      },
+    )));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Assignments'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('assign_teacher')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pick_subject_grade-5-a_mathematics')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pick_subject_grade-5-a_english')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('assignment_class_grade-5-a')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Grade 6 – B').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pick_subject_grade-6-b_science')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save_teacher_subjects')));
+    await tester.pumpAndSettle();
+    expect(assigned, containsAll([
+      'grade-5-a:Mathematics',
+      'grade-5-a:English',
+      'grade-6-b:Science',
+    ]));
+    expect(assigned.length, 3);
     expect(tester.takeException(), isNull);
   });
 
