@@ -572,13 +572,14 @@ class _FinanceCollectionsTabState extends State<FinanceCollectionsTab> {
         bill: bill,
         title: 'Collect student fee',
         submitLabel: 'Collect & record credit',
-        onPay: (amount, method, reference, notes) =>
+        onPay: (amount, method, reference, notes, payerName) =>
             widget.repository.collectFee(
               billId: bill.id,
               amountMinor: amount,
               method: method,
               reference: reference,
               notes: notes,
+              payerName: payerName,
             ),
       ),
     );
@@ -688,7 +689,8 @@ class _FinanceCollectionsTabState extends State<FinanceCollectionsTab> {
 }
 
 typedef FinancePayAction = Future<String> Function(
-  int amountMinor, String method, String reference, String notes);
+  int amountMinor, String method, String reference,
+  String notes, String payerName);
 
 class FinancePaymentDialog extends StatefulWidget {
   const FinancePaymentDialog({
@@ -713,6 +715,8 @@ class _FinancePaymentDialogState extends State<FinancePaymentDialog> {
     text: '${widget.bill.remainingMinor ~/ 100}.${(widget.bill.remainingMinor % 100).toString().padLeft(2, '0')}');
   final _reference = TextEditingController();
   final _notes = TextEditingController();
+  late final _payerName =
+      TextEditingController(text: widget.bill.studentName);
   String _method = 'Cash';
   bool _busy = false;
   int? _entered;
@@ -722,6 +726,7 @@ class _FinancePaymentDialogState extends State<FinancePaymentDialog> {
     _amount.dispose();
     _reference.dispose();
     _notes.dispose();
+    _payerName.dispose();
     super.dispose();
   }
 
@@ -735,7 +740,7 @@ class _FinancePaymentDialogState extends State<FinancePaymentDialog> {
     setState(() => _busy = true);
     try {
       final id = await widget.onPay(
-        amount, _method, _reference.text, _notes.text);
+        amount, _method, _reference.text, _notes.text, _payerName.text);
       if (mounted) Navigator.of(context).pop(id);
     } catch (error) {
       if (mounted) financeSnack(context, schoolErrorMessage(error));
@@ -788,6 +793,17 @@ class _FinancePaymentDialogState extends State<FinancePaymentDialog> {
           const SizedBox(height: 8),
           Text('Remains after payment: ${financeMoney(remains > 0 ? remains : 0)}',
             style: const TextStyle(fontWeight: FontWeight.w600)),
+          if (widget.bill.studentId.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              key: const Key('finance_payer_name'),
+              controller: _payerName,
+              decoration: const InputDecoration(
+                labelText: 'Payer / guardian name'),
+              validator: (v) => v?.trim().isEmpty == true
+                  ? 'Enter who paid the fee.' : null,
+            ),
+          ],
           const SizedBox(height: 12),
           FinanceMethodSelector(value: _method,
               onChanged: (v) => setState(() => _method = v)),
