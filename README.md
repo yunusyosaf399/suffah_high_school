@@ -18,9 +18,10 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Owner-only Users module: create Firebase Auth accounts, assign school roles, suspend/reactivate school access
 - Staff registration wizard: Name & Guardian, Contact, Address, Education, Review and Submit; permanent employee IDs, profile editing and archive/restore
 - Owner can create a teacher login by selecting an active teacher profile and choosing one of its saved email addresses
-- Dedicated teacher portal: assigned classes, create assignments and homework, view assigned examinations, enter marks, and read personal payroll/salary receipts
+- Dedicated teacher portal: assigned classes, create assignments and homework, view assigned examinations, enter marks, with salary/payroll deferred pending redesign
 - Owner/principal examination publishing for assigned classes; student name/roll-number projections keep private guardian and contact data out of teacher views
-- Staff directory: search, profile details, archive/restore and class/subject teacher assignments
+- Class subject catalogs: separate subjects for each class, with codes, syllabus details and weekly periods
+- Staff directory: search, profiles, archive/restore and multiple class/subject teacher assignments
 - Daily class attendance: Present/Absent/Late/Leave, explicit unmarked states, date history and changed-only Firestore saves
 - Student search, class filters and archival
 - Dashboard global search preview (cross-module search is planned; no live results yet)
@@ -33,7 +34,7 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 Staff daily attendance, result cards and exports, parent accounts linking multiple children,
 notices and messaging.
 
-See [staff and teacher assignments](docs/STAFF_AND_ASSIGNMENTS.md),
+See [class subjects and multi-class assignments](docs/CLASS_SUBJECTS.md), [staff and teacher assignments](docs/STAFF_AND_ASSIGNMENTS.md),
 [daily attendance](docs/ATTENDANCE.md),
 [student profile and Users rules](docs/PROFILE_AND_USERS.md),
 [admissions setup](docs/ADMISSIONS_WIZARD.md),
