@@ -41,7 +41,7 @@ class _FinancePageState extends State<FinancePage>
       classes: classes, students: students, teachers: teachers);
   }
 
-  void _reload() => setState(() => _scope = _load());
+  void _reload() => setState(() { _scope = _load(); });
 
   @override
   void dispose() {
