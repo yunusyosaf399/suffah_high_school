@@ -269,7 +269,13 @@ service cloud.firestore {
         && request.resource.data.staffId == resource.data.staffId
         && request.resource.data.classId == resource.data.classId
         && request.resource.data.subject == resource.data.subject
-        && request.resource.data.get('subjectId', '') == resource.data.get('subjectId', '')
+        && (
+          request.resource.data.get('subjectId', '') == resource.data.get('subjectId', '')
+          || (resource.data.get('subjectId', '') == ''
+              && request.resource.data.subjectId is string
+              && validClassSubject(resource.data.classId,
+                request.resource.data.subjectId, resource.data.subject))
+        )
         && request.resource.data.className is string
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.active is bool
