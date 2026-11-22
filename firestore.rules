@@ -128,6 +128,54 @@ service cloud.firestore {
         );
     }
 
+    // Generated obligations have no cash effect. Every paid balance must be
+    // backed by exactly one atomic, append-only finance ledger receipt.
+    function validFinanceBillCreate(billId) {
+      return canManageAdmissions()
+        && request.resource.data.billId == billId
+        && request.resource.data.month is string
+        && request.resource.data.category is string
+        && request.resource.data.title is string
+        && request.resource.data.amountMinor is int
+        && request.resource.data.amountMinor > 0
+        && request.resource.data.paidMinor == 0
+        && request.resource.data.status == 'unpaid'
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.generatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validFinanceBillPayment(billId, sourceType) {
+      let receipt = /databases/$(database)/documents/finance_ledger/$(request.resource.data.lastPaymentId);
+      return canManageAdmissions()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['paidMinor', 'status', 'updatedAt', 'updatedBy', 'lastPaymentId'])
+        && request.resource.data.paidMinor is int
+        && request.resource.data.paidMinor > resource.data.paidMinor
+        && request.resource.data.paidMinor <= resource.data.amountMinor
+        && request.resource.data.status ==
+          (request.resource.data.paidMinor == resource.data.amountMinor
+            ? 'paid' : 'partial')
+        && request.resource.data.lastPaymentId is string
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && getAfter(receipt).data.sourceId == billId
+        && getAfter(receipt).data.sourceType == sourceType
+        && getAfter(receipt).data.createdBy == request.auth.uid
+        && getAfter(receipt).data.amountMinor ==
+          request.resource.data.paidMinor - resource.data.paidMinor;
+    }
+
+    function validFinanceLedgerBill(collectionName, entryId) {
+      let bill = /databases/$(database)/documents/$(collectionName)/$(request.resource.data.sourceId);
+      return exists(bill)
+        && getAfter(bill).data.lastPaymentId == entryId
+        && getAfter(bill).data.updatedBy == request.auth.uid
+        && getAfter(bill).data.paidMinor - get(bill).data.paidMinor ==
+          request.resource.data.amountMinor;
+    }
+
     match /users/{userId} {
       // All accounts can read only their own school role; owner can list them.
       allow get: if isOwner()
@@ -486,6 +534,176 @@ service cloud.firestore {
     match /payroll_records/{payrollId} {
       allow get, list: if canManageAdmissions();
       allow create, update, delete: if false;
+    }
+
+    // Finance setup: the tuition class rate is owner-only and the initial
+    // creation timestamp cannot be rewritten. Other setup is admin-scoped.
+    match /finance_tuition_rates/{classId} {
+      allow get, list: if canManageAdmissions();
+      allow create: if isOwner()
+        && request.resource.data.classId == classId
+        && request.resource.data.className is string
+        && request.resource.data.amountMinor is int
+        && request.resource.data.amountMinor > 0
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && exists(/databases/$(database)/documents/classes/$(classId));
+      allow update: if isOwner()
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.amountMinor is int
+        && request.resource.data.amountMinor > 0
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /finance_transport_rates/{studentId} {
+      allow get, list: if canManageAdmissions();
+      allow create, update: if canManageAdmissions()
+        && request.resource.data.studentId == studentId
+        && request.resource.data.studentName is string
+        && request.resource.data.classId is string
+        && request.resource.data.amountMinor is int
+        && request.resource.data.amountMinor >= 0
+        && request.resource.data.active ==
+          (request.resource.data.amountMinor > 0)
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /finance_salary_rates/{staffId} {
+      allow get, list: if canManageAdmissions();
+      allow create, update: if canManageAdmissions()
+        && request.resource.data.staffId == staffId
+        && request.resource.data.staffName is string
+        && request.resource.data.basicMinor is int
+        && request.resource.data.basicMinor > 0
+        && request.resource.data.allowanceMinor is int
+        && request.resource.data.allowanceMinor >= 0
+        && request.resource.data.bonusMinor is int
+        && request.resource.data.bonusMinor >= 0
+        && request.resource.data.amountMinor ==
+          request.resource.data.basicMinor
+          + request.resource.data.allowanceMinor
+          + request.resource.data.bonusMinor
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /finance_recurring_plans/{planId} {
+      allow get, list: if canManageAdmissions();
+      allow create, update: if canManageAdmissions()
+        && request.resource.data.planId == planId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.category is string
+        && request.resource.data.subcategory is string
+        && request.resource.data.amountMinor is int
+        && request.resource.data.amountMinor > 0
+        && request.resource.data.scheduleDay is int
+        && request.resource.data.scheduleDay >= 1
+        && request.resource.data.scheduleDay <= 27
+        && request.resource.data.active is bool
+        && request.resource.data.automaticEnabled == false
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // A generated student bill does NOT record any money received.
+    match /finance_fee_bills/{billId} {
+      allow get, list: if canManageAdmissions();
+      allow create: if validFinanceBillCreate(billId)
+        && request.resource.data.category
+          in ['tuition', 'transport', 'one_time']
+        && request.resource.data.studentId is string
+        && request.resource.data.studentName is string
+        && request.resource.data.classId is string;
+      allow update: if validFinanceBillPayment(billId, 'fee');
+      allow delete: if false;
+    }
+
+    match /finance_salary_bills/{billId} {
+      allow get, list: if canManageAdmissions();
+      allow create: if validFinanceBillCreate(billId)
+        && request.resource.data.category == 'salary'
+        && request.resource.data.staffId is string
+        && request.resource.data.staffName is string
+        && request.resource.data.basicMinor is int
+        && request.resource.data.allowanceMinor is int
+        && request.resource.data.bonusMinor is int
+        && request.resource.data.amountMinor ==
+          request.resource.data.basicMinor
+          + request.resource.data.allowanceMinor
+          + request.resource.data.bonusMinor;
+      allow update: if validFinanceBillPayment(billId, 'salary');
+      allow delete: if false;
+    }
+
+    match /finance_recurring_bills/{billId} {
+      allow get, list: if canManageAdmissions();
+      allow create: if validFinanceBillCreate(billId)
+        && request.resource.data.category == 'expense'
+        && request.resource.data.planId is string;
+      allow update: if validFinanceBillPayment(billId, 'recurring_expense');
+      allow delete: if false;
+    }
+
+    // CREDIT is cash collected; DEBIT is cash paid. No update or delete is
+    // allowed. The transaction must reconcile with its bill in the same
+    // atomic Firestore transaction, except for direct expenses.
+    match /finance_ledger/{entryId} {
+      allow get, list: if canManageAdmissions();
+      allow create: if canManageAdmissions()
+        && request.resource.data.entryId == entryId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.amountMinor is int
+        && request.resource.data.amountMinor > 0
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.postedMonth is string
+        && request.resource.data.sourceId is string
+        && request.resource.data.category is string
+        && request.resource.data.method
+          in ['Cash', 'Bank Transfer', 'Bank Deposit', 'Easypaisa', 'JazzCash', 'Other']
+        && (
+          (request.resource.data.sourceType == 'fee'
+            && request.resource.data.direction == 'credit'
+            && request.resource.data.category
+              in ['tuition', 'transport', 'one_time']
+            && validFinanceLedgerBill('finance_fee_bills', entryId))
+          || (request.resource.data.sourceType == 'salary'
+            && request.resource.data.direction == 'debit'
+            && request.resource.data.category == 'salary'
+            && validFinanceLedgerBill('finance_salary_bills', entryId))
+          || (request.resource.data.sourceType == 'recurring_expense'
+            && request.resource.data.direction == 'debit'
+            && request.resource.data.category == 'expense'
+            && validFinanceLedgerBill('finance_recurring_bills', entryId))
+          || (request.resource.data.sourceType == 'direct_expense'
+            && request.resource.data.direction == 'debit'
+            && request.resource.data.category == 'expense'
+            && request.resource.data.sourceId == entryId)
+        );
+      allow update, delete: if false;
+    }
+
+    // Each administrator may store only their own dashboard card choices.
+    match /finance_dashboard_preferences/{userId} {
+      allow get: if canManageAdmissions()
+        && request.auth.uid == userId;
+      allow list: if false;
+      allow create, update: if canManageAdmissions()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.visibleCards is list
+        && request.resource.data.rotate is bool
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
     }
 
     // Everything else stays inaccessible until role-specific modules are
