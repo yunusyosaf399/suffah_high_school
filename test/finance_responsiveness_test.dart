@@ -10,6 +10,10 @@ import 'package:suffah_high_school/screens/finance_page.dart';
 import 'package:suffah_high_school/screens/finance_salary_tab.dart';
 
 class _FinanceTestRepository extends FinanceRepository {
+  _FinanceTestRepository({List<FinanceBill>? salaries})
+      : salaryRecords = salaries ?? [salaryBill];
+
+  final List<FinanceBill> salaryRecords;
   int salarySubscriptions = 0;
   int feeSubscriptions = 0;
 
@@ -43,7 +47,7 @@ class _FinanceTestRepository extends FinanceRepository {
   @override
   Stream<List<FinanceBill>> watchSalaryBills() {
     salarySubscriptions++;
-    return Stream.value([salaryBill]);
+    return Stream.value(salaryRecords);
   }
 
   @override
@@ -111,6 +115,58 @@ void main() {
       find.byKey(const Key('finance_collections_search')), 'Salah');
     await tester.pumpAndSettle();
     expect(repository.feeSubscriptions, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('two existing October salaries remain visible across finance tab changes',
+      (tester) async {
+    final repository = _FinanceTestRepository(salaries: const [
+      FinanceBill(
+        id: 'SAL-202610-EMP-001', month: '2026-10',
+        category: 'salary', title: 'Monthly salary',
+        staffId: 'EMP-001', staffName: 'Teacher One',
+        amountMinor: 2000000, paidMinor: 0, basicMinor: 2000000,
+      ),
+      FinanceBill(
+        id: 'SAL-202610-EMP-002', month: '2026-10',
+        category: 'salary', title: 'Monthly salary',
+        staffId: 'EMP-002', staffName: 'Teacher Two',
+        amountMinor: 2200000, paidMinor: 0, basicMinor: 2200000,
+      ),
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      home: FinancePage(
+        role: 'owner',
+        repository: repository,
+        scopeLoader: () async => const FinanceScope(
+          classes: [], students: [], teachers: []),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(repository.salarySubscriptions, 0,
+        reason: 'Inactive finance tabs must not subscribe to Firestore.');
+
+    // Visit Generate Finance, then advance to Pay Salary.
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(find.byKey(const Key('finance_next_tab')));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Pay monthly salaries'), findsOneWidget);
+    expect(find.textContaining('Teacher One'), findsOneWidget);
+    expect(find.textContaining('Teacher Two'), findsOneWidget);
+    expect(find.textContaining('October 2026'), findsNWidgets(2));
+    expect(repository.salarySubscriptions, 1);
+
+    // Navigate away and return; the visible content must match selected tab.
+    await tester.tap(find.byKey(const Key('finance_previous_tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('Teacher salary setup'), findsOneWidget);
+    expect(find.text('Pay monthly salaries'), findsNothing);
+    await tester.tap(find.byKey(const Key('finance_next_tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('Pay monthly salaries'), findsOneWidget);
+    expect(find.textContaining('Teacher One'), findsOneWidget);
+    expect(find.textContaining('Teacher Two'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
