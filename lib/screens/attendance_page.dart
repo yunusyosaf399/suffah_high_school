@@ -292,7 +292,7 @@ class _AttendancePageState extends State<AttendancePage>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 7),
-          content: Text('Attendance not fully saved: ${schoolErrorMessage(error)}'),
+          content: Text('Attendance not fully saved: ${schoolErrorMessage(error, operation: 'attendance-save')}'),
         ),
       );
     } finally {
