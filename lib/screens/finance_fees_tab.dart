@@ -83,7 +83,7 @@ class _FinanceFeeSetupTabState extends State<FinanceFeeSetupTab> {
                       .firstWhere((c) => c.id == classId);
                   await widget.repository.setTuition(
                     schoolClass: schoolClass,
-                    amountMinor: financeMinorUnits(amount.text));
+                    amountMinor: financeOptionalAmount(amount.text));
                   if (context.mounted) Navigator.pop(context, true);
                 } catch (error) {
                   if (context.mounted) {
@@ -136,11 +136,11 @@ class _FinanceFeeSetupTabState extends State<FinanceFeeSetupTab> {
                 const SizedBox(height: 14),
                 FinanceAmountField(
                   controller: amount,
-                  label: 'Individual monthly transport fee'),
+                  label: 'Individual monthly transport fee',
+                  optional: true),
                 const SizedBox(height: 8),
-                const Text('To stop transport charges for a student, '
-                    'remove their transport assignment in a future update. '
-                    'This setup requires a positive fee.',
+                const Text('Enter 0 to stop future monthly transport charges '
+                    'for the selected students. Existing generated bills remain unchanged.',
                   style: TextStyle(fontSize: 11)),
               ],
             ),
