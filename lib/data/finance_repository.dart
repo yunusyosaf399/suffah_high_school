@@ -453,11 +453,22 @@ class FinanceRepository {
       .snapshots()
       .map((s) => s.docs.map(FinanceBill.fromSnapshot).toList());
 
+  /// Do not order the query by createdAt: legacy or partially migrated
+  /// salary bills can lack that field and Firestore would silently omit them.
+  /// Sort the small salary result set locally by month, then teacher.
   Stream<List<FinanceBill>> watchSalaryBills() => salaryBills
-      .orderBy('createdAt', descending: true)
       .limit(600)
       .snapshots()
-      .map((s) => s.docs.map(FinanceBill.fromSnapshot).toList());
+      .map((snapshot) {
+        final bills = snapshot.docs.map(FinanceBill.fromSnapshot).toList();
+        bills.sort((a, b) {
+          final byMonth = b.month.compareTo(a.month);
+          return byMonth != 0
+              ? byMonth
+              : a.staffName.toLowerCase().compareTo(b.staffName.toLowerCase());
+        });
+        return bills;
+      });
 
   Stream<List<FinanceBill>> watchRecurringBills() => recurringBills
       .orderBy('createdAt', descending: true)
