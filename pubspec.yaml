@@ -22,6 +22,17 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
+
+# Add the school icon at the path below and run:
+#   flutter pub get
+#   dart run flutter_launcher_icons
+# GitHub Actions generates launcher icons from this asset when present.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icon/app_icon.png
+  remove_alpha_ios: true
