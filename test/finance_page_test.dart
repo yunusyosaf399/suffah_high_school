@@ -17,6 +17,9 @@ class _FakeFinanceRepository extends FinanceRepository {
   Stream<List<FinanceBill>> watchFeeBills() =>
       Stream.value(const <FinanceBill>[]);
   @override
+  Future<List<FinanceBill>> loadSalaryBills() async =>
+      const <FinanceBill>[];
+  @override
   Stream<List<FinanceBill>> watchSalaryBills() =>
       Stream.value(const <FinanceBill>[]);
   @override
