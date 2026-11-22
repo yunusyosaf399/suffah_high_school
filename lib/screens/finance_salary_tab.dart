@@ -174,7 +174,10 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
             _horizontalSwipeDistance = 0;
           }
         : null,
-    child: Column(children: [
+    child: ListView(
+      key: const Key('salary_pay_scroll'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
     Padding(
       padding: const EdgeInsets.all(14),
       child: Column(children: [
@@ -207,7 +210,15 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
           onChanged: (v) => setState(() => _includePaid = v ?? false)),
       ]),
     ),
-    Expanded(child: FutureBuilder<List<FinanceBill>>(
+    Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+      child: Text(
+        'Salary records · finance_salary_bills · Server view v3',
+        key: const Key('salary_server_view_version'),
+        style: Theme.of(context).textTheme.labelSmall,
+      ),
+    ),
+    FutureBuilder<List<FinanceBill>>(
       future: _salaryRequest,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -276,6 +287,9 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
           ));
         }
         return ListView.builder(
+          key: const Key('salary_cards_list'),
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
           itemCount: records.length + 1,
           itemBuilder: (context, i) {
@@ -338,7 +352,7 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
           },
         );
       },
-    )),
+    ),
   ]),
   );
 }
