@@ -23,6 +23,7 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Class subject catalogs: separate subjects for each class, with codes, syllabus details and weekly periods
 - Staff directory: search, profiles, archive/restore and multiple class/subject teacher assignments
 - Daily class attendance: Present/Absent/Late/Leave, explicit unmarked states, date history and changed-only Firestore saves
+- Owner/principal can assign **one designated attendance class** to each teacher; teachers can mark only that class using privacy-safe name/roll rosters
 - Student search, class filters and archival
 - Dashboard global search preview (cross-module search is planned; no live results yet)
 - Classes page includes an explicit Firestore connection diagnostic, retries and error messages
@@ -31,11 +32,11 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Error, loading, empty and confirmation states
 
 ## Next priorities
-Staff daily attendance, result cards and exports, parent accounts linking multiple children,
+Staff employee attendance (separate from student attendance), result cards and exports, parent accounts linking multiple children,
 notices and messaging.
 
 See [class subjects and multi-class assignments](docs/CLASS_SUBJECTS.md), [staff and teacher assignments](docs/STAFF_AND_ASSIGNMENTS.md),
-[daily attendance](docs/ATTENDANCE.md),
+[daily attendance](docs/ATTENDANCE.md), [designated class attendance teachers](docs/CLASS_ATTENDANCE_TEACHERS.md),
 [student profile and Users rules](docs/PROFILE_AND_USERS.md),
 [admissions setup](docs/ADMISSIONS_WIZARD.md),
 [global search scope](docs/GLOBAL_SEARCH_SPEC.md),
