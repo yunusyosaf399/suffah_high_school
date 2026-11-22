@@ -5,6 +5,7 @@ import '../data/school_errors.dart';
 import '../data/school_repository.dart';
 import 'classes_page.dart';
 import 'attendance_teacher_assignments_page.dart';
+import 'attendance_reports_tab.dart';
 
 typedef AttendanceSaveCallback = Future<void> Function(
   String classId,
@@ -40,7 +41,9 @@ class AttendancePage extends StatefulWidget {
   State<AttendancePage> createState() => _AttendancePageState();
 }
 
-class _AttendancePageState extends State<AttendancePage> {
+class _AttendancePageState extends State<AttendancePage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs = TabController(length: 2, vsync: this);
   late final SchoolRepository _school = SchoolRepository();
   late final AttendanceRepository _attendance = AttendanceRepository();
 
@@ -59,6 +62,7 @@ class _AttendancePageState extends State<AttendancePage> {
   String? _classError;
   String? _registerError;
   int _generation = 0;
+  int _reportRevision = 0;
 
   bool get _teacherClass => widget.role == 'teacher' && widget.assignedClass != null;
   bool get _canEdit => canManageAttendance(widget.role) || _teacherClass;
@@ -79,7 +83,16 @@ class _AttendancePageState extends State<AttendancePage> {
   @override
   void initState() {
     super.initState();
+    _tabs.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadClasses();
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
   }
 
   Future<void> _loadClasses() async {
@@ -219,6 +232,7 @@ class _AttendancePageState extends State<AttendancePage> {
         _savedMarks = Map<String, String>.from(marks);
         _registerLoaded = true;
         _loadingRegister = false;
+        _reportRevision++;
       });
     } catch (error) {
       if (!mounted || generation != _generation) return;
@@ -263,6 +277,7 @@ class _AttendancePageState extends State<AttendancePage> {
       if (!mounted) return;
       setState(() {
         _savedMarks.addAll(changes);
+        _reportRevision++;
       });
       final totalUnmarked = _summary.unmarked;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -426,6 +441,13 @@ class _AttendancePageState extends State<AttendancePage> {
       appBar: AppBar(
         title: const Text('Student attendance', style: TextStyle(
           fontSize: 17, fontWeight: FontWeight.w700)),
+        bottom: TabBar(
+          controller: _tabs,
+          tabs: const [
+            Tab(text: 'Daily Register', icon: Icon(Icons.edit_calendar_outlined)),
+            Tab(text: 'Reports & Analytics', icon: Icon(Icons.bar_chart_outlined)),
+          ],
+        ),
         actions: [
           if (canManageAttendance(widget.role))
             IconButton(
@@ -442,7 +464,7 @@ class _AttendancePageState extends State<AttendancePage> {
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
+      bottomNavigationBar: _tabs.index == 0 ? SafeArea(
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -471,11 +493,14 @@ class _AttendancePageState extends State<AttendancePage> {
           ),
         ),
       ),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 950),
-            child: CustomScrollView(
+      body: TabBarView(
+        controller: _tabs,
+        children: [
+          SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 950),
+                child: CustomScrollView(
               key: const Key('attendance_scroll_view'),
               slivers: [
                 SliverPadding(
@@ -654,9 +679,34 @@ class _AttendancePageState extends State<AttendancePage> {
                     ),
                   ),
               ],
+                ),
+              ),
             ),
           ),
-        ),
+          SafeArea(
+            child: _classId == null || !_registerLoaded
+                ? Center(child: Text(_classesLoading
+                    ? 'Loading class attendance…'
+                    : _registerError ?? 'Choose a class in Daily Register first.'))
+                : Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 950),
+                      child: AttendanceReportsTab(
+                        key: ValueKey(
+                          'attendance_report_${_classId}_${attendanceDateKey(_date)}_$_reportRevision'),
+                        classId: _classId!,
+                        classLabel: _classes
+                            .where((schoolClass) => schoolClass.id == _classId)
+                            .map((schoolClass) => schoolClass.label)
+                            .firstOrNull ?? _classId!,
+                        roster: _roster,
+                        referenceDate: _date,
+                        forTeacher: _teacherClass,
+                        marksLoader: widget.marksLoader,
+                      ),
+                    ),
+                  ),
+        ],
       ),
     );
   }
