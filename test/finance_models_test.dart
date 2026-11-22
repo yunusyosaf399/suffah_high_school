@@ -88,7 +88,7 @@ void main() {
 
   test('one-time and expense categories include all requested types', () {
     expect(financeOneTimeCategories, contains('Certificate Fee'));
-    expect(financeOneTimeCategories, contains('Second Tuition Fee'));
+    expect(financeOneTimeCategories, contains('2nd Time Tuition Fee'));
     expect(financeOneTimeCategories, contains('Other'));
     expect(financeExpenseCategories['Stationery'],
       containsAll(['Ink', 'Copy Paper', 'Printer']));
