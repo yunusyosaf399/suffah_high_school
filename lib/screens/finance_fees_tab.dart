@@ -447,10 +447,25 @@ class FinanceCollectionsTab extends StatefulWidget {
 }
 
 class _FinanceCollectionsTabState extends State<FinanceCollectionsTab> {
+  late Stream<List<FinanceBill>> _feeStream;
   String _type = 'all';
   String _subcategory = 'all';
   String _search = '';
   bool _showPaid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _feeStream = widget.repository.watchFeeBills();
+  }
+
+  @override
+  void didUpdateWidget(covariant FinanceCollectionsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repository != widget.repository) {
+      _feeStream = widget.repository.watchFeeBills();
+    }
+  }
 
   Future<void> _collect(FinanceBill bill) async {
     final receipt = await showDialog<String>(
@@ -529,11 +544,18 @@ class _FinanceCollectionsTabState extends State<FinanceCollectionsTab> {
       ),
     ])),
     Expanded(child: StreamBuilder<List<FinanceBill>>(
-      stream: widget.repository.watchFeeBills(),
+      stream: _feeStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) return FinanceEmpty(schoolErrorMessage(snapshot.error!));
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 14),
+              Text('Loading generated student fee bills…'),
+            ],
+          ));
         }
         final bills = snapshot.data!.where((bill) =>
           (_type == 'all' || bill.category == _type) &&
@@ -553,21 +575,60 @@ class _FinanceCollectionsTabState extends State<FinanceCollectionsTab> {
           itemCount: bills.length,
           itemBuilder: (context, i) {
             final bill = bills[i];
-            return Card(child: ListTile(
+            return Card(
               key: Key('finance_bill_${bill.id}'),
-              title: Text('${bill.studentName} · ${bill.title}'),
-              subtitle: Text('${bill.className} · ${financeMonthLabel(bill.month)}\n'
-                'Due ${financeMoney(bill.amountMinor)} · '
-                'Paid ${financeMoney(bill.paidMinor)}'),
-              isThreeLine: true,
-              trailing: Column(mainAxisSize: MainAxisSize.min, children: [
-                Text(financeMoney(bill.remainingMinor),
-                  style: const TextStyle(fontWeight: FontWeight.w800)),
-                if (!bill.isPaid) TextButton(
-                  onPressed: () => _collect(bill),
-                  child: const Text('Collect')),
-              ]),
-            ));
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: Text(
+                          '${bill.studentName} · ${bill.title}',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        )),
+                        const SizedBox(width: 8),
+                        Text(
+                          financeMoney(bill.remainingMinor),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${bill.className} · ${financeMonthLabel(bill.month)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Due ${financeMoney(bill.amountMinor)} · '
+                            'Paid ${financeMoney(bill.paidMinor)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (bill.isPaid)
+                          const Icon(Icons.check_circle_outline, size: 22)
+                        else
+                          TextButton(
+                            key: Key('finance_collect_${bill.id}'),
+                            onPressed: () => _collect(bill),
+                            child: const Text('Collect'),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
           },
         );
       },
