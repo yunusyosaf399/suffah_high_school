@@ -192,11 +192,11 @@ class _AttendanceReportsTabState extends State<AttendanceReportsTab> {
               Wrap(spacing: 8, runSpacing: 8, children: [
                 _SummaryTile(label: 'Students', value: '${selected.total}',
                   icon: Icons.groups_outlined, color: color.primary),
-                _SummaryTile(label: 'Marked today', value: '${selected.marked}',
+                _SummaryTile(label: 'Marked on date', value: '${selected.marked}',
                   icon: Icons.task_alt_outlined, color: color.secondary),
                 _SummaryTile(label: 'Present + late', value: '${selected.attended}',
                   icon: Icons.check_circle_outline, color: color.tertiary),
-                _SummaryTile(label: 'Absent today', value: '${selected.absent}',
+                _SummaryTile(label: 'Absent on date', value: '${selected.absent}',
                   icon: Icons.person_off_outlined, color: color.error),
                 _SummaryTile(label: '7-day attendance', value: _pct(average),
                   icon: Icons.trending_up_rounded, color: color.primary),
