@@ -14,12 +14,12 @@ class FinanceExpensesTab extends StatefulWidget {
 }
 
 class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
-  Future<List<QueryExpensePlan>>? _plans;
+  late Future<List<QueryExpensePlan>> _plans;
 
   @override
   void initState() {
     super.initState();
-    _loadPlans();
+    _plans = _fetchPlans();
   }
 
   void _loadPlans() {
