@@ -6,7 +6,7 @@ The school finance module has eight tabs:
 
 1. **Fee Setup:** owner-defined monthly tuition rates per class and individual monthly transport fees per student.
 2. **Generate Finance:** tuition, transport, teacher salaries and recurring expense obligations for the current or immediately previous month.
-3. **One-time Fees:** certificate, uniform, fines, examination, promotion, second tuition and Other (description required).
+3. **One-time Fees:** certificate, uniform, fines, examination, promotion, 2nd Time Tuition Fee and Other (description required).
 4. **Collections:** collect full or partial payments against already generated student fee bills and record an immutable CREDIT receipt.
 5. **Salary Setup:** salary structure per active teacher: basic + allowances + bonus.
 6. **Pay Salary:** settle generated salary bills, display previous payments and remaining balances and record a DEBIT receipt.
