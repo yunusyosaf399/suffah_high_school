@@ -93,7 +93,9 @@ class _AttendanceReportsTabState extends State<AttendanceReportsTab> {
   }
 
   void _refresh() {
-    setState(() => _report = _fetchWeek());
+    setState(() {
+      _report = _fetchWeek();
+    });
   }
 
   Future<List<AttendanceDayStats>> _fetchWeek() async {
