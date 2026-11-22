@@ -84,7 +84,7 @@ class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
         bill: bill,
         title: 'Pay monthly expense',
         submitLabel: 'Pay expense & record debit',
-        onPay: (amount, method, reference, notes) =>
+        onPay: (amount, method, reference, notes, payerName) =>
             widget.repository.payRecurringExpense(
               billId: bill.id, amountMinor: amount,
               method: method, reference: reference, notes: notes),
