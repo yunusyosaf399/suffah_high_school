@@ -144,7 +144,11 @@ class _FinancePageState extends State<FinancePage>
             builder: (scope) =>
                 FinanceSalarySetupTab(scope: scope, repository: _repo),
           ),
-          FinancePaySalaryTab(repository: _repo),
+          FinancePaySalaryTab(
+            repository: _repo,
+            onSwipePrevious: () => _tabs.animateTo(4),
+            onSwipeNext: () => _tabs.animateTo(6),
+          ),
           FinanceExpensesTab(repository: _repo),
           FinanceAnalyticsTab(repository: _repo),
         ],
