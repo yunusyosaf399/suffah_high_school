@@ -129,6 +129,7 @@ void main() {
 
     for (var i = 0; i < 5; i++) {
       await tester.tap(find.byKey(const Key('finance_next_tab')));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 450));
     }
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 5);
@@ -138,10 +139,12 @@ void main() {
     // Drag on the salary list itself, not on the tab strip.
     await tester.drag(find.byType(FinancePaySalaryTab),
       const Offset(300, 0));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 4);
 
     await tester.tap(find.byKey(const Key('finance_next_tab')));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 5);
     expect(find.text('Pay monthly salaries'), findsOneWidget);
