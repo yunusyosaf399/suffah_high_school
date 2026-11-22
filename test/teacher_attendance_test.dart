@@ -67,6 +67,10 @@ void main() {
       110, scrollable: find.descendant(
         of: find.byKey(const Key('attendance_scroll_view')),
         matching: find.byType(Scrollable)).first);
+    // The tab header reduces available space; scroll the chip above Save.
+    await tester.drag(find.byKey(const Key('attendance_scroll_view')),
+        const Offset(0, -170));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('mark_ST-2026-0001_present')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save attendance (1 changes)'));
