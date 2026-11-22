@@ -68,7 +68,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800)),
                 const SizedBox(height: 5),
-                Text('Your classes, academic work and salary information.',
+                Text('Your assigned classes and academic work.',
                   style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
                 const SizedBox(height: 20),
                 Text('My teaching assignments',
@@ -125,9 +125,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                       Icons.menu_book_outlined,
                       () => _open(TeacherClassworkPage(
                         staffId: widget.staffId, kind: 'homework'))),
-                    _module('Payroll & receipts', 'View salary details and receipts',
-                      Icons.receipt_long_outlined,
-                      () => _open(TeacherPayrollPage(staffId: widget.staffId))),
+
                   ],
                 ),
                 const SizedBox(height: 18),
@@ -404,86 +402,3 @@ class _ClassworkEditorState extends State<_ClassworkEditor> {
   );
 }
 
-class TeacherPayrollPage extends StatelessWidget {
-  const TeacherPayrollPage({super.key, required this.staffId});
-  final String staffId;
-
-  @override
-  Widget build(BuildContext context) {
-    final stream = FirebaseFirestore.instance.collection('payroll_records')
-        .where('staffId', isEqualTo: staffId).limit(100).snapshots();
-    return Scaffold(
-      appBar: AppBar(title: const Text('Payroll & salary receipts',
-        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: stream,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) return _TeacherMessage(
-            message: schoolErrorMessage(snapshot.error!), icon: Icons.cloud_off_outlined);
-          if (!snapshot.hasData) return const _TeacherMessage(
-            message: 'Loading payroll records…', icon: Icons.hourglass_top_rounded);
-          final records = snapshot.data!.docs;
-          if (records.isEmpty) return const _TeacherMessage(
-            message: 'No salary details or receipts have been published for your staff profile yet.',
-            icon: Icons.receipt_long_outlined);
-          return ListView.builder(
-            padding: const EdgeInsets.all(14),
-            itemCount: records.length,
-            itemBuilder: (context, index) {
-              final data = records[index].data();
-              return Card(
-                margin: const EdgeInsets.only(bottom: 9),
-                child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.receipt_long_outlined)),
-                  title: Text((data['period'] as String?) ?? 'Salary receipt',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                  subtitle: Text(
-                    'Net salary: ${data['netSalary'] ?? '—'} • ${data['status'] ?? 'Unpaid'}',
-                    style: const TextStyle(fontSize: 11)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => showModalBottomSheet<void>(
-                    context: context, showDragHandle: true,
-                    builder: (_) => _SalaryReceipt(data: data)),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _SalaryReceipt extends StatelessWidget {
-  const _SalaryReceipt({required this.data});
-  final Map<String, dynamic> data;
-  Widget _row(String label, Object? value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 7),
-    child: Row(children: [
-      Expanded(child: Text(label, style: const TextStyle(fontSize: 12))),
-      Text(value?.toString() ?? '—',
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-    ]),
-  );
-  @override
-  Widget build(BuildContext context) => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
-      child: Column(mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Salary receipt', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 14),
-        _row('Receipt number', data['receiptNo']),
-        _row('Pay period', data['period']),
-        _row('Basic salary', data['basicSalary']),
-        _row('Allowances', data['allowances']),
-        _row('Deductions', data['deductions']),
-        const Divider(),
-        _row('Net salary', data['netSalary']),
-        _row('Payment status', data['status']),
-        _row('Paid on', data['paidAt']),
-        _row('Payment method', data['paymentMethod']),
-      ]),
-    ),
-  );
-}
