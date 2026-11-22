@@ -65,7 +65,7 @@ void main() {
         findsOneWidget);
     expect(find.byKey(const Key('attendance_trend_2026-11-22')),
         findsOneWidget);
-    expect(find.text('Absent today'), findsOneWidget);
+    expect(find.text('Absent on date'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
