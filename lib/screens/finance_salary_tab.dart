@@ -85,14 +85,22 @@ class _FinanceSalarySetupTabState extends State<FinanceSalarySetupTab> {
 }
 
 class FinancePaySalaryTab extends StatefulWidget {
-  const FinancePaySalaryTab({super.key, required this.repository});
+  const FinancePaySalaryTab({
+    super.key,
+    required this.repository,
+    this.onSwipePrevious,
+    this.onSwipeNext,
+  });
   final FinanceRepository repository;
+  final VoidCallback? onSwipePrevious;
+  final VoidCallback? onSwipeNext;
   @override
   State<FinancePaySalaryTab> createState() => _FinancePaySalaryTabState();
 }
 
 class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
   late Stream<List<FinanceBill>> _salaryStream;
+  double _horizontalSwipeDistance = 0;
   String _query = '';
   bool _includePaid = false;
 
@@ -133,7 +141,33 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(children: [
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.translucent,
+    // The nested salary list can win gestures over TabBarView. Explicitly
+    // handle horizontal drags here so adjacent Finance tabs remain reachable.
+    onHorizontalDragStart: (widget.onSwipePrevious != null ||
+            widget.onSwipeNext != null)
+        ? (_) => _horizontalSwipeDistance = 0
+        : null,
+    onHorizontalDragUpdate: (widget.onSwipePrevious != null ||
+            widget.onSwipeNext != null)
+        ? (details) {
+            _horizontalSwipeDistance += details.primaryDelta ?? 0;
+          }
+        : null,
+    onHorizontalDragEnd: (widget.onSwipePrevious != null ||
+            widget.onSwipeNext != null)
+        ? (details) {
+            final speed = details.primaryVelocity ?? 0;
+            if (_horizontalSwipeDistance > 70 || speed > 350) {
+              widget.onSwipePrevious?.call();
+            } else if (_horizontalSwipeDistance < -70 || speed < -350) {
+              widget.onSwipeNext?.call();
+            }
+            _horizontalSwipeDistance = 0;
+          }
+        : null,
+    child: Column(children: [
     Padding(
       padding: const EdgeInsets.all(14),
       child: Column(children: [
@@ -252,7 +286,8 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
         );
       },
     )),
-  ]);
+  ]),
+  );
 }
 
 /// The salary form owns its controllers until its dialog route is disposed.
