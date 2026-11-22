@@ -13,18 +13,30 @@ import 'finance_page.dart';
 import 'finance_analytics_tab.dart';
 
 class OwnerDashboard extends StatefulWidget {
-  const OwnerDashboard({super.key, required this.displayName, this.role = 'owner'});
+  const OwnerDashboard({
+    super.key,
+    required this.displayName,
+    this.role = 'owner',
+    this.summaryLoader,
+    this.financePreview,
+  });
 
   final String displayName;
   final String role;
+  // Optional sources make navigation and scrolling testable without Firebase.
+  final Future<SchoolSummary> Function()? summaryLoader;
+  final Widget? financePreview;
 
   @override
   State<OwnerDashboard> createState() => _OwnerDashboardState();
 }
 
 class _OwnerDashboardState extends State<OwnerDashboard> {
-  final _repository = SchoolRepository();
-  late Future<SchoolSummary> _summary = _repository.loadSummary();
+  SchoolRepository? _repository;
+  Future<SchoolSummary> _loadSummary() =>
+      widget.summaryLoader?.call() ??
+      (_repository ??= SchoolRepository()).loadSummary();
+  late Future<SchoolSummary> _summary = _loadSummary();
   int _financeRevision = 0;
 
   static const _modules = [
@@ -42,7 +54,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
 
   void _refresh() {
     if (mounted) setState(() {
-      _summary = _repository.loadSummary();
+      _summary = _loadSummary();
       _financeRevision++;
     });
   }
@@ -151,11 +163,13 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
               width: maxWidth,
               child: RefreshIndicator(
                 onRefresh: () async {
-                  final next = _repository.loadSummary();
+                  final next = _loadSummary();
                   setState(() => _summary = next);
                   try { await next; } catch (_) { /* Retry through refresh. */ }
                 },
                 child: ListView(
+                  key: const Key('owner_dashboard_scroll'),
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(17, 18, 17, 32),
                   children: [
                     Text('School overview',
@@ -232,9 +246,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                       },
                     ),
                     const SizedBox(height: 18),
-                    FinanceDashboardPreview(
-                      key: ValueKey(_financeRevision),
-                    ),
+                    widget.financePreview ??
+                        FinanceDashboardPreview(
+                          key: ValueKey(_financeRevision),
+                        ),
                     const SizedBox(height: 27),
                     Row(
                       children: [
