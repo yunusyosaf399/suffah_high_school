@@ -116,6 +116,10 @@ void main() {
 
   testWidgets('salary tab is accessible before roster loading and swipes back',
       (tester) async {
+    tester.view.physicalSize = const Size(390, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final deferredScope = Completer<FinanceScope>();
     final repository = _FinanceTestRepository();
     await tester.pumpWidget(MaterialApp(
@@ -141,8 +145,11 @@ void main() {
     expect(find.textContaining('Teacher Muhammad Khan'), findsWidgets);
 
     // Drag on the salary list itself, not on the tab strip.
-    await tester.drag(find.byType(FinancePaySalaryTab),
-      const Offset(300, 0));
+    await tester.fling(
+      find.byType(FinancePaySalaryTab),
+      const Offset(280, 0),
+      1300,
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 450));
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 4);
