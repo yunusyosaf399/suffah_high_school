@@ -42,7 +42,7 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
             body: Center(child: Padding(
               padding: const EdgeInsets.all(20),
               child: Text(schoolErrorMessage(snapshot.error!)))));
-          if (!snapshot.hasData && snapshot.connectionState != ConnectionState.active) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(body: Center(
               child: CircularProgressIndicator()));
           }
