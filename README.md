@@ -22,6 +22,9 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Owner/principal examination publishing for assigned classes; student name/roll-number projections keep private guardian and contact data out of teacher views
 - Class subject catalogs: separate subjects for each class, with codes, syllabus details and weekly periods
 - Staff directory: search, profiles, archive/restore and multiple class/subject teacher assignments
+- **Fees & Finance:** class-fixed tuition, student-specific transport, monthly fee/salary/expense generation, one-time fees, partial collections, salary payments and direct expenses
+- **Append-only finance ledger:** credits for actual fee receipts, debits for confirmed salary/expense payments; generated obligations never enter cash totals
+- **Finance analytics:** cashflow trend, unpaid balances, recent receipts; owner/principal dashboard cards can be shown/hidden or rotated every 10 seconds
 - Daily class attendance: Present/Absent/Late/Leave, explicit unmarked states, date history and changed-only Firestore saves
 - **Reports & Analytics** attendance tab: class KPIs, attendance-status ring chart, seven-day trend bars and daily breakdown
 - Owner/principal can assign **one designated attendance class** to each teacher; teachers can mark only that class using privacy-safe name/roll rosters
@@ -33,11 +36,11 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Error, loading, empty and confirmation states
 
 ## Next priorities
-Staff employee attendance (separate from student attendance), result cards and exports, parent accounts linking multiple children,
+Automatic monthly finance generation after Blaze/Cloud Functions setup, full inventory/stock for books, stationery and canteen, staff employee attendance (separate from student attendance), result cards and exports, parent accounts linking multiple children,
 notices and messaging.
 
 See [class subjects and multi-class assignments](docs/CLASS_SUBJECTS.md), [staff and teacher assignments](docs/STAFF_AND_ASSIGNMENTS.md),
-[daily attendance](docs/ATTENDANCE.md), [attendance analytics](docs/ATTENDANCE_ANALYTICS.md),
+[finance workflows](docs/FINANCE.md), [daily attendance](docs/ATTENDANCE.md), [attendance analytics](docs/ATTENDANCE_ANALYTICS.md),
 [designated class attendance teachers](docs/CLASS_ATTENDANCE_TEACHERS.md),
 [student profile and Users rules](docs/PROFILE_AND_USERS.md),
 [admissions setup](docs/ADMISSIONS_WIZARD.md),
@@ -58,7 +61,7 @@ See the [APK testing guide](docs/APK_TESTING.md).
 
 Android preview updates now reuse a stable debug signing identity and increment the version code on each build. To keep the signing key across GitHub cache eviction, follow [APK update signing setup](docs/APK_UPDATES.md). The first update from older debug builds can still require one uninstall.
 
-**Development APK only:** The school modules are being completed incrementally.
+**Development APK only:** The school modules are being completed incrementally. Finance ledger receipts require freshly published Firestore Rules, emulator validation, audited backup/restore and payment reconciliation before use with real school funds.
 Do not use real sensitive student information until production permission checks,
 backups and acceptance testing are in place. Windows and iOS Firebase
 configuration still need to be completed.
