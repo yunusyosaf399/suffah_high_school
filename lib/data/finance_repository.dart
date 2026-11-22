@@ -103,15 +103,20 @@ class FinanceRepository {
   }) async {
     if (amountMinor <= 0) throw ArgumentError('Tuition must be positive.');
     final ref = tuitionRates.doc(schoolClass.id);
-    await ref.set({
-      'classId': schoolClass.id,
-      'className': schoolClass.label,
-      'amountMinor': amountMinor,
-      'currency': 'PKR',
-      'updatedBy': _uid,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    final uid = _uid;
+    await _db.runTransaction((tx) async {
+      final previous = await tx.get(ref);
+      tx.set(ref, {
+        'classId': schoolClass.id,
+        'className': schoolClass.label,
+        'amountMinor': amountMinor,
+        'currency': 'PKR',
+        'updatedBy': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+        if (!previous.exists)
+          'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
   }
 
   Future<int> setTransport({
@@ -530,6 +535,7 @@ class FinanceRepository {
       final updatedPaid = paid + amountMinor;
       tx.update(billRef, {
         'paidMinor': updatedPaid,
+        'lastPaymentId': txRef.id,
         'status': updatedPaid == total ? 'paid' : 'partial',
         'updatedAt': FieldValue.serverTimestamp(),
         'updatedBy': uid,
