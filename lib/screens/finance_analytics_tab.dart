@@ -99,7 +99,7 @@ class _FinanceAnalyticsTabState extends State<FinanceAnalyticsTab> {
                       title: Text('${entry.displayName} · ${entry.category}'),
                       subtitle: Text(
                         '${entry.sourceType} · ${entry.postedMonth}\n'
-                        'Receipt ${entry.id} · ${entry.method}'),
+                        '${entry.payerName.isNotEmpty ? 'Payer: ${entry.payerName} · ' : ''}Receipt ${entry.id} · ${entry.method}'),
                       isThreeLine: true,
                       trailing: Text(
                         '${entry.direction == 'credit' ? '+' : '-'}'
