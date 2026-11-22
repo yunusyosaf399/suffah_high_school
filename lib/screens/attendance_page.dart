@@ -444,8 +444,8 @@ class _AttendancePageState extends State<AttendancePage>
         bottom: TabBar(
           controller: _tabs,
           tabs: const [
-            Tab(text: 'Daily Register', icon: Icon(Icons.edit_calendar_outlined)),
-            Tab(text: 'Reports & Analytics', icon: Icon(Icons.bar_chart_outlined)),
+            Tab(text: 'Daily Register'),
+            Tab(text: 'Reports & Analytics'),
           ],
         ),
         actions: [
@@ -671,7 +671,7 @@ class _AttendancePageState extends State<AttendancePage>
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 110),
                     sliver: SliverList.builder(
                       itemCount: visible.length,
                       itemBuilder: (context, index) =>
