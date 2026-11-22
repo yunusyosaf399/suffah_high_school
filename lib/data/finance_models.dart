@@ -96,6 +96,9 @@ class FinanceBill {
     this.classId = '',
     this.className = '',
     this.rollNo = '',
+    this.basicMinor = 0,
+    this.allowanceMinor = 0,
+    this.bonusMinor = 0,
   });
 
   final String id;
@@ -113,6 +116,9 @@ class FinanceBill {
   final String classId;
   final String className;
   final String rollNo;
+  final int basicMinor;
+  final int allowanceMinor;
+  final int bonusMinor;
 
   int get remainingMinor => amountMinor - paidMinor;
   bool get isPaid => remainingMinor <= 0;
@@ -137,6 +143,9 @@ class FinanceBill {
       classId: (data['classId'] as String?) ?? '',
       className: (data['className'] as String?) ?? '',
       rollNo: (data['rollNo'] as String?) ?? '',
+      basicMinor: (data['basicMinor'] as num?)?.toInt() ?? 0,
+      allowanceMinor: (data['allowanceMinor'] as num?)?.toInt() ?? 0,
+      bonusMinor: (data['bonusMinor'] as num?)?.toInt() ?? 0,
     );
   }
 }
