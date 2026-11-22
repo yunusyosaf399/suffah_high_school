@@ -146,7 +146,10 @@ Future<List<StudentRecord>?> pickFinanceStudents(
 String? financeValidateAmount(String? input, {bool allowZero = false}) {
   try {
     if (allowZero && (input == null || input.trim().isEmpty ||
-        RegExp(r'^0+(\.0{1,2})?
+        RegExp(r'^0+(\.0{1,2})?$').hasMatch(input.trim()))) {
+      return null;
+    }
+    financeMinorUnits(input ?? '');
     return null;
   } catch (_) {
     return allowZero
@@ -157,7 +160,8 @@ String? financeValidateAmount(String? input, {bool allowZero = false}) {
 
 int financeOptionalAmount(String input) =>
     input.trim().isEmpty ||
-    RegExp(r'^0+(\.0{1,2})?
+    RegExp(r'^0+(\.0{1,2})?$').hasMatch(input.trim())
+        ? 0 : financeMinorUnits(input);
 
 class FinanceAmountField extends StatelessWidget {
   const FinanceAmountField({
