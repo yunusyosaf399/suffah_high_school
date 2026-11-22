@@ -614,6 +614,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /finance_generation_settings/{category} {
+      allow get, list: if canManageAdmissions();
+      allow create, update: if canManageAdmissions()
+        && category in ['tuition', 'transport', 'salary']
+        && request.resource.data.category == category
+        && request.resource.data.scheduleDay is int
+        && request.resource.data.scheduleDay >= 1
+        && request.resource.data.scheduleDay <= 27
+        && request.resource.data.automaticEnabled == false
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
     // A generated student bill does NOT record any money received.
     match /finance_fee_bills/{billId} {
       allow get, list: if canManageAdmissions();
