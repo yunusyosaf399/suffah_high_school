@@ -70,7 +70,74 @@ class _FinanceTestRepository extends FinanceRepository {
   Future<Map<String, Map<String, dynamic>>> loadSalaryRates() async => {};
 }
 
+class _PendingSalaryRepository extends FinanceRepository {
+  final Completer<List<FinanceBill>> pending = Completer<List<FinanceBill>>();
+
+  @override
+  Future<List<FinanceBill>> loadSalaryBills() => pending.future;
+}
+
+class _FailedSalaryRepository extends FinanceRepository {
+  @override
+  Future<List<FinanceBill>> loadSalaryBills() async {
+    throw StateError('The test server rejected the salary read.');
+  }
+}
+
 void main() {
+  testWidgets('salary status and bills are visible on a real phone-sized screen',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _PendingSalaryRepository();
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: FinancePaySalaryTab(repository: repository)),
+    ));
+    await tester.pump();
+
+    expect(find.byKey(const Key('salary_pay_scroll')), findsOneWidget);
+    expect(find.byKey(const Key('salary_server_view_version')), findsOneWidget);
+    expect(find.textContaining('Server view v3'), findsOneWidget);
+    expect(find.textContaining('Checking saved salaries'), findsOneWidget);
+
+    repository.pending.complete(const [
+      FinanceBill(
+        id: 'SAL-202610-EMP-A', month: '2026-10', category: 'salary',
+        title: 'Monthly salary', staffId: 'EMP-A',
+        staffName: 'Teacher Ali', amountMinor: 1000000,
+        paidMinor: 0, basicMinor: 1000000,
+      ),
+      FinanceBill(
+        id: 'SAL-202611-EMP-B', month: '2026-11', category: 'salary',
+        title: 'Monthly salary', staffId: 'EMP-B',
+        staffName: 'Teacher Bilal', amountMinor: 1200000,
+        paidMinor: 0, basicMinor: 1200000,
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.text('2 saved salaries loaded · 2 shown'), findsOneWidget);
+    expect(find.textContaining('Teacher Ali'), findsOneWidget);
+    expect(find.textContaining('Teacher Bilal'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failed salary server request leaves a visible error and retry',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: FinancePaySalaryTab(
+        repository: _FailedSalaryRepository(),
+      )),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('salary_server_view_version')), findsOneWidget);
+    expect(find.text('Unable to load saved salary bills'), findsOneWidget);
+    expect(find.byKey(const Key('finance_salary_retry')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('pay salary list shows generated bills and keeps one stream while filtering',
       (tester) async {
     final repository = _FinanceTestRepository();
