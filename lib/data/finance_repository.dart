@@ -661,6 +661,34 @@ class FinanceRepository {
     );
   }
 
+  /// Stored as scheduling preferences only. Actual automation requires
+  /// a deployed trusted Cloud Scheduler / Firebase Functions worker.
+  Future<Map<String, int>> loadGenerationDays() async {
+    final snap = await _db.collection('finance_generation_settings')
+        .get(const GetOptions(source: Source.server));
+    return {
+      for (final doc in snap.docs)
+        doc.id: (doc.data()['scheduleDay'] as num?)?.toInt() ?? 1,
+    };
+  }
+
+  Future<void> saveGenerationDay({
+    required String category,
+    required int scheduleDay,
+  }) async {
+    if (!['tuition', 'transport', 'salary'].contains(category) ||
+        scheduleDay < 1 || scheduleDay > 27) {
+      throw ArgumentError('Choose a finance type and a day between 1 and 27.');
+    }
+    await _db.collection('finance_generation_settings').doc(category).set({
+      'category': category,
+      'scheduleDay': scheduleDay,
+      'automaticEnabled': false,
+      'updatedBy': _uid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<Map<String, dynamic>?> loadDashboardPreferences() async {
     final doc = await _db.collection('finance_dashboard_preferences')
         .doc(_uid).get(const GetOptions(source: Source.server));
