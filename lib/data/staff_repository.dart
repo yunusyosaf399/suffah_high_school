@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'class_subject_repository.dart';
 
 const staffTypes = <String, String>{
   'teacher': 'Teacher',
@@ -315,12 +316,14 @@ class TeacherAssignment {
     required this.subject,
     required this.active,
     this.className = '',
+    this.subjectId = '',
   });
 
   final String id;
   final String staffId;
   final String classId;
   final String subject;
+  final String subjectId;
   final bool active;
   final String className;
 
@@ -333,6 +336,7 @@ class TeacherAssignment {
       staffId: (data['staffId'] as String?) ?? '',
       classId: (data['classId'] as String?) ?? '',
       subject: (data['subject'] as String?) ?? '',
+      subjectId: (data['subjectId'] as String?) ?? '',
       active: data['active'] != false,
       className: (data['className'] as String?) ?? '',
     );
@@ -489,67 +493,125 @@ class StaffRepository {
     return [name, section].where((value) => value.isNotEmpty).join(' – ');
   }
 
+  /// Compatibility entrypoint: subjects must already exist in the class catalog.
   Future<void> assignTeacher({
     required String staffId,
     required String classId,
     required String subject,
   }) async {
-    final cleanSubject = subject.trim();
-    if (cleanSubject.isEmpty || cleanSubject.length > 60) {
-      throw ArgumentError('Enter a subject of 1 to 60 characters.');
+    final id = classSubjectId(subject);
+    if (id.isEmpty) throw ArgumentError('Choose a class subject.');
+    final doc = await _db.collection('classes').doc(classId)
+        .collection('subjects').doc(id).get();
+    if (!doc.exists) {
+      throw StateError('First create this subject under Classes → Subjects.');
     }
-    final assignmentId = teacherAssignmentId(staffId, classId, cleanSubject);
-    final assignmentRef = _db.collection('teacher_assignments').doc(assignmentId);
-    final staffRef = _db.collection('staff').doc(staffId);
-    final classRef = _db.collection('classes').doc(classId);
-    final classLinkRef = _db.collection('teacher_class_links')
-        .doc('${staffId}__${classId}');
+    await assignTeacherSubjects(
+      staffId: staffId,
+      subjects: [ClassSubject.fromSnapshot(doc)],
+    );
+  }
 
-    await _db.runTransaction((transaction) async {
-      final staffSnapshot = await transaction.get(staffRef);
-      final classSnapshot = await transaction.get(classRef);
-      final existing = await transaction.get(assignmentRef);
-      final classLinkSnapshot = await transaction.get(classLinkRef);
-      if (!staffSnapshot.exists ||
-          staffSnapshot.data()?['active'] != true ||
+  /// Assign up to six subjects across any classes in one atomic transaction.
+  /// All subject identities are checked against active class catalogs on server.
+  Future<void> assignTeacherSubjects({
+    required String staffId,
+    required List<ClassSubject> subjects,
+  }) async {
+    if (staffId.isEmpty || staffId.contains('/') ||
+        subjects.isEmpty || subjects.length > 6) {
+      throw ArgumentError('Select 1–6 class subjects per save.');
+    }
+    final unique = <String>{};
+    for (final subject in subjects) {
+      if (!subject.active || subject.classId.isEmpty ||
+          subject.classId.contains('/') || subject.id.isEmpty ||
+          subject.id.contains('/') || subject.name.trim().isEmpty ||
+          subject.id != classSubjectId(subject.name) ||
+          !unique.add('${subject.classId}/${subject.id}')) {
+        throw ArgumentError('Select different active subjects from the class catalog.');
+      }
+    }
+    final classIds = subjects.map((item) => item.classId).toSet();
+    await _db.runTransaction((tx) async {
+      final staffRef = _db.collection('staff').doc(staffId);
+      final staffSnapshot = await tx.get(staffRef);
+      if (staffSnapshot.data()?['active'] != true ||
           staffSnapshot.data()?['roleType'] != 'teacher') {
-        throw StateError('Choose an active teaching staff member.');
+        throw StateError('Select an active teacher.');
       }
-      if (!classSnapshot.exists || classSnapshot.data()?['active'] != true) {
-        throw StateError('Choose an active class and section.');
+
+      final classes = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      final links = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final classId in classIds) {
+        classes[classId] = await tx.get(_db.collection('classes').doc(classId));
+        links[classId] = await tx.get(_db.collection('teacher_class_links')
+            .doc('${staffId}__${classId}'));
       }
-      if (existing.exists && existing.data()?['active'] != false) {
-        throw StateError('This teacher already teaches that subject here.');
+
+      final assignments = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final subject in subjects) {
+        final catalog = await tx.get(_db.collection('classes').doc(subject.classId)
+            .collection('subjects').doc(subject.id));
+        if (catalog.data()?['active'] != true ||
+            catalog.data()?['name'] != subject.name) {
+          throw StateError('A selected class subject has changed or is archived.');
+        }
+        final id = teacherAssignmentId(staffId, subject.classId, subject.name);
+        assignments[id] = await tx.get(
+          _db.collection('teacher_assignments').doc(id));
       }
-      final className = _classLabel(classSnapshot.data() ?? {});
-      final linkedIds = (classLinkSnapshot.data()?['assignmentIds'] as List<dynamic>? ?? [])
-          .map((value) => value.toString()).toSet();
-      linkedIds.add(assignmentId);
-      transaction.set(classLinkRef, {
-        'staffId': staffId,
-        'classId': classId,
-        'className': className,
-        'assignmentIds': linkedIds.toList(),
-        'active': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      if (existing.exists) {
-        transaction.update(assignmentRef, {
-          'active': true,
-          'subject': cleanSubject,
-          'className': className,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      } else {
-        transaction.set(assignmentRef, {
+
+      for (final classId in classIds) {
+        if (classes[classId]?.data()?['active'] != true) {
+          throw StateError('Only active classes can receive teachers.');
+        }
+      }
+      for (final subject in subjects) {
+        final id = teacherAssignmentId(staffId, subject.classId, subject.name);
+        if (assignments[id]!.data()?['active'] == true) {
+          throw StateError('${subject.name} is already assigned to this teacher in this class.');
+        }
+      }
+
+      // Commit all the chosen subject links and each affected class index.
+      for (final classId in classIds) {
+        final ids = (links[classId]?.data()?['assignmentIds']
+            as List<dynamic>? ?? []).map((item) => item.toString()).toSet();
+        for (final subject in subjects.where((s) => s.classId == classId)) {
+          ids.add(teacherAssignmentId(staffId, classId, subject.name));
+        }
+        tx.set(_db.collection('teacher_class_links')
+            .doc('${staffId}__${classId}'), {
           'staffId': staffId,
           'classId': classId,
-          'className': className,
-          'subject': cleanSubject,
+          'className': _classLabel(classes[classId]!.data() ?? {}),
+          'assignmentIds': ids.toList(),
           'active': true,
-          'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+        }, SetOptions(merge: true));
+      }
+
+      for (final subject in subjects) {
+        final id = teacherAssignmentId(staffId, subject.classId, subject.name);
+        final doc = _db.collection('teacher_assignments').doc(id);
+        final fields = <String, dynamic>{
+          'subjectId': subject.id,
+          'className': _classLabel(classes[subject.classId]!.data() ?? {}),
+          'active': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        if (assignments[id]!.exists) {
+          tx.update(doc, fields);
+        } else {
+          tx.set(doc, {
+            ...fields,
+            'staffId': staffId,
+            'classId': subject.classId,
+            'subject': subject.name,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        }
       }
     });
   }
