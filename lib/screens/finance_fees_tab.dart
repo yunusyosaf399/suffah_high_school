@@ -33,71 +33,22 @@ class _FinanceFeeSetupTabState extends State<FinanceFeeSetupTab> {
       financeSnack(context, 'Create a class first.');
       return;
     }
-    final key = GlobalKey<FormState>();
-    final amount = TextEditingController();
-    var classId = widget.scope.classes.first.id;
-    var busy = false;
+    Map<String, Map<String, dynamic>> currentRates;
+    try {
+      currentRates = (await _rates)[0];
+    } catch (error) {
+      if (mounted) financeSnack(context, schoolErrorMessage(error));
+      return;
+    }
+    if (!mounted) return;
     final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
-          title: const Text('Monthly tuition fee setup'),
-          content: SizedBox(width: 450, child: Form(
-            key: key,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('Tuition is fixed per class. Only the owner may '
-                  'change the class rate. New rates apply to future generation; '
-                  'previously generated bills are not altered.',
-                style: TextStyle(fontSize: 12)),
-              const SizedBox(height: 15),
-              DropdownButtonFormField<String>(
-                key: const Key('finance_tuition_class'),
-                initialValue: classId,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Class / section'),
-                items: [
-                  for (final schoolClass in widget.scope.classes)
-                    DropdownMenuItem(
-                      value: schoolClass.id,
-                      child: Text(schoolClass.label)),
-                ],
-                onChanged: busy ? null : (value) {
-                  if (value != null) update(() => classId = value);
-                }),
-              const SizedBox(height: 14),
-              FinanceAmountField(
-                controller: amount, label: 'Fixed tuition per month'),
-            ]),
-          )),
-          actions: [
-            TextButton(
-              onPressed: busy ? null : () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-            FilledButton(
-              key: const Key('save_tuition_rate'),
-              onPressed: busy ? null : () async {
-                if (!key.currentState!.validate()) return;
-                update(() => busy = true);
-                try {
-                  final schoolClass = widget.scope.classes
-                      .firstWhere((c) => c.id == classId);
-                  await widget.repository.setTuition(
-                    schoolClass: schoolClass,
-                    amountMinor: financeOptionalAmount(amount.text));
-                  if (context.mounted) Navigator.pop(context, true);
-                } catch (error) {
-                  if (context.mounted) {
-                    financeSnack(context, schoolErrorMessage(error));
-                    update(() => busy = false);
-                  }
-                }
-              },
-              child: Text(busy ? 'Saving…' : 'Apply tuition')),
-          ],
-        ),
+      builder: (_) => _FinanceTuitionDialog(
+        scope: widget.scope,
+        repository: widget.repository,
+        rates: currentRates,
       ),
     );
-    amount.dispose();
     if (saved == true && mounted) {
       setState(() { _rates = _load(); });
       financeSnack(context, 'Monthly tuition rate saved for the class.');
@@ -105,77 +56,13 @@ class _FinanceFeeSetupTabState extends State<FinanceFeeSetupTab> {
   }
 
   Future<void> _transportDialog() async {
-    final key = GlobalKey<FormState>();
-    final amount = TextEditingController();
-    List<StudentRecord> selected = [];
-    var busy = false;
     final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
-          title: const Text('Monthly transport fee setup'),
-          content: SizedBox(width: 450, child: Form(
-            key: key, child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Each student may have a different transport fee. '
-                    'Select one, several, a class or every student, then apply '
-                    'the same amount to only those selected.',
-                  style: TextStyle(fontSize: 12)),
-                const SizedBox(height: 15),
-                OutlinedButton.icon(
-                  key: const Key('select_transport_students'),
-                  onPressed: busy ? null : () async {
-                    final next = await pickFinanceStudents(context, widget.scope);
-                    if (next != null) update(() => selected = next);
-                  },
-                  icon: const Icon(Icons.groups_outlined),
-                  label: Text(selected.isEmpty
-                      ? 'Choose students' : '${selected.length} students selected'),
-                ),
-                const SizedBox(height: 14),
-                FinanceAmountField(
-                  controller: amount,
-                  label: 'Individual monthly transport fee',
-                  optional: true),
-                const SizedBox(height: 8),
-                const Text('Enter 0 to stop future monthly transport charges '
-                    'for the selected students. Existing generated bills remain unchanged.',
-                  style: TextStyle(fontSize: 11)),
-              ],
-            ),
-          )),
-          actions: [
-            TextButton(onPressed: busy ? null : () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-            FilledButton(
-              key: const Key('save_transport_rates'),
-              onPressed: busy ? null : () async {
-                if (!key.currentState!.validate()) return;
-                if (selected.isEmpty) {
-                  financeSnack(context, 'Select at least one student.');
-                  return;
-                }
-                update(() => busy = true);
-                try {
-                  await widget.repository.setTransport(
-                    students: selected,
-                    classes: widget.scope.classesById,
-                    amountMinor: financeMinorUnits(amount.text));
-                  if (context.mounted) Navigator.pop(context, true);
-                } catch (error) {
-                  if (context.mounted) {
-                    financeSnack(context, schoolErrorMessage(error));
-                    update(() => busy = false);
-                  }
-                }
-              },
-              child: Text(busy ? 'Applying…' : 'Apply transport fee')),
-          ],
-        ),
+      builder: (_) => _FinanceTransportDialog(
+        scope: widget.scope,
+        repository: widget.repository,
       ),
     );
-    amount.dispose();
     if (saved == true && mounted) {
       setState(() { _rates = _load(); });
       financeSnack(context, 'Individual transport rates saved.');
@@ -832,4 +719,225 @@ class _FinancePaymentDialogState extends State<FinancePaymentDialog> {
       ],
     );
   }
+}
+
+/// Dialog widgets own their controllers for the entire Navigator route lifetime.
+/// Disposing a controller immediately after showDialog completes is too early:
+/// Flutter still animates and unmounts the departing dialog after pop().
+class _FinanceTuitionDialog extends StatefulWidget {
+  const _FinanceTuitionDialog({
+    required this.scope,
+    required this.repository,
+    required this.rates,
+  });
+
+  final FinanceScope scope;
+  final FinanceRepository repository;
+  final Map<String, Map<String, dynamic>> rates;
+
+  @override
+  State<_FinanceTuitionDialog> createState() => _FinanceTuitionDialogState();
+}
+
+class _FinanceTuitionDialogState extends State<_FinanceTuitionDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  late String _classId = widget.scope.classes.first.id;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fillClassRate();
+  }
+
+  void _fillClassRate() {
+    final minor = (widget.rates[_classId]?['amountMinor'] as num?)?.toInt();
+    _amount.text = minor == null ? '' :
+      '${minor ~/ 100}.${(minor % 100).toString().padLeft(2, '0')}';
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  Future<void> _apply() async {
+    if (!_formKey.currentState!.validate() || _saving) return;
+    setState(() => _saving = true);
+    try {
+      await widget.repository.setTuition(
+        schoolClass: widget.scope.classes.firstWhere((c) => c.id == _classId),
+        amountMinor: financeMinorUnits(_amount.text),
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      if (mounted) {
+        financeSnack(context, schoolErrorMessage(error));
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
+    title: const Text('Monthly tuition fee setup'),
+    content: SizedBox(
+      width: 450,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Tuition is fixed per class. Only the owner may change the '
+              'class rate. New rates apply to future generation; '
+              'previously generated bills are not altered.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 15),
+            DropdownButtonFormField<String>(
+              key: const Key('finance_tuition_class'),
+              initialValue: _classId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Class / section'),
+              items: [
+                for (final c in widget.scope.classes)
+                  DropdownMenuItem(value: c.id, child: Text(c.label)),
+              ],
+              onChanged: _saving ? null : (value) {
+                if (value == null) return;
+                setState(() {
+                  _classId = value;
+                  _fillClassRate();
+                });
+              },
+            ),
+            const SizedBox(height: 14),
+            FinanceAmountField(
+              controller: _amount, label: 'Fixed tuition per month'),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        key: const Key('save_tuition_rate'),
+        onPressed: _saving ? null : _apply,
+        child: Text(_saving ? 'Saving…' : 'Apply tuition'),
+      ),
+    ],
+  );
+}
+
+class _FinanceTransportDialog extends StatefulWidget {
+  const _FinanceTransportDialog({
+    required this.scope,
+    required this.repository,
+  });
+  final FinanceScope scope;
+  final FinanceRepository repository;
+
+  @override
+  State<_FinanceTransportDialog> createState() => _FinanceTransportDialogState();
+}
+
+class _FinanceTransportDialogState extends State<_FinanceTransportDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  List<StudentRecord> _selected = [];
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickStudents() async {
+    final selection = await pickFinanceStudents(context, widget.scope);
+    if (mounted && selection != null) {
+      setState(() => _selected = selection);
+    }
+  }
+
+  Future<void> _apply() async {
+    if (!_formKey.currentState!.validate() || _saving) return;
+    if (_selected.isEmpty) {
+      financeSnack(context, 'Select at least one student.');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await widget.repository.setTransport(
+        students: _selected,
+        classes: widget.scope.classesById,
+        amountMinor: financeOptionalAmount(_amount.text),
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      if (mounted) {
+        financeSnack(context, schoolErrorMessage(error));
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
+    title: const Text('Monthly transport fee setup'),
+    content: SizedBox(
+      width: 450,
+      child: Form(
+        key: _formKey,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text(
+            'Each student may have a different transport fee. Select one, '
+            'several, a class or every student. The amount applies only to '
+            'the chosen students.',
+            style: TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 15),
+          OutlinedButton.icon(
+            key: const Key('select_transport_students'),
+            onPressed: _saving ? null : _pickStudents,
+            icon: const Icon(Icons.groups_outlined),
+            label: Text(_selected.isEmpty
+              ? 'Choose students'
+              : '${_selected.length} students selected'),
+          ),
+          const SizedBox(height: 14),
+          FinanceAmountField(
+            controller: _amount,
+            label: 'Individual monthly transport fee',
+            optional: true,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Enter 0 to stop future monthly transport charges for the '
+            'selected students. Existing generated bills remain unchanged.',
+            style: TextStyle(fontSize: 11),
+          ),
+        ]),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        key: const Key('save_transport_rates'),
+        onPressed: _saving ? null : _apply,
+        child: Text(_saving ? 'Applying…' : 'Apply transport fee'),
+      ),
+    ],
+  );
 }
