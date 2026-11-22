@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "lib/**"
+      - "assets/**"
       - "android/**"
       - "test/**"
       - "pubspec.yaml"
@@ -48,6 +49,17 @@ jobs:
 
       - name: Fetch Dart packages
         run: flutter pub get
+
+      # GitHub stores only committed files. Until the image is committed,
+      # keep the existing icon and allow the test APK to build normally.
+      - name: Generate app launcher icons when provided
+        shell: bash
+        run: |
+          if [ -f assets/icon/app_icon.png ]; then
+            dart run flutter_launcher_icons
+          else
+            echo "::warning::Custom icon not found at assets/icon/app_icon.png. Existing launcher icon retained."
+          fi
 
       - name: Format Dart sources in CI
         run: dart format lib test
