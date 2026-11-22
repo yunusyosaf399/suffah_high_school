@@ -251,6 +251,8 @@ class FinanceGenerateTab extends StatefulWidget {
 }
 
 class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
+  late Future<Map<String, int>> _scheduleDays =
+      widget.repository.loadGenerationDays();
   String _month = financeMonth(DateTime.now());
   bool _tuition = true;
   bool _transport = false;
@@ -258,6 +260,87 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
   bool _recurringExpenses = false;
   bool _busy = false;
   String? _result;
+
+  Future<void> _editGenerationDay() async {
+    final prior = await _scheduleDays;
+    if (!mounted) return;
+    var category = 'tuition';
+    var day = prior[category] ?? 1;
+    var busy = false;
+    final success = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          scrollable: true,
+          title: const Text('Monthly generation day preference'),
+          content: SizedBox(width: 390, child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Save the preferred day (1–27). This does not '
+                  'automatically generate fees or salaries yet. '
+                  'Firebase scheduled Functions require Blaze billing.',
+                style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: category,
+                decoration: const InputDecoration(labelText: 'Finance type'),
+                items: const [
+                  DropdownMenuItem(value: 'tuition', child: Text('Tuition fees')),
+                  DropdownMenuItem(value: 'transport', child: Text('Transport fees')),
+                  DropdownMenuItem(value: 'salary', child: Text('Teacher salaries')),
+                ],
+                onChanged: busy ? null : (v) {
+                  if (v != null) update(() {
+                    category = v;
+                    day = prior[v] ?? 1;
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                key: ValueKey(category),
+                initialValue: day,
+                decoration: const InputDecoration(
+                  labelText: 'Preferred generation date'),
+                items: [
+                  for (var n = 1; n <= 27; n++)
+                    DropdownMenuItem(value: n, child: Text('Day $n')),
+                ],
+                onChanged: busy ? null : (v) {
+                  if (v != null) update(() => day = v);
+                },
+              ),
+            ],
+          )),
+          actions: [
+            TextButton(
+              onPressed: busy ? null : () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+            FilledButton(
+              onPressed: busy ? null : () async {
+                update(() => busy = true);
+                try {
+                  await widget.repository.saveGenerationDay(
+                    category: category, scheduleDay: day);
+                  if (context.mounted) Navigator.pop(context, true);
+                } catch (error) {
+                  if (context.mounted) {
+                    financeSnack(context, schoolErrorMessage(error));
+                    update(() => busy = false);
+                  }
+                }
+              },
+              child: Text(busy ? 'Saving…' : 'Save preference')),
+          ],
+        ),
+      ),
+    );
+    if (success == true && mounted) {
+      setState(() => _scheduleDays = widget.repository.loadGenerationDays());
+      financeSnack(context, 'Preferred generation day saved. '
+          'Automatic execution is still disabled.');
+    }
+  }
 
   Future<void> _generate() async {
     if (!_tuition && !_transport && !_salary && !_recurringExpenses) {
@@ -340,7 +423,16 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
       if (_result != null) Card(child: Padding(
         padding: const EdgeInsets.all(16),
         child: SelectableText(_result!))),
-      const SizedBox(height: 12),
+      const SizedBox(height: 16),
+      Card(child: ListTile(
+        leading: const Icon(Icons.edit_calendar_outlined),
+        title: const Text('Monthly schedule preferences'),
+        subtitle: const Text('Set a day from 1 to 27 for fees and salaries '
+            '(automatic execution not yet active)'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: _editGenerationDay,
+      )),
+      const SizedBox(height: 8),
       const Text('Automatic backend scheduling is not enabled. '
           'The saved monthly expense schedule dates are for a future '
           'Firebase Functions integration after billing is configured.',
