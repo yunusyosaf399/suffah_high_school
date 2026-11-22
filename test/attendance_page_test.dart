@@ -77,6 +77,10 @@ void main() {
     );
     expect(find.text('Aisha Khan'), findsOneWidget);
 
+    // Keep the chip above the persistent Save bar on compact viewports.
+    await tester.drag(find.byKey(const Key('attendance_scroll_view')),
+        const Offset(0, -170));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('mark_ST-2026-0002_absent')));
     await tester.pumpAndSettle();
     expect(find.text('Save attendance (1 changes)'), findsOneWidget);
