@@ -5,6 +5,7 @@ import '../data/class_subject_repository.dart';
 import '../data/school_repository.dart';
 import '../data/staff_repository.dart';
 import 'staff_registration_page.dart';
+import 'attendance_teacher_assignments_page.dart';
 
 typedef StaffSaveAction = Future<void> Function(StaffInput input, String? id);
 typedef TeacherAssignAction = Future<void> Function(
@@ -261,6 +262,23 @@ class _StaffPageState extends State<StaffPage>
                          },
                          icon: const Icon(Icons.library_books_outlined),
                          label: const Text('Assign classes & subjects'),
+                       ),
+                     ),
+                     const SizedBox(height: 8),
+                     SizedBox(
+                       width: double.infinity,
+                       child: OutlinedButton.icon(
+                         key: const Key('assign_profile_attendance'),
+                         onPressed: () {
+                           Navigator.pop(context);
+                           Navigator.of(this.context).push(
+                             MaterialPageRoute(builder: (_) =>
+                               AttendanceTeacherAssignmentsPage(
+                                 role: widget.role,
+                                 initialStaffId: staff.id)));
+                         },
+                         icon: const Icon(Icons.fact_check_outlined),
+                         label: const Text('Assign attendance class'),
                        ),
                      ),
                    ],
