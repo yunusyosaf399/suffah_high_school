@@ -462,22 +462,37 @@ class FinanceRepository {
       .snapshots()
       .map((s) => s.docs.map(FinanceBill.fromSnapshot).toList());
 
+  /// Reads the same collection written by generateSalaries(). A direct
+  /// server read provides a clear success/error result for salary payments
+  /// and never silently substitutes possibly stale cached balances.
+  Future<List<FinanceBill>> loadSalaryBills() async {
+    final snapshot = await salaryBills.limit(600)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+    return _sortedSalaryBills(
+      snapshot.docs.map(FinanceBill.fromSnapshot).toList(),
+    );
+  }
+
   /// Do not order the query by createdAt: legacy or partially migrated
   /// salary bills can lack that field and Firestore would silently omit them.
   /// Sort the small salary result set locally by month, then teacher.
   Stream<List<FinanceBill>> watchSalaryBills() => salaryBills
       .limit(600)
       .snapshots()
-      .map((snapshot) {
-        final bills = snapshot.docs.map(FinanceBill.fromSnapshot).toList();
-        bills.sort((a, b) {
-          final byMonth = b.month.compareTo(a.month);
-          return byMonth != 0
-              ? byMonth
-              : a.staffName.toLowerCase().compareTo(b.staffName.toLowerCase());
-        });
-        return bills;
-      });
+      .map((snapshot) => _sortedSalaryBills(
+        snapshot.docs.map(FinanceBill.fromSnapshot).toList(),
+      ));
+
+  static List<FinanceBill> _sortedSalaryBills(List<FinanceBill> bills) {
+    bills.sort((a, b) {
+      final byMonth = b.month.compareTo(a.month);
+      return byMonth != 0
+          ? byMonth
+          : a.staffName.toLowerCase().compareTo(b.staffName.toLowerCase());
+    });
+    return bills;
+  }
 
   Stream<List<FinanceBill>> watchRecurringBills() => recurringBills
       .orderBy('createdAt', descending: true)
