@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../data/school_errors.dart';
 import '../data/staff_repository.dart';
 import 'teacher_examinations_page.dart';
+import 'teacher_attendance_page.dart';
 
 class TeacherDashboard extends StatefulWidget {
   const TeacherDashboard({super.key, required this.displayName, required this.staffId});
@@ -125,6 +126,10 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                       Icons.menu_book_outlined,
                       () => _open(TeacherClassworkPage(
                         staffId: widget.staffId, kind: 'homework'))),
+                    _module('My class attendance', 'Mark your assigned class',
+                      Icons.fact_check_outlined,
+                      () => _open(TeacherAttendancePage(
+                        staffId: widget.staffId))),
 
                   ],
                 ),
