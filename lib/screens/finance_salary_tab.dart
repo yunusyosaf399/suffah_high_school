@@ -22,88 +22,22 @@ class _FinanceSalarySetupTabState extends State<FinanceSalarySetupTab> {
       widget.repository.loadSalaryRates();
 
   Future<void> _setup(StaffMember teacher) async {
-    final current = await _rates;
-    if (!mounted) return;
-    final data = current[teacher.id] ?? <String, dynamic>{};
-    final key = GlobalKey<FormState>();
-    String textMinor(dynamic amount) {
-      final x = (amount as num?)?.toInt() ?? 0;
-      if (x == 0) return '0';
-      return '${x ~/ 100}.${(x % 100).toString().padLeft(2, '0')}';
+    Map<String, Map<String, dynamic>> rates;
+    try {
+      rates = await _rates;
+    } catch (error) {
+      if (mounted) financeSnack(context, schoolErrorMessage(error));
+      return;
     }
-    final basic = TextEditingController(text: textMinor(data['basicMinor']));
-    final allowance = TextEditingController(text: textMinor(data['allowanceMinor']));
-    final bonus = TextEditingController(text: textMinor(data['bonusMinor']));
-    final notes = TextEditingController(text: (data['notes'] as String?) ?? '');
-    var busy = false;
+    if (!mounted) return;
     final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
-          scrollable: true,
-          title: Text('Salary setup · ${teacher.fullName}'),
-          content: SizedBox(width: 420, child: Form(
-            key: key, child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Define a teacher’s monthly salary. Changes affect '
-                    'only future generated salary records.',
-                  style: TextStyle(fontSize: 12)),
-                const SizedBox(height: 14),
-                FinanceAmountField(
-                  controller: basic, label: 'Basic monthly salary'),
-                const SizedBox(height: 12),
-                FinanceAmountField(
-                  controller: allowance, label: 'Monthly allowances',
-                  optional: true),
-                const SizedBox(height: 12),
-                FinanceAmountField(
-                  controller: bonus, label: 'Monthly bonus',
-                  optional: true),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: notes, maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Salary structure / notes')),
-                const SizedBox(height: 10),
-                Text('Total pay = basic + allowances + bonus',
-                  style: TextStyle(color: Theme.of(context).colorScheme.primary)),
-              ],
-            ),
-          )),
-          actions: [
-            TextButton(
-              onPressed: busy ? null : () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-            FilledButton(
-              key: const Key('save_salary_setup'),
-              onPressed: busy ? null : () async {
-                if (!key.currentState!.validate()) return;
-                update(() => busy = true);
-                try {
-                  await widget.repository.setSalary(
-                    teacher: teacher,
-                    basicMinor: financeMinorUnits(basic.text),
-                    allowanceMinor: financeOptionalAmount(allowance.text),
-                    bonusMinor: financeOptionalAmount(bonus.text),
-                    notes: notes.text);
-                  if (context.mounted) Navigator.pop(context, true);
-                } catch (error) {
-                  if (context.mounted) {
-                    financeSnack(context, schoolErrorMessage(error));
-                    update(() => busy = false);
-                  }
-                }
-              },
-              child: Text(busy ? 'Saving…' : 'Apply salary')),
-          ],
-        ),
+      builder: (_) => _FinanceSalarySetupDialog(
+        teacher: teacher,
+        repository: widget.repository,
+        rate: rates[teacher.id] ?? const {},
       ),
     );
-    basic.dispose();
-    allowance.dispose();
-    bonus.dispose();
-    notes.dispose();
     if (saved == true && mounted) {
       setState(() { _rates = widget.repository.loadSalaryRates(); });
       financeSnack(context, 'Monthly salary setup saved.');
@@ -257,4 +191,129 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
       },
     )),
   ]);
+}
+
+/// The salary form owns its controllers until its dialog route is disposed.
+class _FinanceSalarySetupDialog extends StatefulWidget {
+  const _FinanceSalarySetupDialog({
+    required this.teacher,
+    required this.repository,
+    required this.rate,
+  });
+  final StaffMember teacher;
+  final FinanceRepository repository;
+  final Map<String, dynamic> rate;
+
+  @override
+  State<_FinanceSalarySetupDialog> createState() => _FinanceSalarySetupDialogState();
+}
+
+class _FinanceSalarySetupDialogState extends State<_FinanceSalarySetupDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _basic;
+  late final TextEditingController _allowance;
+  late final TextEditingController _bonus;
+  late final TextEditingController _notes;
+  bool _saving = false;
+
+  String _minorText(dynamic amount) {
+    final minor = (amount as num?)?.toInt() ?? 0;
+    if (minor == 0) return '0';
+    return '${minor ~/ 100}.${(minor % 100).toString().padLeft(2, '0')}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _basic = TextEditingController(text: _minorText(widget.rate['basicMinor']));
+    _allowance = TextEditingController(text: _minorText(widget.rate['allowanceMinor']));
+    _bonus = TextEditingController(text: _minorText(widget.rate['bonusMinor']));
+    _notes = TextEditingController(text: (widget.rate['notes'] as String?) ?? '');
+  }
+
+  @override
+  void dispose() {
+    _basic.dispose();
+    _allowance.dispose();
+    _bonus.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  Future<void> _apply() async {
+    if (!_formKey.currentState!.validate() || _saving) return;
+    setState(() => _saving = true);
+    try {
+      await widget.repository.setSalary(
+        teacher: widget.teacher,
+        basicMinor: financeMinorUnits(_basic.text),
+        allowanceMinor: financeOptionalAmount(_allowance.text),
+        bonusMinor: financeOptionalAmount(_bonus.text),
+        notes: _notes.text,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      if (mounted) {
+        financeSnack(context, schoolErrorMessage(error));
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
+    title: Text('Salary setup · ${widget.teacher.fullName}'),
+    content: SizedBox(
+      width: 420,
+      child: Form(
+        key: _formKey,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text(
+            'Define a teacher’s monthly salary. Changes affect only '
+            'future generated salary records.',
+            style: TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          FinanceAmountField(controller: _basic, label: 'Basic monthly salary'),
+          const SizedBox(height: 12),
+          FinanceAmountField(
+            controller: _allowance,
+            label: 'Monthly allowances',
+            optional: true,
+          ),
+          const SizedBox(height: 12),
+          FinanceAmountField(
+            controller: _bonus,
+            label: 'Monthly bonus',
+            optional: true,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _notes,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Salary structure / notes',
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Total pay = basic + allowances + bonus',
+            style: TextStyle(color: Theme.of(context).colorScheme.primary),
+          ),
+        ]),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        key: const Key('save_salary_setup'),
+        onPressed: _saving ? null : _apply,
+        child: Text(_saving ? 'Saving…' : 'Apply salary'),
+      ),
+    ],
+  );
 }
