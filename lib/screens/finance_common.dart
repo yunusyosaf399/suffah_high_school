@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../data/finance_models.dart';
@@ -53,7 +55,7 @@ class _FinanceStudentPickerState extends State<FinanceStudentPicker> {
       contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
       content: SizedBox(
         width: 500,
-        height: 475,
+        height: math.min(420.0, MediaQuery.sizeOf(context).height * 0.56),
         child: Column(children: [
           DropdownButtonFormField<String>(
             key: const Key('finance_picker_class'),
@@ -144,7 +146,323 @@ Future<List<StudentRecord>?> pickFinanceStudents(
 String? financeValidateAmount(String? input, {bool allowZero = false}) {
   try {
     if (allowZero && (input == null || input.trim().isEmpty ||
-        input.trim() == '0')) return null;
+        RegExp(r'^0+(\.0{1,2})?
+    return null;
+  } catch (_) {
+    return allowZero
+        ? 'Enter 0 or a positive amount with up to two decimals.'
+        : 'Enter an amount greater than zero (e.g. 2000.00).';
+  }
+}
+
+int financeOptionalAmount(String input) =>
+    input.trim().isEmpty ||
+    RegExp(r'^0+(\.0{1,2})?
+
+class FinanceAmountField extends StatelessWidget {
+  const FinanceAmountField({
+    super.key,
+    required this.controller,
+    required this.label,
+    this.optional = false,
+  });
+  final TextEditingController controller;
+  final String label;
+  final bool optional;
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+    controller: controller,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(
+      labelText: label,
+      prefixText: 'Rs ',
+    ),
+    validator: (value) =>
+        financeValidateAmount(value, allowZero: optional),
+  );
+}
+
+class FinanceMonthSelector extends StatelessWidget {
+  const FinanceMonthSelector({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.label = 'Financial month',
+  });
+  final String value;
+  final ValueChanged<String> onChanged;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final options = [financeMonth(now), previousFinanceMonth(now)];
+    return DropdownButtonFormField<String>(
+      key: const Key('finance_month_selector'),
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      items: [
+        for (final month in options)
+          DropdownMenuItem(
+            value: month, child: Text(financeMonthLabel(month))),
+      ],
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+    );
+  }
+}
+
+class FinanceMethodSelector extends StatelessWidget {
+  const FinanceMethodSelector({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => DropdownButtonFormField<String>(
+    initialValue: value,
+    decoration: const InputDecoration(labelText: 'Payment method'),
+    items: [
+      for (final method in financePaymentMethods)
+        DropdownMenuItem(value: method, child: Text(method)),
+    ],
+    onChanged: (next) {
+      if (next != null) onChanged(next);
+    },
+  );
+}
+
+void financeSnack(BuildContext context, String message) {
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(message), duration: const Duration(seconds: 5)));
+}
+
+class FinanceEmpty extends StatelessWidget {
+  const FinanceEmpty(this.message, {super.key});
+  final String message;
+  @override
+  Widget build(BuildContext context) => Center(child: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Text(message, textAlign: TextAlign.center),
+  ));
+}
+).hasMatch(input.trim()))) {
+      return null;
+    }
+    financeMinorUnits(input ?? '');
+    return null;
+  } catch (_) {
+    return allowZero
+        ? 'Enter 0 or a positive amount with up to two decimals.'
+        : 'Enter an amount greater than zero (e.g. 2000.00).';
+  }
+}
+
+int financeOptionalAmount(String input) =>
+    input.trim().isEmpty || input.trim() == '0'
+        ? 0 : financeMinorUnits(input);
+
+class FinanceAmountField extends StatelessWidget {
+  const FinanceAmountField({
+    super.key,
+    required this.controller,
+    required this.label,
+    this.optional = false,
+  });
+  final TextEditingController controller;
+  final String label;
+  final bool optional;
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+    controller: controller,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(
+      labelText: label,
+      prefixText: 'Rs ',
+    ),
+    validator: (value) =>
+        financeValidateAmount(value, allowZero: optional),
+  );
+}
+
+class FinanceMonthSelector extends StatelessWidget {
+  const FinanceMonthSelector({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.label = 'Financial month',
+  });
+  final String value;
+  final ValueChanged<String> onChanged;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final options = [financeMonth(now), previousFinanceMonth(now)];
+    return DropdownButtonFormField<String>(
+      key: const Key('finance_month_selector'),
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      items: [
+        for (final month in options)
+          DropdownMenuItem(
+            value: month, child: Text(financeMonthLabel(month))),
+      ],
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+    );
+  }
+}
+
+class FinanceMethodSelector extends StatelessWidget {
+  const FinanceMethodSelector({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => DropdownButtonFormField<String>(
+    initialValue: value,
+    decoration: const InputDecoration(labelText: 'Payment method'),
+    items: [
+      for (final method in financePaymentMethods)
+        DropdownMenuItem(value: method, child: Text(method)),
+    ],
+    onChanged: (next) {
+      if (next != null) onChanged(next);
+    },
+  );
+}
+
+void financeSnack(BuildContext context, String message) {
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(message), duration: const Duration(seconds: 5)));
+}
+
+class FinanceEmpty extends StatelessWidget {
+  const FinanceEmpty(this.message, {super.key});
+  final String message;
+  @override
+  Widget build(BuildContext context) => Center(child: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Text(message, textAlign: TextAlign.center),
+  ));
+}
+).hasMatch(input.trim())
+        ? 0 : financeMinorUnits(input);
+
+class FinanceAmountField extends StatelessWidget {
+  const FinanceAmountField({
+    super.key,
+    required this.controller,
+    required this.label,
+    this.optional = false,
+  });
+  final TextEditingController controller;
+  final String label;
+  final bool optional;
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+    controller: controller,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(
+      labelText: label,
+      prefixText: 'Rs ',
+    ),
+    validator: (value) =>
+        financeValidateAmount(value, allowZero: optional),
+  );
+}
+
+class FinanceMonthSelector extends StatelessWidget {
+  const FinanceMonthSelector({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.label = 'Financial month',
+  });
+  final String value;
+  final ValueChanged<String> onChanged;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final options = [financeMonth(now), previousFinanceMonth(now)];
+    return DropdownButtonFormField<String>(
+      key: const Key('finance_month_selector'),
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      items: [
+        for (final month in options)
+          DropdownMenuItem(
+            value: month, child: Text(financeMonthLabel(month))),
+      ],
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+    );
+  }
+}
+
+class FinanceMethodSelector extends StatelessWidget {
+  const FinanceMethodSelector({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => DropdownButtonFormField<String>(
+    initialValue: value,
+    decoration: const InputDecoration(labelText: 'Payment method'),
+    items: [
+      for (final method in financePaymentMethods)
+        DropdownMenuItem(value: method, child: Text(method)),
+    ],
+    onChanged: (next) {
+      if (next != null) onChanged(next);
+    },
+  );
+}
+
+void financeSnack(BuildContext context, String message) {
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(message), duration: const Duration(seconds: 5)));
+}
+
+class FinanceEmpty extends StatelessWidget {
+  const FinanceEmpty(this.message, {super.key});
+  final String message;
+  @override
+  Widget build(BuildContext context) => Center(child: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Text(message, textAlign: TextAlign.center),
+  ));
+}
+).hasMatch(input.trim()))) {
+      return null;
+    }
     financeMinorUnits(input ?? '');
     return null;
   } catch (_) {
