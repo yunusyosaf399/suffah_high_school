@@ -27,8 +27,15 @@ class FinancePage extends StatefulWidget {
 class _FinancePageState extends State<FinancePage>
     with SingleTickerProviderStateMixin {
   late final _repo = widget.repository ?? FinanceRepository();
-  late final TabController _tabs = TabController(length: 8, vsync: this);
+  late final TabController _tabs;
   late Future<FinanceScope> _scope = _load();
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize before build, including for roles that have no finance access.
+    _tabs = TabController(length: 8, vsync: this);
+  }
 
   bool get _canManage => widget.role == 'owner' || widget.role == 'principal';
 
