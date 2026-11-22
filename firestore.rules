@@ -64,12 +64,23 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/classes/$(classId)).data.active == true;
     }
 
+    function validClassSubject(classId, subjectId, subjectName) {
+      return exists(/databases/$(database)/documents/classes/$(classId)/subjects/$(subjectId))
+        && get(/databases/$(database)/documents/classes/$(classId)/subjects/$(subjectId)).data.active == true
+        && get(/databases/$(database)/documents/classes/$(classId)/subjects/$(subjectId)).data.name == subjectName;
+    }
+
     function activeTeacherAssignment(assignmentId, staffId, classId, subject) {
       return exists(/databases/$(database)/documents/teacher_assignments/$(assignmentId))
         && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.active == true
         && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.staffId == staffId
         && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.classId == classId
         && get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.subject == subject
+        && (
+          get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.get('subjectId', '') == ''
+          || validClassSubject(classId,
+            get(/databases/$(database)/documents/teacher_assignments/$(assignmentId)).data.subjectId, subject)
+        )
         && exists(/databases/$(database)/documents/classes/$(classId))
         && get(/databases/$(database)/documents/classes/$(classId)).data.active == true
         && isLinkedTeacher(staffId);
@@ -110,6 +121,37 @@ service cloud.firestore {
 
     match /classes/{classId} {
       allow read, create, update: if canManageAdmissions();
+      allow delete: if false;
+    }
+
+    // Owner-managed subject catalog, distinct for each class and section.
+    match /classes/{classId}/subjects/{subjectId} {
+      allow get, list: if canManageAdmissions();
+      allow create: if canManageAdmissions()
+        && exists(/databases/$(database)/documents/classes/$(classId))
+        && get(/databases/$(database)/documents/classes/$(classId)).data.active == true
+        && request.resource.data.classId == classId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 60
+        && request.resource.data.nameKey is string
+        && request.resource.data.code is string
+        && request.resource.data.description is string
+        && request.resource.data.weeklyPeriods is int
+        && request.resource.data.weeklyPeriods >= 0
+        && request.resource.data.weeklyPeriods <= 30
+        && request.resource.data.active == true;
+      allow update: if canManageAdmissions()
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.nameKey == resource.data.nameKey
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.code is string
+        && request.resource.data.description is string
+        && request.resource.data.weeklyPeriods is int
+        && request.resource.data.weeklyPeriods >= 0
+        && request.resource.data.weeklyPeriods <= 30
+        && request.resource.data.active is bool;
       allow delete: if false;
     }
 
@@ -213,6 +255,9 @@ service cloud.firestore {
         && request.resource.data.staffId is string
         && request.resource.data.classId is string
         && request.resource.data.subject is string
+        && request.resource.data.subjectId is string
+        && validClassSubject(request.resource.data.classId,
+          request.resource.data.subjectId, request.resource.data.subject)
         && request.resource.data.className is string
         && request.resource.data.active == true
         && exists(/databases/$(database)/documents/staff/$(request.resource.data.staffId))
@@ -224,6 +269,7 @@ service cloud.firestore {
         && request.resource.data.staffId == resource.data.staffId
         && request.resource.data.classId == resource.data.classId
         && request.resource.data.subject == resource.data.subject
+        && request.resource.data.get('subjectId', '') == resource.data.get('subjectId', '')
         && request.resource.data.className is string
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.active is bool
@@ -235,6 +281,8 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/staff/$(resource.data.staffId)).data.active == true
             && get(/databases/$(database)/documents/staff/$(resource.data.staffId)).data.roleType == 'teacher'
             && get(/databases/$(database)/documents/classes/$(resource.data.classId)).data.active == true
+            && (resource.data.get('subjectId', '') == ''
+              || validClassSubject(resource.data.classId, resource.data.subjectId, resource.data.subject))
           )
         );
       allow delete: if false;
@@ -355,50 +403,11 @@ service cloud.firestore {
       }
     }
 
-    // Payroll documents are owner/principal managed; a teacher can read only
-    // their own salary details and receipts through the linked staff ID.
+    // Payroll redesign is deferred. Preserve historical documents privately,
+    // but block new financial records and disable teacher access meanwhile.
     match /payroll_records/{payrollId} {
-      allow get, list: if canManageAdmissions()
-        || isLinkedTeacher(resource.data.staffId);
-      allow create: if canManageAdmissions()
-        && request.resource.data.staffId is string
-        && exists(/databases/$(database)/documents/staff/$(request.resource.data.staffId))
-        && get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.active == true
-        && request.resource.data.staffNo
-          == get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.staffNo
-        && request.resource.data.staffName
-          == get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.fullName
-        && request.resource.data.receiptNo is string
-        && request.resource.data.period is string
-        && request.resource.data.basicSalary is number
-        && request.resource.data.allowances is number
-        && request.resource.data.deductions is number
-        && request.resource.data.netSalary is number
-        && request.resource.data.basicSalary >= 0
-        && request.resource.data.allowances >= 0
-        && request.resource.data.deductions >= 0
-        && request.resource.data.deductions
-          <= request.resource.data.basicSalary + request.resource.data.allowances
-        && request.resource.data.netSalary
-          == request.resource.data.basicSalary + request.resource.data.allowances - request.resource.data.deductions
-        && request.resource.data.status in ['paid', 'unpaid']
-        && request.resource.data.paidAt is string
-        && request.resource.data.paymentMethod is string;
-      allow update: if canManageAdmissions()
-        && request.resource.data.staffId == resource.data.staffId
-        && request.resource.data.staffNo == resource.data.staffNo
-        && request.resource.data.staffName == resource.data.staffName
-        && request.resource.data.receiptNo == resource.data.receiptNo
-        && request.resource.data.period == resource.data.period
-        && request.resource.data.basicSalary == resource.data.basicSalary
-        && request.resource.data.allowances == resource.data.allowances
-        && request.resource.data.deductions == resource.data.deductions
-        && request.resource.data.netSalary == resource.data.netSalary
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.status in ['paid', 'unpaid']
-        && request.resource.data.paidAt is string
-        && request.resource.data.paymentMethod is string;
-      allow delete: if false;
+      allow get, list: if canManageAdmissions();
+      allow create, update, delete: if false;
     }
 
     // Everything else stays inaccessible until role-specific modules are
