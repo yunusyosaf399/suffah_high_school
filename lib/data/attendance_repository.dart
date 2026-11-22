@@ -122,15 +122,44 @@ class AttendanceRepository {
     return roster;
   }
 
+  /// Teachers receive only the safe name/roll-number projection.
+  /// Guardian contacts, addresses and other student details are not read.
+  Future<List<StudentRecord>> loadSafeRoster(String classId) async {
+    if (classId.isEmpty || classId.contains('/')) {
+      throw ArgumentError('Select a valid class.');
+    }
+    final snap = await _db.collection('class_rosters').doc(classId)
+        .collection('students')
+        .where('active', isEqualTo: true)
+        .limit(1000)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+    final roster = snap.docs.map(StudentRecord.fromSnapshot).toList();
+    roster.sort((a, b) {
+      final aRoll = int.tryParse(a.rollNo);
+      final bRoll = int.tryParse(b.rollNo);
+      if (aRoll != null && bRoll != null && aRoll != bRoll) {
+        return aRoll.compareTo(bRoll);
+      }
+      if (aRoll != null && bRoll == null) return -1;
+      if (aRoll == null && bRoll != null) return 1;
+      return a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase());
+    });
+    return roster;
+  }
+
   Future<Map<String, String>> loadMarks(
     String classId,
-    DateTime date,
-  ) async {
+    DateTime date, {
+    bool forAttendanceTeacher = false,
+  }) async {
     final id = attendanceDayId(classId, date);
-    final snap = await _db
-        .collection('attendance_days')
-        .doc(id)
-        .collection('marks')
+    final marksQuery = _db.collection('attendance_days').doc(id)
+        .collection('marks');
+    // The class filter lets Firestore prove the teacher's permitted scope.
+    final snap = await (forAttendanceTeacher
+        ? marksQuery.where('classId', isEqualTo: classId)
+        : marksQuery)
         .get(const GetOptions(source: Source.server))
         .timeout(const Duration(seconds: 20));
     return {
@@ -149,6 +178,7 @@ class AttendanceRepository {
     required String classId,
     required DateTime date,
     required Map<String, String> changes,
+    bool forAttendanceTeacher = false,
   }) async {
     if (changes.isEmpty) return;
     final now = DateTime.now();
@@ -173,7 +203,9 @@ class AttendanceRepository {
         .collection('attendance_days')
         .doc(attendanceDayId(classId, date));
     final entries = changes.entries.toList();
-    const batchSize = 400;
+    // Teacher writes check each student's safe roster record in Rules.
+    // Keep these batches small to respect Firestore's per-batch read limits.
+    final batchSize = forAttendanceTeacher ? 8 : 400;
 
     for (var start = 0; start < entries.length; start += batchSize) {
       final end = start + batchSize < entries.length
