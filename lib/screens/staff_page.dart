@@ -691,35 +691,68 @@ class _AssignTeacherDialog extends StatefulWidget {
   const _AssignTeacherDialog({
     required this.teachers,
     required this.classes,
+    required this.subjectsForClass,
     required this.onSave,
+    this.initialStaffId,
   });
+
   final List<StaffMember> teachers;
   final List<SchoolClass> classes;
-  final TeacherAssignAction onSave;
+  final String? initialStaffId;
+  final Stream<List<ClassSubject>> Function(String classId) subjectsForClass;
+  final Future<void> Function(String staffId, List<ClassSubject> subjects) onSave;
 
   @override
   State<_AssignTeacherDialog> createState() => _AssignTeacherDialogState();
 }
 
 class _AssignTeacherDialogState extends State<_AssignTeacherDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _subject = TextEditingController();
-  late String _staffId = widget.teachers.first.id;
+  late String _staffId = widget.initialStaffId ?? widget.teachers.first.id;
   late String _classId = widget.classes.first.id;
+  late Stream<List<ClassSubject>> _subjects;
+  final _picked = <String, ClassSubject>{};
   bool _saving = false;
   String? _error;
 
   @override
-  void dispose() {
-    _subject.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _subjects = widget.subjectsForClass(_classId);
+  }
+
+  void _chooseClass(String value) {
+    setState(() {
+      _classId = value;
+      _subjects = widget.subjectsForClass(value);
+      _error = null;
+    });
+  }
+
+  void _toggleSubject(ClassSubject subject, bool checked) {
+    final key = '${subject.classId}/${subject.id}';
+    setState(() {
+      if (checked && _picked.length >= 6 && !_picked.containsKey(key)) {
+        _error = 'Save these six selections before adding more.';
+      } else {
+        if (checked) {
+          _picked[key] = subject;
+        } else {
+          _picked.remove(key);
+        }
+        _error = null;
+      }
+    });
   }
 
   Future<void> _save() async {
-    if (_saving || !_formKey.currentState!.validate()) return;
+    if (_saving) return;
+    if (_picked.isEmpty) {
+      setState(() => _error = 'Select at least one class subject.');
+      return;
+    }
     setState(() { _saving = true; _error = null; });
     try {
-      await widget.onSave(_staffId, _classId, _subject.text.trim());
+      await widget.onSave(_staffId, _picked.values.toList());
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (mounted) setState(() => _error = schoolErrorMessage(error));
@@ -731,70 +764,103 @@ class _AssignTeacherDialogState extends State<_AssignTeacherDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
-    title: const Text('Assign teacher', style: TextStyle(fontSize: 17)),
+    title: const Text('Assign classes & subjects'),
     content: SizedBox(
-      width: 420,
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DropdownButtonFormField<String>(
-              initialValue: _staffId,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Teacher *'),
-              items: widget.teachers.map((staff) =>
-                  DropdownMenuItem(
-                    value: staff.id, child: Text(staff.fullName))).toList(),
-              onChanged: _saving ? null : (value) {
-                if (value != null) setState(() => _staffId = value);
-              },
-            ),
-            const SizedBox(height: 13),
-            DropdownButtonFormField<String>(
-              initialValue: _classId,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Class & section *'),
-              items: widget.classes.map((item) =>
-                  DropdownMenuItem(
-                    value: item.id, child: Text(item.label))).toList(),
-              onChanged: _saving ? null : (value) {
-                if (value != null) setState(() => _classId = value);
-              },
-            ),
-            const SizedBox(height: 13),
-            TextFormField(
-              controller: _subject,
-              maxLength: 60,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Subject *', hintText: 'e.g. Mathematics'),
-              validator: (value) => value == null || value.trim().isEmpty
-                  ? 'Enter the teaching subject' : null,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'The same teacher may teach multiple subjects or classes. '
-              'An existing assignment cannot be duplicated.',
-              style: TextStyle(fontSize: 11),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: TextStyle(fontSize: 12,
-                color: Theme.of(context).colorScheme.error)),
-            ],
-          ],
-        ),
+      width: 430,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DropdownButtonFormField<String>(
+            key: const Key('assignment_teacher_field'),
+            initialValue: _staffId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Teacher *'),
+            items: widget.teachers.map((staff) => DropdownMenuItem(
+              value: staff.id, child: Text(staff.fullName))).toList(),
+            onChanged: _saving ? null : (value) {
+              if (value != null) setState(() => _staffId = value);
+            }),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            key: ValueKey('assignment_class_${_classId}'),
+            initialValue: _classId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Class & section *'),
+            items: widget.classes.map((schoolClass) => DropdownMenuItem(
+              value: schoolClass.id, child: Text(schoolClass.label))).toList(),
+            onChanged: _saving ? null : (value) {
+              if (value != null) _chooseClass(value);
+            }),
+          const SizedBox(height: 12),
+          const Text('Choose subjects from this class:',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+          StreamBuilder<List<ClassSubject>>(
+            stream: _subjects,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text(schoolErrorMessage(snapshot.error!));
+              }
+              if (!snapshot.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Center(child: CircularProgressIndicator()));
+              }
+              final items = snapshot.data!.where((subject) => subject.active).toList();
+              if (items.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('No active subjects. Add subjects under Classes first.'));
+              }
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: items.map((subject) => CheckboxListTile(
+                  key: Key('pick_subject_${subject.classId}_${subject.id}'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(subject.name),
+                  subtitle: subject.code.isEmpty ? null : Text(subject.code),
+                  value: _picked.containsKey('${subject.classId}/${subject.id}'),
+                  onChanged: _saving ? null :
+                    (checked) => _toggleSubject(subject, checked == true),
+                )).toList(),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          Text('Selected across classes: ${_picked.length}/6',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+          if (_picked.isNotEmpty) Wrap(
+            spacing: 5,
+            children: _picked.values.map((subject) {
+              final schoolClass = widget.classes.firstWhere(
+                (item) => item.id == subject.classId);
+              return InputChip(
+                label: Text('${schoolClass.label}: ${subject.name}',
+                  style: const TextStyle(fontSize: 11)),
+                onDeleted: _saving ? null :
+                  () => _toggleSubject(subject, false),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 7),
+          const Text('Select subjects here, switch class to select more, '
+            'then save them together.', style: TextStyle(fontSize: 11)),
+          if (_error != null) Padding(
+            padding: const EdgeInsets.only(top: 9),
+            child: Text(_error!, style: TextStyle(
+              fontSize: 12, color: Theme.of(context).colorScheme.error))),
+        ],
       ),
     ),
     actions: [
-      TextButton(
-        onPressed: _saving ? null : () => Navigator.pop(context, false),
+      TextButton(onPressed: _saving ? null : () => Navigator.pop(context, false),
         child: const Text('Cancel')),
       FilledButton(
+        key: const Key('save_teacher_subjects'),
         onPressed: _saving ? null : _save,
-        child: Text(_saving ? 'Saving…' : 'Save assignment')),
+        child: Text(_saving ? 'Saving…' : 'Save assignments')),
     ],
   );
 }
