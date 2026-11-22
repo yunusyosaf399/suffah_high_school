@@ -99,7 +99,7 @@ class FinancePaySalaryTab extends StatefulWidget {
 }
 
 class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
-  late Stream<List<FinanceBill>> _salaryStream;
+  late Future<List<FinanceBill>> _salaryRequest;
   double _horizontalSwipeDistance = 0;
   String _query = '';
   bool _includePaid = false;
@@ -107,15 +107,21 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
   @override
   void initState() {
     super.initState();
-    _salaryStream = widget.repository.watchSalaryBills();
+    _salaryRequest = widget.repository.loadSalaryBills();
   }
 
   @override
   void didUpdateWidget(covariant FinancePaySalaryTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.repository != widget.repository) {
-      _salaryStream = widget.repository.watchSalaryBills();
+      _salaryRequest = widget.repository.loadSalaryBills();
     }
+  }
+
+  void _refreshBills() {
+    setState(() {
+      _salaryRequest = widget.repository.loadSalaryBills();
+    });
   }
 
   Future<void> _pay(FinanceBill bill) async {
@@ -137,6 +143,7 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
     );
     if (receipt != null && mounted) {
       financeSnack(context, 'Salary payment saved. Debit receipt: $receipt');
+      _refreshBills();
     }
   }
 
@@ -177,9 +184,7 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
           IconButton(
             key: const Key('finance_refresh_salaries'),
             tooltip: 'Reload generated salary bills',
-            onPressed: () => setState(() {
-              _salaryStream = widget.repository.watchSalaryBills();
-            }),
+            onPressed: _refreshBills,
             icon: const Icon(Icons.refresh),
           ),
         ]),
@@ -202,11 +207,32 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
           onChanged: (v) => setState(() => _includePaid = v ?? false)),
       ]),
     ),
-    Expanded(child: StreamBuilder<List<FinanceBill>>(
-      stream: _salaryStream,
+    Expanded(child: FutureBuilder<List<FinanceBill>>(
+      future: _salaryRequest,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return FinanceEmpty(schoolErrorMessage(snapshot.error!));
+          return Center(child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.cloud_off_outlined, size: 36),
+              const SizedBox(height: 10),
+              const Text('Unable to load saved salary bills',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              Text(schoolErrorMessage(snapshot.error!),
+                textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              const Text('Source: finance_salary_bills (Firestore server)',
+                style: TextStyle(fontSize: 11)),
+              const SizedBox(height: 14),
+              OutlinedButton.icon(
+                key: const Key('finance_salary_retry'),
+                onPressed: _refreshBills,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry loading salaries'),
+              ),
+            ]),
+          ));
         }
         if (!snapshot.hasData) {
           return const Center(child: Column(
@@ -214,7 +240,7 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 14),
-              Text('Loading generated salaries…'),
+              Text('Checking saved salaries on Firestore server…'),
             ],
           ));
         }
@@ -224,20 +250,47 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
            bill.month.toLowerCase().contains(_query) ||
            bill.id.toLowerCase().contains(_query))).toList();
         if (records.isEmpty) {
-          return FinanceEmpty(_query.isNotEmpty
-              ? 'No salaries match this search. Clear the search or show paid records.'
-              : snapshot.data!.isEmpty
-                  ? 'No generated salary records were found. Open Generate '
-                      'Finance, select Teacher Salaries, and check the result '
-                      'for new bills, existing bills or missing setups.'
-                  : 'No unpaid salaries match this filter. Use Show fully '
-                      'paid salaries to view completed payments.');
+          return Center(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('${snapshot.data!.length} salary bills loaded from Firestore',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(_query.isNotEmpty
+                    ? 'No salaries match this search. Clear the search or show paid records.'
+                    : snapshot.data!.isEmpty
+                        ? 'No saved salary bills were returned by the server. '
+                            'Check the finance_salary_bills collection and sign-in account.'
+                        : 'All fetched salaries are paid or filtered. '
+                            'Enable Show fully paid salaries to inspect them.',
+                  textAlign: TextAlign.center),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: _refreshBills,
+                child: const Text('Refresh salary bills'),
+              ),
+            ],
+          ));
         }
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-          itemCount: records.length,
+          itemCount: records.length + 1,
           itemBuilder: (context, i) {
-            final bill = records[i];
+            if (i == 0) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+                child: Text(
+                  '${snapshot.data!.length} saved salaries loaded · '
+                  '${records.length} shown',
+                  key: const Key('salary_loaded_count'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              );
+            }
+            final bill = records[i - 1];
             return Card(
               key: Key('salary_bill_${bill.id}'),
               child: Padding(
