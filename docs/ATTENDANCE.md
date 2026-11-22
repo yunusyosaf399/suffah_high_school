@@ -1,8 +1,8 @@
-# Daily student attendance — Suffah High School v0.5
+# Daily student attendance — Suffah High School v0.9
 
 ## Current scope
 
-The Attendance dashboard module is enabled for the **owner and principal**. It is online-first and does **not** require Firebase Storage or the Blaze upgrade.
+The Attendance dashboard module is enabled for the **owner and principal**, who can view every class. They can also designate **one attendance class per teacher**, and a teacher can mark only that class through their own restricted portal. It is online-first and does **not** require Firebase Storage or the Blaze upgrade.
 
 ### Workflow
 
@@ -27,9 +27,9 @@ The source code uses the following Cloud Firestore paths:
 The parent-facing app will eventually read only its linked child's mark, **not the class-wide register**. This is why a per-student subcollection is used instead of a single map containing every student's attendance.
 
 The implementation:
-- Fetches only the selected class roster (up to 1,000 records) and the selected date's marks.
+- Owner/principal fetches the selected class roster (up to 1,000 students). Teachers fetch only privacy-safe active name/roll projections for their assigned class and its date-specific marks.
 - Keeps existing historical marks when later saving corrections.
-- Writes only changed students in batches of up to 400 marks, each with a metadata update. A retry writes the same stable document IDs.
+- Writes only changed students in batches of up to 400 marks for administrators or 8 marks for teachers (to honor security-rule lookup limits). A retry writes the same stable document IDs.
 - Does **not** automatically delete attendance. Retention and archival policy will be revisited when reliable reports/backups are implemented.
 - Does **not** require composite indexes for the direct class/date register used by this screen.
 - Currently reflects the **presently enrolled/active class roster**, not a historical snapshot of transfers. Preserve older marks; historical enrollment snapshots and reporting are future tasks.
@@ -50,7 +50,7 @@ The Android APK cannot change Firebase Console security rules. The new \`attenda
 ### Current permissions and future modules
 
 - Owner and principal can read/write attendance, subject to published rules.
-- Teacher account dashboard and class-assignment-limited attendance access are **not yet implemented**.
+- The owner/principal can assign or change a designated attendance teacher in **Attendance → Assign class attendance teachers** or in the teacher's staff profile. The teacher portal provides **My class attendance**, with a locked class selector. See [Designated attendance teachers](CLASS_ATTENDANCE_TEACHERS.md).
 - Parent account access to its own children is **not yet implemented**.
 - Attendance notifications, exports, monthly summaries, roll reports, staff attendance and transfer-aware historical rosters remain future milestones.
 - Cloud Storage uploads of student photos and documents are hidden from the current admission wizard because the Blaze upgrade has been deferred.
