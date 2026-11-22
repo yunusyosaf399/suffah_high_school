@@ -105,7 +105,7 @@ class _FinanceSalarySetupTabState extends State<FinanceSalarySetupTab> {
     bonus.dispose();
     notes.dispose();
     if (saved == true && mounted) {
-      setState(() => _rates = widget.repository.loadSalaryRates());
+      setState(() { _rates = widget.repository.loadSalaryRates(); });
       financeSnack(context, 'Monthly salary setup saved.');
     }
   }
