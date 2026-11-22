@@ -682,6 +682,10 @@ service cloud.firestore {
         && request.resource.data.postedMonth is string
         && request.resource.data.sourceId is string
         && request.resource.data.category is string
+        && request.resource.data.payerName is string
+        && request.resource.data.recipientName is string
+        && (request.resource.data.direction != 'credit'
+          || request.resource.data.payerName.size() > 0)
         && request.resource.data.method
           in ['Cash', 'Bank Transfer', 'Bank Deposit', 'Easypaisa', 'JazzCash', 'Other']
         && (
