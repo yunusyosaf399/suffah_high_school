@@ -69,7 +69,7 @@ class _InventoryPageState extends State<InventoryPage> {
           title: const Text('Canteen & Stationery',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
           actions: [
-            if (widget.role == 'canteen_seller')
+            if (widget.role == 'canteen_seller' || widget.role == 'inventory_manager')
               IconButton(
                 tooltip: 'Sign out',
                 onPressed: () => FirebaseAuth.instance.signOut(),
