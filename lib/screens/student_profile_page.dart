@@ -1,7 +1,8 @@
-import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../data/admission_repository.dart';
+import '../data/admission_storage.dart';
 import '../data/school_errors.dart';
 import '../data/school_repository.dart';
 import 'admission_wizard_page.dart';
@@ -34,6 +35,9 @@ class StudentProfilePage extends StatefulWidget {
 
 class _StudentProfilePageState extends State<StudentProfilePage> {
   late final AdmissionRepository _repository = AdmissionRepository();
+  final AdmissionStorage _storage = AdmissionStorage();
+  String? _photoCachePath;
+  Future<Uint8List>? _photoCache;
   late Future<AdmissionRecord> _recordFuture = widget.initialRecord != null
       ? Future.value(widget.initialRecord!)
       : _repository.load(widget.studentId);
@@ -101,8 +105,12 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
           fontSize: 27, fontWeight: FontWeight.w700)),
       );
     }
-    return FutureBuilder<String>(
-      future: FirebaseStorage.instance.ref(photoPath).getDownloadURL(),
+    if (_photoCachePath != photoPath) {
+      _photoCachePath = photoPath;
+      _photoCache = _storage.downloadFile(photoPath);
+    }
+    return FutureBuilder<Uint8List>(
+      future: _photoCache,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const CircleAvatar(
@@ -110,11 +118,49 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
         }
         return CircleAvatar(
           radius: 35,
-          backgroundImage: NetworkImage(snapshot.data!),
-          onBackgroundImageError: (_, __) {},
+          backgroundImage: MemoryImage(snapshot.data!),
         );
       },
     );
+  }
+
+  Future<void> _openDocument(Map<String, dynamic> file) async {
+    try {
+      final path = (file['path'] ?? '').toString();
+      if (path.isEmpty) throw StateError('This document has no storage path.');
+      final type = (file['contentType'] ?? '').toString();
+      if (type.startsWith('image/')) {
+        final bytes = await _storage.downloadFile(path);
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (context) => Dialog(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(child: Image.memory(bytes, fit: BoxFit.contain)),
+                  TextButton(onPressed: () => Navigator.pop(context),
+                    child: const Text('Close')),
+                ],
+              ),
+            ),
+          ),
+        );
+      } else {
+        await _storage.saveDocumentToDevice(file);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Document saved to your device.')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(schoolErrorMessage(error))),
+      );
+    }
   }
 
   Widget _section(
@@ -287,6 +333,8 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
                             style: const TextStyle(fontSize: 12)),
                           subtitle: Text(file.key.replaceAll('_', ' '),
                             style: const TextStyle(fontSize: 11)),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => _openDocument(file.value),
                         ),
                   ],
                 ),
