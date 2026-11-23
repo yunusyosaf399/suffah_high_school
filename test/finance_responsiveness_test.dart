@@ -55,6 +55,14 @@ class _FinanceTestRepository extends FinanceRepository {
       Stream.value(salaryRecords);
 
   @override
+  Future<FinanceBill?> probeSalaryBill(String billId) async {
+    for (final bill in salaryRecords) {
+      if (bill.id == billId) return bill;
+    }
+    return null;
+  }
+
+  @override
   Stream<List<FinanceBill>> watchFeeBills() {
     feeSubscriptions++;
     return Stream.value([feeBill]);
@@ -172,6 +180,28 @@ void main() {
     await tester.tap(find.byKey(const Key('finance_refresh_salaries')));
     await tester.pumpAndSettle();
     expect(repository.salarySubscriptions, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('read-only salary document probe checks exact bill without writes',
+      (tester) async {
+    final repository = _FinanceTestRepository();
+    await tester.pumpWidget(MaterialApp(home: Scaffold(
+      body: FinancePaySalaryTab(repository: repository),
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('finance_salary_probe')));
+    await tester.pumpAndSettle();
+    expect(find.text('Check a saved salary document'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('salary_probe_document_id')),
+      'SAL-202611-EMP-001',
+    );
+    await tester.tap(find.byKey(const Key('salary_probe_read')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Document GET succeeded'), findsOneWidget);
+    expect(find.textContaining('Teacher Muhammad Khan'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
