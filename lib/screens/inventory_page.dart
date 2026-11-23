@@ -40,6 +40,10 @@ class _InventoryPageState extends State<InventoryPage> {
       widget.itemsStream ?? _repo.watchItems();
   late final Stream<List<Map<String, dynamic>>> _sales =
       widget.salesStream ?? _repo.watchSales(manager: _canManage);
+  late final Stream<List<Map<String, dynamic>>> _borrowed =
+      widget.salesStream == null
+          ? _repo.watchBorrowed(manager: _canManage)
+          : Stream.value(const <Map<String, dynamic>>[]);
   late final Stream<List<Map<String, dynamic>>> _purchases =
       widget.purchasesStream ?? _repo.watchPurchases();
   String _department = 'all';
@@ -54,12 +58,28 @@ class _InventoryPageState extends State<InventoryPage> {
   Object? _itemsError;
   late final StreamSubscription<List<InventoryItem>> _itemsSubscription;
   late final StreamSubscription<List<Map<String, dynamic>>> _salesSubscription;
+  late final StreamSubscription<List<Map<String, dynamic>>> _borrowedSubscription;
   List<Map<String, dynamic>>? _currentSales;
+  List<Map<String, dynamic>>? _currentBorrowed;
   Object? _salesError;
+  Object? _borrowedError;
 
   @override
   void initState() {
     super.initState();
+    _borrowedSubscription = _borrowed.listen(
+      (sales) {
+        if (!mounted) return;
+        setState(() {
+          _currentBorrowed = sales;
+          _borrowedError = null;
+        });
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() => _borrowedError = error);
+      },
+    );
     _salesSubscription = _sales.listen(
       (sales) {
         if (!mounted) return;
@@ -92,6 +112,7 @@ class _InventoryPageState extends State<InventoryPage> {
   void dispose() {
     _itemsSubscription.cancel();
     _salesSubscription.cancel();
+    _borrowedSubscription.cancel();
     super.dispose();
   }
 
@@ -637,13 +658,15 @@ class _InventoryPageState extends State<InventoryPage> {
   }
 
   Widget _salesHistory({bool onlyBorrowed = false}) {
-          if (_salesError != null) {
-            return Center(child: Text(_error(_salesError!)));
+          final error = onlyBorrowed ? _borrowedError : _salesError;
+          final source = onlyBorrowed ? _currentBorrowed : _currentSales;
+          if (error != null) {
+            return Center(child: Text(_error(error)));
           }
-          if (_currentSales == null) {
+          if (source == null) {
             return const Center(child: CircularProgressIndicator());
           }
-          final orders = inventoryGroupSales(_currentSales!);
+          final orders = inventoryGroupSales(source);
           final shown = orders.where((order) {
             if (onlyBorrowed && order.dueMinor <= 0) return false;
             final keyword = _salesSearch.toLowerCase().trim();
@@ -662,9 +685,12 @@ class _InventoryPageState extends State<InventoryPage> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
-              const Text('Orders are grouped by checkout. Paid and borrowed '
-                  'amounts are tracked separately; repayments do not reduce '
-                  'stock a second time.',
+              Text(onlyBorrowed
+                  ? 'All available open balances. Paid lines of the same order '
+                    'are excluded from this view; use Sales for recent complete receipts.'
+                  : 'Orders are grouped by checkout. Paid and borrowed '
+                    'amounts are tracked separately; repayments do not reduce '
+                    'stock a second time.',
                   style: TextStyle(fontSize: 12)),
               const SizedBox(height: 12),
               TextField(
@@ -735,7 +761,8 @@ class _InventoryPageState extends State<InventoryPage> {
                           ),
                         const SizedBox(height: 10),
                         Wrap(spacing: 12, runSpacing: 5, children: [
-                          Text('Total: ${inventoryRupees(order.totalMinor)}',
+                          Text('${onlyBorrowed ? 'Open lines total' : 'Total'}: '
+                            '${inventoryRupees(order.totalMinor)}',
                             style: const TextStyle(fontWeight: FontWeight.w800)),
                           Text('Paid: ${inventoryRupees(order.paidMinor)}'),
                           Text('Due: ${inventoryRupees(order.dueMinor)}',
