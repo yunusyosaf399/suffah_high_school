@@ -68,6 +68,7 @@ void main() {
     expect(find.text('Edit'), findsOneWidget);
     expect(find.text('Receive stock'), findsOneWidget);
     expect(find.text('Adjust'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -94,10 +95,11 @@ void main() {
 
     await tester.tap(find.text('Create first product'));
     await tester.pumpAndSettle();
-    expect(find.text('Add stock item'), findsOneWidget);
-    expect(find.widgetWithText(TextField, 'Item name *'), findsOneWidget);
-    expect(find.widgetWithText(TextField, 'Selling price (PKR) *'), findsOneWidget);
-    await tester.tap(find.text('Cancel'));
+    expect(find.text('Add product'), findsOneWidget);
+    expect(find.byKey(const Key('inventory_product_name')), findsOneWidget);
+    expect(find.byKey(const Key('inventory_stock_quantity')), findsOneWidget);
+    expect(find.textContaining('generated automatically'), findsOneWidget);
+    await tester.pageBack();
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Sell'));

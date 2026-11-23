@@ -206,3 +206,107 @@ test('seller may read own sale receipts but not another seller receipts', async 
     collection(seller, 'inventory_sales'), where('sellerUid', '==', sellerId))));
   assert.equal(mine.size, 1);
 });
+
+
+test('manager may create a product with direct opening stock and a single audited event', async () => {
+  const manager = db(managerId);
+  const sku = 'ST-GENBOOK001';
+  const ref = doc(manager, 'inventory_items', sku);
+  const opening = doc(manager, 'inventory_adjustments', 'opening-books');
+  await assertSucceeds(runTransaction(manager, async tx => {
+    const current = await tx.get(ref);
+    assert.equal(current.exists(), false);
+    tx.set(ref, {
+      sku, name: 'Mathematics book', department: 'stationery',
+      category: 'books', subcategory: 'textbook', customType: '',
+      classLevel: 'Class 5', bookSeries: 'Oxford', subject: 'Maths',
+      publisher: 'Oxford', brand: '', variant: '', expiryDate: '',
+      unit: 'piece', description: '', priceMinor: 25000, stockQty: 75,
+      reorderPoint: 10, active: true, archived: false,
+      currency: 'PKR', lastMovementId: opening.id,
+      lastMovementType: 'opening',
+      createdBy: managerId, createdAt: serverTimestamp(),
+      updatedBy: managerId, updatedAt: serverTimestamp(),
+    });
+    tx.set(opening, {
+      adjustmentId: opening.id, itemId: sku, itemName: 'Mathematics book',
+      delta: 75, stockBefore: 0, reason: 'opening',
+      notes: 'Opening quantity entered on new product',
+      recordedBy: managerId, recordedAt: serverTimestamp(),
+    });
+  }));
+  const product = await getDoc(ref);
+  assert.equal(product.data().stockQty, 75);
+  const event = await getDoc(opening);
+  assert.equal(event.data().reason, 'opening');
+});
+
+test('manager cannot create stock without corresponding opening balance event', async () => {
+  const manager = db(managerId);
+  await assertFails(setDoc(doc(manager, 'inventory_items', 'ST-BADOPEN001'), {
+    ...seedItem(), sku: 'ST-BADOPEN001',
+    stockQty: 50, lastMovementId: 'fake', lastMovementType: 'opening',
+    createdBy: managerId, createdAt: serverTimestamp(),
+    updatedBy: managerId, updatedAt: serverTimestamp(),
+  }));
+});
+
+test('manager may enter a new quantity and change book metadata with one correction event', async () => {
+  const manager = db(managerId);
+  const item = doc(manager, 'inventory_items', itemId);
+  const event = doc(manager, 'inventory_adjustments', 'stock-correction');
+  await assertSucceeds(runTransaction(manager, async tx => {
+    const current = (await tx.get(item)).data();
+    tx.update(item, {
+      priceMinor: 7500, stockQty: 23,
+      category: 'snacks', subcategory: 'chips', brand: 'School brand',
+      lastMovementId: event.id, lastMovementType: 'adjustment',
+      updatedBy: managerId, updatedAt: serverTimestamp(),
+    });
+    tx.set(event, {
+      adjustmentId: event.id, itemId, itemName: current.name,
+      stockBefore: current.stockQty, delta: 13, reason: 'correction',
+      notes: 'Authorized user entered a new stock quantity',
+      recordedBy: managerId, recordedAt: serverTimestamp(),
+    });
+  }));
+  const after = await getDoc(item);
+  assert.equal(after.data().stockQty, 23);
+  assert.equal(after.data().priceMinor, 7500);
+  const evt = await getDoc(event);
+  assert.equal(evt.data().delta, 13);
+});
+
+test('seller cannot forge opening quantity or archive/delete a product', async () => {
+  const seller = db(sellerId);
+  const product = doc(seller, 'inventory_items', itemId);
+  await assertFails(updateDoc(product, {
+    archived: true, active: false,
+    archivedBy: sellerId, archivedAt: serverTimestamp(),
+    updatedBy: sellerId, updatedAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(seller, 'inventory_items', 'ST-SELLER001'), {
+    ...seedItem(), sku: 'ST-SELLER001', stockQty: 30,
+    lastMovementId: '', lastMovementType: '',
+    createdBy: sellerId, updatedBy: sellerId,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+});
+
+test('manager delete is reversible archive; archived products cannot be sold', async () => {
+  const manager = db(managerId);
+  const product = doc(manager, 'inventory_items', itemId);
+  await assertSucceeds(updateDoc(product, {
+    archived: true, active: false,
+    archivedBy: managerId, archivedAt: serverTimestamp(),
+    updatedBy: managerId, updatedAt: serverTimestamp(),
+  }));
+  await assertFails(recordSale(db(sellerId), 'archived-sale'));
+  await assertSucceeds(updateDoc(product, {
+    archived: false, active: false, archivedBy: '', archivedAt: null,
+    updatedBy: managerId, updatedAt: serverTimestamp(),
+  }));
+  const restored = await getDoc(product);
+  assert.equal(restored.data().archived, false);
+  assert.equal(restored.data().active, false);
+});
