@@ -66,17 +66,26 @@ not an unlimited all-time audited balance sheet.
 ### Firebase deployment requirements
 
 1. Publish the **complete** repository `firestore.rules` in Firebase.
-2. Deploy the composite `firestore.indexes.json` index
-   `inventory_sales (sellerUid ASC, paymentStatus ASC)`. The index is
-   referenced by `firebase.json`. Using Firebase CLI with the project's
-   authorized credentials:
+2. Create the composite index for `inventory_sales` with fields
+   `sellerUid ASC` and `paymentStatus ASC` (Collection scope). The
+   `firestore.indexes.json` file contains the required definition.
+
+   **Important:** This repository did not previously track Firebase composite
+   indexes. Firebase CLI index deployments can propose deletion of manually
+   created indexes that aren't represented in the local file. **Before**
+   running `firebase deploy --only firestore:indexes`, review and merge
+   all existing indexes from the live Firebase project into the file, then
+   review any deletion prompts carefully. Alternatively, create just this
+   one index manually in the Firebase Console without disturbing others.
+
+   Publish rules separately when needed:
 
    ```bash
-   firebase deploy --only firestore:rules,firestore:indexes
+   firebase deploy --only firestore:rules
    ```
 
-   The index must finish building before the seller's Borrowed tab can
-   query both owner/manager and seller-specific balances successfully.
+   The new composite index must finish building before seller-specific
+   Borrowed queries become available.
 3. In the owner app, tap **Sync students for checkout**, then verify a
    named student credit checkout and a small partial/full collection.
 4. Review role-based security tests and ensure the old client cannot
