@@ -184,7 +184,7 @@ async function handle(request, env) {
   }
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname === '/health') {
-    return json({ status: 'ok' });
+    return json({ status: 'ok', release: 'r2-upload-diagnostics-v2' });
   }
   const token = await firebaseToken(request, env.FIREBASE_PROJECT_ID);
 
