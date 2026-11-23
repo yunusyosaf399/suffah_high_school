@@ -7,12 +7,14 @@ import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
 import 'screens/teacher_dashboard.dart';
 import 'screens/inventory_page.dart';
-
+import 'firebase_options.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     // The registered Android app reads its configuration from google-services.json.
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
     runApp(const SchoolApp());
   } catch (_) {
     runApp(const MaterialApp(
