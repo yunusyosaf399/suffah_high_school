@@ -2,7 +2,7 @@ name: Android APK — Suffah High School
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/cloudflare-r2-student-files]
     paths:
       - "lib/**"
       - "assets/**"
