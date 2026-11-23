@@ -670,6 +670,8 @@ class _SalaryPaymentCard extends StatelessWidget {
               FilledButton.icon(
                 key: Key('finance_pay_salary_${bill.id}'),
                 onPressed: onPay,
+                // The app theme's full-width minimum cannot fit an inline Row.
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 46)),
                 icon: const Icon(Icons.payments_outlined, size: 18),
                 label: const Text('Pay salary'),
               ),
