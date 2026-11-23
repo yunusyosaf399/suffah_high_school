@@ -125,10 +125,14 @@ class FinanceBill {
 
   factory FinanceBill.fromSnapshot(
     DocumentSnapshot<Map<String, dynamic>> snapshot,
-  ) {
-    final data = snapshot.data() ?? <String, dynamic>{};
+  ) => FinanceBill.fromData(snapshot.id,
+      snapshot.data() ?? <String, dynamic>{});
+
+  /// Test the same int64 and field names returned by actual Firestore bills
+  /// without requiring a live Firebase project in widget/unit tests.
+  factory FinanceBill.fromData(String id, Map<String, dynamic> data) {
     return FinanceBill(
-      id: snapshot.id,
+      id: id,
       amountMinor: (data['amountMinor'] as num?)?.toInt() ?? 0,
       paidMinor: (data['paidMinor'] as num?)?.toInt() ?? 0,
       month: (data['month'] as String?) ?? '',
