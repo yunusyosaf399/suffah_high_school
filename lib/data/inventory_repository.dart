@@ -36,6 +36,17 @@ class InventoryItem {
     required this.reorderPoint,
     required this.active,
     required this.description,
+    this.category = 'other',
+    this.subcategory = 'other',
+    this.customType = '',
+    this.classLevel = '',
+    this.bookSeries = '',
+    this.subject = '',
+    this.publisher = '',
+    this.brand = '',
+    this.variant = '',
+    this.expiryDate = '',
+    this.archived = false,
   });
 
   final String id;
@@ -47,9 +58,20 @@ class InventoryItem {
   final int reorderPoint;
   final bool active;
   final String description;
+  final String category;
+  final String subcategory;
+  final String customType;
+  final String classLevel;
+  final String bookSeries;
+  final String subject;
+  final String publisher;
+  final String brand;
+  final String variant;
+  final String expiryDate;
+  final bool archived;
 
   bool get isLowStock => stockQty <= reorderPoint;
-  bool get canSell => active && stockQty > 0;
+  bool get canSell => active && !archived && stockQty > 0;
 
   factory InventoryItem.fromSnapshot(
       DocumentSnapshot<Map<String, dynamic>> snapshot) {
@@ -64,6 +86,17 @@ class InventoryItem {
       reorderPoint: (data['reorderPoint'] as num?)?.toInt() ?? 0,
       active: data['active'] == true,
       description: (data['description'] as String?) ?? '',
+      category: (data['category'] as String?) ?? 'other',
+      subcategory: (data['subcategory'] as String?) ?? 'other',
+      customType: (data['customType'] as String?) ?? '',
+      classLevel: (data['classLevel'] as String?) ?? '',
+      bookSeries: (data['bookSeries'] as String?) ?? '',
+      subject: (data['subject'] as String?) ?? '',
+      publisher: (data['publisher'] as String?) ?? '',
+      brand: (data['brand'] as String?) ?? '',
+      variant: (data['variant'] as String?) ?? '',
+      expiryDate: (data['expiryDate'] as String?) ?? '',
+      archived: data['archived'] == true,
     );
   }
 }
@@ -192,7 +225,9 @@ class InventoryRepository {
       final snap = await tx.get(itemRef);
       if (!snap.exists) throw StateError('The item is no longer available.');
       final item = InventoryItem.fromSnapshot(snap);
-      if (!item.active) throw StateError('This item is currently inactive.');
+      if (!item.active || item.archived) {
+        throw StateError('This item is no longer available for sale.');
+      }
       if (item.priceMinor <= 0 || item.stockQty < quantity) {
         throw StateError('Insufficient stock. Refresh and try again.');
       }
