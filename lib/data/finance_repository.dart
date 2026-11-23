@@ -474,6 +474,20 @@ class FinanceRepository {
     );
   }
 
+  /// Read-only diagnostic: compare a single document GET against the salary
+  /// collection LIST query. Firestore rules can authorize them separately.
+  /// Never writes, regenerates, or updates existing salary records.
+  Future<FinanceBill?> probeSalaryBill(String billId) async {
+    final normalized = billId.trim();
+    if (normalized.isEmpty || normalized.contains('/')) {
+      throw ArgumentError('Enter a valid salary bill ID.');
+    }
+    final snapshot = await salaryBills.doc(normalized)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+    return snapshot.exists ? FinanceBill.fromSnapshot(snapshot) : null;
+  }
+
   /// Do not order the query by createdAt: legacy or partially migrated
   /// salary bills can lack that field and Firestore would silently omit them.
   /// Sort the small salary result set locally by month, then teacher.
