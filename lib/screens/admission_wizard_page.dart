@@ -386,8 +386,8 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
           ),
         );
       } else {
-        await _storage.saveDocumentToDevice(file);
-        _showMessage('Document saved to the selected device location.');
+        final saved = await _storage.saveDocumentToDevice(file);
+        if (saved) _showMessage('Document saved to the selected device location.');
       }
     } catch (error) {
       _showMessage(schoolErrorMessage(error));
@@ -999,7 +999,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           actions: [
             TextButton(
-              onPressed: _busy ? null : _saveAndClose,
+              onPressed: _busy || _uploading ? null : _saveAndClose,
               child: const Text('Save draft'),
             ),
             const SizedBox(width: 6),
