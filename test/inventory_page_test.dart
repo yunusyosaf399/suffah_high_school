@@ -97,6 +97,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Add product'), findsOneWidget);
     expect(find.byKey(const Key('inventory_product_name')), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('inventory_stock_quantity')),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.byKey(const Key('inventory_stock_quantity')), findsOneWidget);
     expect(find.textContaining('generated automatically'), findsOneWidget);
     await tester.pageBack();
