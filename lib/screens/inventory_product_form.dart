@@ -127,7 +127,8 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 14),
     child: DropdownButtonFormField<String>(
-      key: key,
+      // Reset dropdown internal state when parent category changes.
+      key: ValueKey('${key ?? label}|$_department|$_category|$_subcategory'),
       initialValue: value,
       isExpanded: true,
       decoration: InputDecoration(
