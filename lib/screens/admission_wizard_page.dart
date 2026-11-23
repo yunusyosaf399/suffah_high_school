@@ -67,7 +67,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   final _inputs = <String, TextEditingController>{};
   late final AdmissionRepository _repository = AdmissionRepository();
   final _attachments = <String, Map<String, dynamic>>{};
-  final AdmissionStorage _storage = AdmissionStorage();
+  late final AdmissionStorage _storage = AdmissionStorage();
   final Set<String> _filesToDelete = <String>{};
   Uint8List? _localPhotoPreview;
   Future<Uint8List>? _remotePhotoPreview;
@@ -372,7 +372,10 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Flexible(child: Image.memory(bytes, fit: BoxFit.contain)),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 440),
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
                   TextButton(
                     onPressed: () => Navigator.pop(context),
                     child: const Text('Close'),
