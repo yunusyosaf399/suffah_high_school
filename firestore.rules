@@ -960,7 +960,8 @@ service cloud.firestore {
         && request.resource.data.paymentMethod in
             ['Cash', 'Easypaisa', 'JazzCash', 'Bank Transfer', 'Other', 'Unpaid']
         && (
-          !('orderId' in request.resource.data)
+          (!('orderId' in request.resource.data)
+            && request.resource.data.paymentMethod != 'Unpaid')
           ||
           (
             request.resource.data.orderId is string
