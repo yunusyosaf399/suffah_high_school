@@ -40,6 +40,8 @@ void main() {
     expect(find.text('6. Review'), findsOneWidget);
     expect(find.text('6. Documents'), findsNothing);
     expect(find.text('Student personal details'), findsOneWidget);
+    expect(find.text('Profile photo'), findsOneWidget);
+    expect(find.text('Upload photo'), findsOneWidget);
     expect(find.text('Save draft'), findsWidgets);
 
     await tester.tap(find.text('2. Contact'));
@@ -114,6 +116,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.text('Review admission'), findsOneWidget);
+    expect(find.text('Certificates and documents'), findsOneWidget);
+    expect(find.text('Upload document'), findsOneWidget);
     expect(find.text('Review & admit'), findsOneWidget);
     expect(find.text('Reg: ST-2026-0002'), findsOneWidget);
     await tester.tap(find.text('Review & admit'));
