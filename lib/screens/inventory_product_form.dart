@@ -61,8 +61,9 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
         .containsKey(_subcategory)) {
       _subcategory = 'other';
     }
+    // Book grade must be chosen explicitly; never assume Class 1.
     _classLevel = inventorySchoolClasses.contains(item?.classLevel)
-        ? item!.classLevel : 'Class 1';
+        ? item!.classLevel : '';
     _unit = _units.contains(item?.unit) ? item!.unit : 'piece';
     _active = item?.active ?? true;
     _name = TextEditingController(text: item?.name ?? '');
@@ -284,8 +285,10 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
                 _selector(
                   key: const Key('inventory_book_class'),
                   label: 'Class / grade *', value: _classLevel,
-                  options: {for (final level in inventorySchoolClasses)
-                    level: level},
+                  options: {
+                    '': 'Select class / grade',
+                    for (final level in inventorySchoolClasses) level: level,
+                  },
                   onChanged: (value) => setState(() => _classLevel = value),
                 ),
                 _field(
