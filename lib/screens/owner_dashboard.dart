@@ -11,6 +11,7 @@ import 'global_search_page.dart';
 import 'users_page.dart';
 import 'finance_page.dart';
 import 'finance_analytics_tab.dart';
+import 'inventory_page.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({
@@ -49,7 +50,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Parents', Icons.family_restroom_outlined, 'Families & children', false),
     _DashboardModule('Messages', Icons.forum_outlined, 'School communications', false),
     _DashboardModule('Users', Icons.manage_accounts_outlined, 'Staff and parent sign-ins', true),
-    _DashboardModule('Inventory & Canteen', Icons.inventory_2_outlined, 'Books, stationery and stock (planned)', false),
+    _DashboardModule('Inventory & Canteen', Icons.inventory_2_outlined, 'Canteen, stationery, stock & sales', true),
   ];
 
   void _refresh() {
@@ -112,6 +113,12 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       );
       return;
     }
+    if (index == 9 && widget.role == 'owner') {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(builder: (_) => InventoryPage(role: widget.role)),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${_modules[index].title} is planned for the next app versions.')),
@@ -123,7 +130,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     final scheme = Theme.of(context).colorScheme;
     final shownModules = widget.role == 'owner'
         ? _modules
-        : _modules.where((module) => module.title != 'Users').toList();
+        : _modules.where((module) => module.title != 'Users' && module.title != 'Inventory & Canteen').toList();
 
     return Scaffold(
       appBar: AppBar(

@@ -1,0 +1,13 @@
+{
+  "name": "suffah-inventory-rule-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test inventory-security.test.mjs"},
+  "dependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.0.0"
+  },
+  "devDependencies": {
+    "firebase-tools": "^14.0.0"
+  }
+}

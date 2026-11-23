@@ -49,7 +49,8 @@ service cloud.firestore {
 
     function allowedNewRole() {
       return request.resource.data.role in
-        ['principal', 'accountant', 'teacher', 'clerk', 'parent'];
+        ['principal', 'accountant', 'teacher', 'clerk', 'parent',
+         'canteen_seller', 'inventory_manager'];
     }
 
     function hasTeacherClassAccess(classId) {
@@ -174,6 +175,88 @@ service cloud.firestore {
         && getAfter(bill).data.updatedBy == request.auth.uid
         && getAfter(bill).data.paidMinor - get(bill).data.paidMinor ==
           request.resource.data.amountMinor;
+    }
+
+    // Owner grants an immutable role through users/{uid}. Inventory manager
+    // may manage catalog, stock receipts and adjustments. Sellers cannot
+    // change prices, catalog metadata or stock except as part of a valid sale.
+    function inventoryRole(role) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function canManageInventory() {
+      return isOwner() || inventoryRole('inventory_manager');
+    }
+
+    function canSellInventory() {
+      return canManageInventory() || inventoryRole('canteen_seller');
+    }
+
+    function validInventoryItem(itemId) {
+      return request.resource.data.keys().hasOnly([
+          'sku', 'name', 'department', 'unit', 'description', 'priceMinor',
+          'stockQty', 'reorderPoint', 'active', 'currency',
+          'lastMovementId', 'lastMovementType', 'createdBy', 'createdAt',
+          'updatedBy', 'updatedAt'])
+        && request.resource.data.sku == itemId
+        && itemId.matches('^[A-Z0-9_-]{3,32}$')
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.department in ['canteen', 'stationery']
+        && request.resource.data.unit is string
+        && request.resource.data.unit.size() > 0
+        && request.resource.data.unit.size() <= 24
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 250
+        && request.resource.data.priceMinor is int
+        && request.resource.data.priceMinor > 0
+        && request.resource.data.priceMinor <= 100000000000
+        && request.resource.data.stockQty is int
+        && request.resource.data.stockQty >= 0
+        && request.resource.data.stockQty <= 100000000
+        && request.resource.data.reorderPoint is int
+        && request.resource.data.reorderPoint >= 0
+        && request.resource.data.active is bool
+        && request.resource.data.currency == 'PKR';
+    }
+
+    function validInventorySaleMovement(itemId) {
+      let event = /databases/$(database)/documents/inventory_sales/$(request.resource.data.lastMovementId);
+      return request.resource.data.lastMovementType == 'sale'
+        && request.resource.data.stockQty < resource.data.stockQty
+        && !exists(event)
+        && getAfter(event).data.itemId == itemId
+        && getAfter(event).data.sellerUid == request.auth.uid
+        && getAfter(event).data.quantity ==
+             resource.data.stockQty - request.resource.data.stockQty;
+    }
+
+    function validInventoryPurchaseMovement(itemId) {
+      let event = /databases/$(database)/documents/inventory_purchases/$(request.resource.data.lastMovementId);
+      return canManageInventory()
+        && request.resource.data.lastMovementType == 'purchase'
+        && request.resource.data.stockQty > resource.data.stockQty
+        && !exists(event)
+        && getAfter(event).data.itemId == itemId
+        && getAfter(event).data.recordedBy == request.auth.uid
+        && getAfter(event).data.quantity ==
+             request.resource.data.stockQty - resource.data.stockQty;
+    }
+
+    function validInventoryAdjustmentMovement(itemId) {
+      let event = /databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId);
+      return canManageInventory()
+        && request.resource.data.lastMovementType == 'adjustment'
+        && request.resource.data.stockQty != resource.data.stockQty
+        && !exists(event)
+        && getAfter(event).data.itemId == itemId
+        && getAfter(event).data.recordedBy == request.auth.uid
+        && getAfter(event).data.delta ==
+             request.resource.data.stockQty - resource.data.stockQty;
     }
 
     match /users/{userId} {
@@ -735,6 +818,170 @@ service cloud.firestore {
         && request.resource.data.rotate is bool
         && request.resource.data.updatedAt == request.time;
       allow delete: if false;
+    }
+
+    // Price and stock are not trusted from the seller's device. A sale
+    // requires a matching stock decrement in the SAME atomic transaction.
+    match /inventory_items/{itemId} {
+      allow get, list: if canSellInventory();
+      allow create: if canManageInventory()
+        && validInventoryItem(itemId)
+        && request.resource.data.stockQty == 0
+        && request.resource.data.active == true
+        && request.resource.data.lastMovementId == ''
+        && request.resource.data.lastMovementType == ''
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow update: if validInventoryItem(itemId)
+        && request.resource.data.sku == resource.data.sku
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && (
+          // Managers can edit catalog data, but not silently change stock.
+          (canManageInventory()
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['name', 'department', 'unit', 'description',
+                         'priceMinor', 'reorderPoint', 'active',
+                         'updatedAt', 'updatedBy'])
+            && request.resource.data.stockQty == resource.data.stockQty)
+          ||
+          // All stock changes must be reconciled with an append-only event.
+          (canSellInventory()
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['stockQty', 'lastMovementId', 'lastMovementType',
+                         'updatedAt', 'updatedBy'])
+            && request.resource.data.stockQty != resource.data.stockQty
+            && request.resource.data.lastMovementId is string
+            && request.resource.data.lastMovementId != ''
+            && request.resource.data.lastMovementId != resource.data.lastMovementId
+            && (
+              validInventorySaleMovement(itemId)
+              || validInventoryPurchaseMovement(itemId)
+              || validInventoryAdjustmentMovement(itemId)
+            ))
+        );
+      allow delete: if false;
+    }
+
+    match /inventory_sales/{saleId} {
+      allow get: if canManageInventory()
+        || (inventoryRole('canteen_seller')
+            && resource.data.sellerUid == request.auth.uid);
+      allow list: if canManageInventory()
+        || (inventoryRole('canteen_seller')
+            && resource.data.sellerUid == request.auth.uid);
+      allow create: if canSellInventory()
+        && request.resource.data.keys().hasOnly([
+           'saleId', 'itemId', 'itemName', 'department',
+           'quantity', 'stockBefore', 'unitPriceMinor', 'totalMinor',
+           'currency', 'sellerUid', 'paymentMethod', 'soldAt'])
+        && request.resource.data.saleId == saleId
+        && request.resource.data.itemId is string
+        && exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity >= 1
+        && request.resource.data.quantity <= 100
+        && request.resource.data.sellerUid == request.auth.uid
+        && request.resource.data.soldAt == request.time
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.paymentMethod in
+            ['Cash', 'Easypaisa', 'JazzCash', 'Bank Transfer', 'Other']
+        && request.resource.data.itemName ==
+           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name
+        && request.resource.data.department ==
+           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.department
+        && get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.active == true
+        && request.resource.data.stockBefore ==
+           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty
+        && request.resource.data.stockBefore >= request.resource.data.quantity
+        && request.resource.data.unitPriceMinor ==
+           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.priceMinor
+        && request.resource.data.totalMinor ==
+           request.resource.data.unitPriceMinor * request.resource.data.quantity
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty ==
+           request.resource.data.stockBefore - request.resource.data.quantity
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementId == saleId
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'sale'
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Supplier costs stay private from sellers. A purchase record and stock
+    // increase must commit atomically; sales cannot forge stock receipts.
+    match /inventory_purchases/{purchaseId} {
+      allow get, list: if canManageInventory();
+      allow create: if canManageInventory()
+        && request.resource.data.keys().hasOnly([
+          'purchaseId', 'itemId', 'itemName', 'quantity', 'stockBefore',
+          'unitCostMinor', 'totalCostMinor', 'supplier', 'invoice', 'currency',
+          'recordedBy', 'purchasedAt', 'recordedAt'])
+        && request.resource.data.purchaseId == purchaseId
+        && request.resource.data.itemId is string
+        && exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+        && request.resource.data.itemName ==
+           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity >= 1
+        && request.resource.data.quantity <= 100000
+        && request.resource.data.unitCostMinor is int
+        && request.resource.data.unitCostMinor >= 0
+        && request.resource.data.unitCostMinor <= 100000000000
+        && request.resource.data.totalCostMinor ==
+           request.resource.data.quantity * request.resource.data.unitCostMinor
+        && request.resource.data.stockBefore ==
+           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty
+        && request.resource.data.supplier is string
+        && request.resource.data.supplier.size() > 0
+        && request.resource.data.supplier.size() <= 100
+        && request.resource.data.invoice is string
+        && request.resource.data.invoice.size() <= 80
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.recordedBy == request.auth.uid
+        && request.resource.data.purchasedAt == request.time
+        && request.resource.data.recordedAt == request.time
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty ==
+           request.resource.data.stockBefore + request.resource.data.quantity
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementId == purchaseId
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'purchase'
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /inventory_adjustments/{adjustmentId} {
+      allow get, list: if canManageInventory();
+      allow create: if canManageInventory()
+        && request.resource.data.keys().hasOnly([
+          'adjustmentId', 'itemId', 'itemName', 'delta', 'stockBefore',
+          'reason', 'notes', 'recordedBy', 'recordedAt'])
+        && request.resource.data.adjustmentId == adjustmentId
+        && request.resource.data.itemId is string
+        && exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+        && request.resource.data.itemName ==
+           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name
+        && request.resource.data.delta is int
+        && request.resource.data.delta != 0
+        && request.resource.data.delta >= -100000
+        && request.resource.data.delta <= 100000
+        && request.resource.data.stockBefore ==
+           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty
+        && request.resource.data.stockBefore + request.resource.data.delta >= 0
+        && request.resource.data.reason in
+            ['damage', 'expired', 'wastage', 'return', 'correction']
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() <= 250
+        && request.resource.data.recordedBy == request.auth.uid
+        && request.resource.data.recordedAt == request.time
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty ==
+           request.resource.data.stockBefore + request.resource.data.delta
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementId == adjustmentId
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'adjustment'
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedBy == request.auth.uid;
+      allow update, delete: if false;
     }
 
     // Everything else stays inaccessible until role-specific modules are

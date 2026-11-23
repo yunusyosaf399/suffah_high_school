@@ -10,6 +10,8 @@ const schoolRoles = <String, String>{
   'teacher': 'Teacher',
   'clerk': 'Office staff',
   'parent': 'Parent / guardian',
+  'canteen_seller': 'Canteen seller',
+  'inventory_manager': 'Inventory manager',
 };
 
 class SchoolUserAccount {

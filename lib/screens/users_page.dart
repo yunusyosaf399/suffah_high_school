@@ -137,7 +137,7 @@ class _UsersPageState extends State<UsersPage> {
                             fontWeight: FontWeight.w800)),
                         const SizedBox(height: 7),
                         Text(
-                          'Create sign-in accounts for the principal, staff or parents. Only the owner assigns account roles.',
+                          'Create accounts for principals, staff, canteen sellers or inventory managers. Only the owner assigns account roles.',
                           style: TextStyle(fontSize: 12,
                             color: scheme.onSurfaceVariant)),
                         const SizedBox(height: 10),
@@ -151,7 +151,7 @@ class _UsersPageState extends State<UsersPage> {
                                 const SizedBox(width: 10),
                                 const Expanded(
                                   child: Text(
-                                    'Teacher accounts must be linked to an active staff profile. Each role receives only its approved school modules.',
+                                    'Teachers need an active staff link. Canteen sellers can only view stock and record sales; inventory managers may manage items, prices and stock.',
                                     style: TextStyle(fontSize: 11)),
                                 ),
                               ],

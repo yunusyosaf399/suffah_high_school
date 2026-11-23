@@ -1,0 +1,41 @@
+name: Inventory Security - Firestore Rules
+
+on:
+  pull_request:
+    paths:
+      - "firestore.rules"
+      - "firebase.json"
+      - "test/firestore_inventory/**"
+      - ".github/workflows/inventory-security.yml"
+  push:
+    branches: [main, feature/canteen-stationery-inventory]
+    paths:
+      - "firestore.rules"
+      - "firebase.json"
+      - "test/firestore_inventory/**"
+      - ".github/workflows/inventory-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory-rules:
+    name: Seller vs manager security emulator tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Firebase emulator and rule tests
+        working-directory: test/firestore_inventory
+        run: npm install --no-audit --no-fund
+      - name: Run permission and transactional stock tests
+        working-directory: test/firestore_inventory
+        run: npx firebase emulators:exec --only firestore --project demo-suffah-inventory --config ../../firebase.json 'npm test'
