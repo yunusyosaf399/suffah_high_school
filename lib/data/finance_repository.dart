@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'finance_models.dart';
+import 'finance_scheduler_models.dart';
 import 'school_repository.dart';
 import 'staff_repository.dart';
 
@@ -727,6 +728,104 @@ class FinanceRepository {
     );
   }
 
+  /// Finance automatic generation configuration and trusted worker status.
+  /// On projects without the backend runtime rules, only the heartbeat
+  /// read may be denied; keep configuration editable and show 'not deployed'.
+  Future<FinanceAutomationSnapshot> loadFinanceAutomation() async {
+    final settingsFuture = _db.collection('finance_generation_settings')
+        .get(const GetOptions(source: Source.server));
+    final plansFuture = recurringPlans.limit(500)
+        .get(const GetOptions(source: Source.server));
+    final runtimeFuture = _loadFinanceWorkerStatus();
+
+    final settings = await settingsFuture;
+    final plans = await plansFuture;
+    final runtime = await runtimeFuture;
+    return FinanceAutomationSnapshot(
+      preferences: {
+        for (final name in financeSchedulerCategories.keys)
+          name: FinanceAutomationPreference(
+            category: name,
+            scheduleDay: (settings.docs
+                    .where((doc) => doc.id == name)
+                    .firstOrNull?.data()['scheduleDay'] as num?)?.toInt() ?? 1,
+            automaticEnabled: settings.docs
+                    .where((doc) => doc.id == name)
+                    .firstOrNull?.data()['automaticEnabled'] == true,
+          ),
+      },
+      plans: [
+        for (final doc in plans.docs)
+          FinanceAutomationPlan(
+            id: doc.id,
+            name: (doc.data()['name'] as String?) ?? 'Monthly expense',
+            amountMinor: (doc.data()['amountMinor'] as num?)?.toInt() ?? 0,
+            scheduleDay: (doc.data()['scheduleDay'] as num?)?.toInt() ?? 1,
+            active: doc.data()['active'] == true,
+            automaticEnabled: doc.data()['automaticEnabled'] == true,
+          ),
+      ],
+      lastHeartbeat: (runtime?['lastHeartbeatAt'] as Timestamp?)?.toDate(),
+      lastCompleted: (runtime?['lastCompletedAt'] as Timestamp?)?.toDate(),
+    );
+  }
+
+  Future<Map<String, dynamic>?> _loadFinanceWorkerStatus() async {
+    try {
+      final doc = await _db.collection('finance_scheduler_runtime')
+          .doc('status').get(const GetOptions(source: Source.server));
+      return doc.data();
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied' || error.code == 'not-found') {
+        // Rules have not been published or Functions have not run.
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  /// Saving a preference is not proof of live background execution.
+  Future<void> saveGenerationSchedules(
+      Map<String, FinanceAutomationPreference> preferences) async {
+    if (preferences.isEmpty) return;
+    for (final item in preferences.entries) {
+      if (!financeSchedulerCategories.containsKey(item.key) ||
+          item.value.category != item.key ||
+          item.value.scheduleDay < 1 || item.value.scheduleDay > 27) {
+        throw ArgumentError('Choose a finance type and day from 1 to 27.');
+      }
+    }
+    final uid = _uid;
+    final batch = _db.batch();
+    for (final item in preferences.entries) {
+      batch.set(_db.collection('finance_generation_settings').doc(item.key), {
+        'category': item.key,
+        'scheduleDay': item.value.scheduleDay,
+        'automaticEnabled': item.value.automaticEnabled,
+        'updatedBy': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  }
+
+  Future<void> saveRecurringAutomation({
+    required String planId,
+    required int scheduleDay,
+    required bool automaticEnabled,
+  }) async {
+    if (planId.isEmpty || planId.contains('/') ||
+        scheduleDay < 1 || scheduleDay > 27) {
+      throw ArgumentError('Choose a valid expense plan and day from 1 to 27.');
+    }
+    await recurringPlans.doc(planId).update({
+      'scheduleDay': scheduleDay,
+      'automaticEnabled': automaticEnabled,
+      'updatedBy': _uid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   /// Stored as scheduling preferences only. Actual automation requires
   /// a deployed trusted Cloud Scheduler / Firebase Functions worker.
   Future<Map<String, int>> loadGenerationDays() async {
@@ -741,19 +840,13 @@ class FinanceRepository {
   Future<void> saveGenerationDay({
     required String category,
     required int scheduleDay,
-  }) async {
-    if (!['tuition', 'transport', 'salary'].contains(category) ||
-        scheduleDay < 1 || scheduleDay > 27) {
-      throw ArgumentError('Choose a finance type and a day between 1 and 27.');
-    }
-    await _db.collection('finance_generation_settings').doc(category).set({
-      'category': category,
-      'scheduleDay': scheduleDay,
-      'automaticEnabled': false,
-      'updatedBy': _uid,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
+  }) => saveGenerationSchedules({
+        category: FinanceAutomationPreference(
+          category: category,
+          scheduleDay: scheduleDay,
+          automaticEnabled: false,
+        ),
+      });
 
   Future<Map<String, dynamic>?> loadDashboardPreferences() async {
     final doc = await _db.collection('finance_dashboard_preferences')
