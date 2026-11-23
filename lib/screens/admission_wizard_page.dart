@@ -43,6 +43,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     'Guardian',
     'Academic',
     'Health',
+    'Documents',
     'Review',
   ];
 
@@ -772,6 +773,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   Widget _studentPane() => _pane('student', [
     _heading('Student personal details',
       hint: 'Names should match official identification. Middle name is optional.'),
+    _photoPanel(),
     _field('student', 'firstName', 'First name', required: true),
     _field('student', 'middleName', 'Middle name (optional)'),
     _field('student', 'lastName', 'Last name', required: true),
@@ -783,7 +785,8 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       ['Not specified', 'National ID', 'B-Form', 'Iqama', 'Passport', 'Other']),
     _field('student', 'idNumber', 'Student ID / passport number', maxLength: 40),
     const SizedBox(height: 4),
-    _photoPanel(),
+    const Text('Photo and certificates can also be managed in the Documents tab.',
+      style: TextStyle(fontSize: 12)),
   ]);
 
   Widget _contactPane() => _pane('contact', [
@@ -906,6 +909,17 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       'bloodGroup': 'Blood group', 'specialNeeds': 'Special needs',
     },
   };
+
+  Widget _documentsPane() => _pane('documents', [
+    _heading('Student photos and documents',
+      hint: 'Upload files during admission, or add and replace them when editing an existing student.'),
+    _photoPanel(),
+    _documentsPanel(),
+    const Padding(
+      padding: EdgeInsets.all(12),
+      child: Text('Uploads are private and accessible only to authorized school accounts.'),
+    ),
+  ]);
 
   Widget _reviewPane() {
     final colors = Theme.of(context).colorScheme;
@@ -1055,6 +1069,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
               _guardianPane(),
               _academicPane(),
               _healthPane(),
+              _documentsPane(),
               _reviewPane(),
             ],
           ),
