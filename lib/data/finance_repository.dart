@@ -395,7 +395,6 @@ class FinanceRepository {
       'amountMinor': amountMinor,
       'scheduleDay': scheduleDay,
       'active': true,
-      // No background worker is deployed. This is a future scheduling setting.
       'automaticEnabled': false,
       'currency': 'PKR',
       'updatedBy': _uid,
@@ -727,29 +726,31 @@ class FinanceRepository {
     );
   }
 
-  /// Stored as scheduling preferences only. Actual automation requires
-  /// a deployed trusted Cloud Scheduler / Firebase Functions worker.
-  Future<Map<String, int>> loadGenerationDays() async {
+  Future<Map<String, ({int day, bool enabled})>> loadGenerationPreferences() async {
     final snap = await _db.collection('finance_generation_settings')
         .get(const GetOptions(source: Source.server));
     return {
       for (final doc in snap.docs)
-        doc.id: (doc.data()['scheduleDay'] as num?)?.toInt() ?? 1,
+        doc.id: (
+          day: (doc.data()['scheduleDay'] as num?)?.toInt() ?? 1,
+          enabled: doc.data()['automaticEnabled'] == true,
+        ),
     };
   }
 
-  Future<void> saveGenerationDay({
+  Future<void> saveGenerationPreference({
     required String category,
     required int scheduleDay,
+    required bool enabled,
   }) async {
-    if (!['tuition', 'transport', 'salary'].contains(category) ||
+    if (!['tuition', 'transport', 'salary', 'recurring_expenses'].contains(category) ||
         scheduleDay < 1 || scheduleDay > 27) {
       throw ArgumentError('Choose a finance type and a day between 1 and 27.');
     }
     await _db.collection('finance_generation_settings').doc(category).set({
       'category': category,
       'scheduleDay': scheduleDay,
-      'automaticEnabled': false,
+      'automaticEnabled': enabled,
       'updatedBy': _uid,
       'updatedAt': FieldValue.serverTimestamp(),
     });

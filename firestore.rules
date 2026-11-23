@@ -617,12 +617,12 @@ service cloud.firestore {
     match /finance_generation_settings/{category} {
       allow get, list: if canManageAdmissions();
       allow create, update: if canManageAdmissions()
-        && category in ['tuition', 'transport', 'salary']
+        && category in ['tuition', 'transport', 'salary', 'recurring_expenses']
         && request.resource.data.category == category
         && request.resource.data.scheduleDay is int
         && request.resource.data.scheduleDay >= 1
         && request.resource.data.scheduleDay <= 27
-        && request.resource.data.automaticEnabled == false
+        && request.resource.data.automaticEnabled is bool
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.updatedAt == request.time;
       allow delete: if false;

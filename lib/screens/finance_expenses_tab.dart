@@ -49,7 +49,7 @@ class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
     if (result == null || !mounted) return;
     if (monthly) _loadPlans();
     financeSnack(context, monthly
-        ? 'Monthly expense setup saved. Use Generate Finance for a monthly bill.'
+        ? 'Monthly expense plan saved.'
         : 'Expense paid and recorded in the Debit ledger. Entry: $result');
   }
 
@@ -194,9 +194,8 @@ class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
         },
       ),
       const SizedBox(height: 14),
-      const Text('Automatic generation is not active yet. The planned day '
-          '(1–27) is saved for future Firebase Functions scheduling; '
-          'until billing is configured, run Generate Finance manually.',
+      const Text('To generate these bills automatically on each plan’s day, '
+          'enable Recurring expenses in Monthly schedule preferences.',
         style: TextStyle(fontSize: 11)),
     ],
   );

@@ -63,3 +63,5 @@ student-documents/
 desktop-documents/
 archives/
 backups/
+
+/functions/node_modules/

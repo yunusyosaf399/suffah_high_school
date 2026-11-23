@@ -81,9 +81,11 @@ Recurring plans have a preferred day (1–27); they can be stopped without delet
 
 ## Monthly automation: configured, not deployed
 
-The owner/principal can save a preferred generation day (1–27) for tuition, transport and salary in **Generate Finance → Monthly schedule preferences**. Recurring expenses also save a preferred day.
+Owners and principals can enable automatic tuition, transport, salary and recurring expense generation in **Generate Finance → Monthly schedule preferences**. Select day 1–27 for fees and salaries. Each expense plan supplies its own day. Existing preferences stay disabled until switched on.
 
-**These are schedule preferences only. No background worker or automatic charge generation is active.** Automatic execution requires a secured Firebase Cloud Functions + Cloud Scheduler implementation and enabling Blaze billing. Until then, an owner/principal must manually open **Generate Finance** each month. The generation IDs already make retry/idempotency safe.
+The Firebase job checks once daily in Pakistan time. It processes enabled categories due in the current month, so enabling after the chosen day generates bills on the next run. A completed category is not rerun that month. Manual generation is still available for adding missing records or handling earlier months. Existing bill IDs, balances and ledger entries are preserved.
+
+To enable the online scheduler on a Firebase project with Blaze billing, deploy `firestore:rules` and `functions:generateMonthlyFinance` from this checkout. The job runs at 02:00 Asia/Karachi. Review its Cloud Logging entries for failed or completed runs.
 
 ## Firestore storage
 
@@ -92,8 +94,8 @@ The owner/principal can save a preferred generation day (1–27) for tuition, tr
 | `finance_tuition_rates/{classId}` | Fixed monthly tuition per class; owner-only changes |
 | `finance_transport_rates/{studentId}` | Personal monthly transport amount |
 | `finance_salary_rates/{staffId}` | Teacher basic, allowance, bonus and total |
-| `finance_recurring_plans/{planId}` | Monthly bills, planned day, disabled automatic execution |
-| `finance_generation_settings/{category}` | Preferred day for tuition/transport/salary |
+| `finance_recurring_plans/{planId}` | Monthly bill plans and their generation days |
+| `finance_generation_settings/{category}` | Opt-in and generation day for each automatic bill type |
 | `finance_fee_bills/{billId}` | Unpaid/partial/paid student obligations |
 | `finance_salary_bills/{billId}` | Monthly teacher salary obligations |
 | `finance_recurring_bills/{billId}` | Generated monthly expense obligations |
