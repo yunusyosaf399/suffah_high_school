@@ -99,6 +99,24 @@ jobs:
           fi
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
 
+      - name: Verify Cloudflare R2 Worker is configured
+        env:
+          R2_WORKER_URL: ${{ vars.R2_WORKER_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${R2_WORKER_URL}" || "${R2_WORKER_URL}" != https://* ]]; then
+            echo "::error::Set Actions repository variable R2_WORKER_URL to your HTTPS Worker URL."
+            exit 1
+          fi
+          echo "Checking Cloudflare Worker health without exposing secrets..."
+          response="$(curl --fail --silent --show-error --max-time 20 "${R2_WORKER_URL%/}/health")"
+          if [[ "${response}" != *'"status":"ok"'* ]]; then
+            echo "::error::Cloudflare Worker health endpoint did not respond with status ok."
+            exit 1
+          fi
+          echo "Cloudflare Worker health check passed."
+
       - name: Build Android APK (development / debug signed)
         env:
           R2_WORKER_URL: ${{ vars.R2_WORKER_URL }}
