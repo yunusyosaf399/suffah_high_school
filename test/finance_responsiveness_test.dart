@@ -108,7 +108,7 @@ void main() {
 
     expect(find.byKey(const Key('salary_pay_scroll')), findsOneWidget);
     expect(find.byKey(const Key('salary_server_view_version')), findsOneWidget);
-    expect(find.textContaining('Diagnostic v4'), findsOneWidget);
+    expect(find.textContaining('Redesign v5'), findsOneWidget);
     expect(find.text('Read status: Loading saved salaries…'), findsOneWidget);
     expect(find.byKey(const Key('salary_read_status')), findsOneWidget);
     expect(
@@ -172,12 +172,25 @@ void main() {
     expect(find.byKey(const Key('salary_bill_SAL-202611-EMP-0')),
         findsOneWidget);
     expect(find.textContaining('Teacher 1'), findsOneWidget);
-    expect(find.textContaining('Remaining Rs 101,500.00'),
-        findsAtLeastNWidgets(1));
+    expect(find.text('Remaining balance'), findsAtLeastNWidgets(1));
+    expect(find.text('Rs 101,500.00'), findsAtLeastNWidgets(1));
+    expect(find.byKey(const Key('finance_pay_salary_SAL-202611-EMP-0')),
+        findsOneWidget);
     final firstTop = tester.getTopLeft(
       find.byKey(const Key('salary_bill_SAL-202611-EMP-0')));
     expect(firstTop.dy, lessThan(915),
         reason: 'A loaded salary must actually appear inside the phone viewport.');
+    expect(
+      tester.getTopLeft(find.byKey(const Key('salary_results_heading'))).dy,
+      greaterThan(tester.getTopLeft(find.text('Pay monthly salaries')).dy),
+      reason: 'Results heading must render below the page title.',
+    );
+    expect(
+      firstTop.dy,
+      greaterThan(tester.getTopLeft(
+        find.byKey(const Key('salary_results_heading'))).dy),
+      reason: 'Salary cards must render below the results heading.',
+    );
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('salary_bill_SAL-202610-EMP-3')),
@@ -216,7 +229,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.textContaining('Teacher Muhammad Khan'), findsWidgets);
-    expect(find.textContaining('Remaining Rs 25,000.00'), findsOneWidget);
+    expect(find.text('Remaining balance'), findsOneWidget);
+    expect(find.text('Rs 25,000.00'), findsAtLeastNWidgets(1));
     expect(find.byKey(const Key('salary_read_status')), findsOneWidget);
     expect(find.byKey(const Key('finance_pay_salary_SAL-202611-EMP-001')),
         findsOneWidget);
