@@ -2,7 +2,7 @@ name: Android APK — Suffah High School
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/cloudflare-r2-student-files]
     paths:
       - "lib/**"
       - "assets/**"
@@ -99,8 +99,28 @@ jobs:
           fi
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
 
+      - name: Verify Cloudflare R2 Worker is configured
+        env:
+          R2_WORKER_URL: ${{ vars.R2_WORKER_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${R2_WORKER_URL}" || "${R2_WORKER_URL}" != https://* ]]; then
+            echo "::error::Set Actions repository variable R2_WORKER_URL to your HTTPS Worker URL."
+            exit 1
+          fi
+          echo "Checking Cloudflare Worker health without exposing secrets..."
+          response="$(curl --fail --silent --show-error --max-time 20 "${R2_WORKER_URL%/}/health")"
+          if [[ "${response}" != *'"status":"ok"'* ]]; then
+            echo "::error::Cloudflare Worker health endpoint did not respond with status ok."
+            exit 1
+          fi
+          echo "Cloudflare Worker health check passed."
+
       - name: Build Android APK (development / debug signed)
-        run: flutter build apk --debug --build-number "${{ github.run_number }}"
+        env:
+          R2_WORKER_URL: ${{ vars.R2_WORKER_URL }}
+        run: flutter build apk --debug --dart-define="R2_WORKER_URL=${R2_WORKER_URL}" --build-number "${{ github.run_number }}"
 
       - name: Preserve preview signature for future updates
         if: env.HAS_SIGNING_SECRET != 'true' && steps.debug_signing_cache.outputs.cache-hit != 'true'

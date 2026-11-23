@@ -1,0 +1,11 @@
+name = "suffah-student-files"
+main = "src/index.js"
+compatibility_date = "2026-11-23"
+workers_dev = true
+
+[vars]
+FIREBASE_PROJECT_ID = "suffah-high-school"
+
+[[r2_buckets]]
+binding = "STUDENT_FILES"
+bucket_name = "suffah-school-files"

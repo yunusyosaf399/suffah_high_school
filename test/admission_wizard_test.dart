@@ -37,9 +37,12 @@ void main() {
     expect(find.text('Roll: 10000'), findsOneWidget);
     expect(find.text('1. Student'), findsOneWidget);
     expect(find.text('2. Contact'), findsOneWidget);
-    expect(find.text('6. Review'), findsOneWidget);
-    expect(find.text('6. Documents'), findsNothing);
+    expect(find.text('7. Review'), findsOneWidget);
+    expect(find.text('6. Documents'), findsOneWidget);
     expect(find.text('Student personal details'), findsOneWidget);
+    expect(find.text('Profile photo'), findsOneWidget);
+    expect(find.text('Upload photo'), findsOneWidget);
+    expect(find.text('Upload certificates & documents'), findsOneWidget);
     expect(find.text('Save draft'), findsWidgets);
 
     await tester.tap(find.text('2. Contact'));
@@ -81,7 +84,7 @@ void main() {
       registrationNo: 'ST-2026-0002',
       rollNo: '10001',
       status: 'draft',
-      step: 5,
+      step: 6,
       details: {
         'student': {
           'firstName': 'Bilal',
@@ -108,12 +111,14 @@ void main() {
         classes: classes,
         saveOverride: (details, step, complete) async {
           confirmed = complete;
-          expect(step, 5);
+          expect(step, 6);
         },
       ),
     ));
     await tester.pumpAndSettle();
     expect(find.text('Review admission'), findsOneWidget);
+    expect(find.text('Certificates and documents'), findsOneWidget);
+    expect(find.text('Upload document'), findsOneWidget);
     expect(find.text('Review & admit'), findsOneWidget);
     expect(find.text('Reg: ST-2026-0002'), findsOneWidget);
     await tester.tap(find.text('Review & admit'));
@@ -131,7 +136,7 @@ void main() {
       registrationNo: 'ST-2026-0003',
       rollNo: '10002',
       status: 'admitted',
-      step: 5,
+      step: 6,
       details: {
         'student': {
           'firstName': 'Mariam', 'lastName': 'Khan',

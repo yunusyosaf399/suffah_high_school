@@ -249,7 +249,7 @@ class AdmissionRepository {
     final guardianName = admissionFullName(details['guardian'] ?? {});
     final data = <String, dynamic>{
       'details': details,
-      'currentStep': currentStep.clamp(0, 5),
+      'currentStep': currentStep.clamp(0, 6),
       'fullName': name.isEmpty ? 'Draft – ${admission.registrationNo}' : name,
       'searchName': name.toLowerCase(),
       'guardianName': guardianName,
