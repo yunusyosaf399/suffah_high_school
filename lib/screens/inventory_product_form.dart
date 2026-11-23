@@ -220,9 +220,12 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
       body: SafeArea(
         child: Form(
           key: _form,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
-            children: [
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
               Text('Product details', style: Theme.of(context)
                   .textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
               const SizedBox(height: 7),
@@ -270,6 +273,13 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
                 key: const Key('inventory_product_name'),
                 controller: _name, label: 'Product name *', required: true,
               ),
+              _field(
+                key: const Key('inventory_stock_quantity'),
+                controller: _quantity,
+                label: 'Stock quantity (number) *', required: true,
+                keyboard: TextInputType.number, maxLength: 9,
+                hint: 'Enter the current number of products (e.g. 100)',
+              ),
               if (isBook) ...[
                 _selector(
                   key: const Key('inventory_book_class'),
@@ -315,13 +325,7 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
               Text('Pricing and stock', style: Theme.of(context)
                 .textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
               const SizedBox(height: 12),
-              _field(
-                key: const Key('inventory_stock_quantity'),
-                controller: _quantity,
-                label: 'Stock quantity (number) *', required: true,
-                keyboard: TextInputType.number, maxLength: 9,
-                hint: 'Enter the current number of products (e.g. 100)',
-              ),
+
               _field(
                 controller: _price, label: 'Selling price (PKR) *',
                 required: true,
@@ -366,7 +370,9 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
                 label: Text(_saving ? 'Saving…' : 'Save product'),
               ),
               const SizedBox(height: 20),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
