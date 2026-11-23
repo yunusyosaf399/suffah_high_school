@@ -152,11 +152,13 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
           ),
         );
       } else {
-        await _storage.saveDocumentToDevice(file);
+        final saved = await _storage.saveDocumentToDevice(file);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Document saved to your device.')),
-        );
+        if (saved) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Document saved to your device.')),
+          );
+        }
       }
     } catch (error) {
       if (!mounted) return;
