@@ -92,9 +92,10 @@ void main() {
     expect(find.text('Monthly Finance Scheduler'), findsOneWidget);
     expect(find.text('Automatic execution not active'), findsOneWidget);
     expect(find.byKey(const Key('scheduler_row_tuition')), findsOneWidget);
-    expect(find.byKey(const Key('scheduler_row_transport')), findsOneWidget);
-    expect(find.byKey(const Key('scheduler_row_salary')), findsOneWidget);
-    expect(find.byKey(const Key('scheduler_expense_rent-1')), findsOneWidget);
+    final scrollable = find.descendant(
+      of: find.byKey(const Key('finance_scheduler_page')),
+      matching: find.byType(Scrollable),
+    ).first;
 
     final tuition = find.descendant(
       of: find.byKey(const Key('scheduler_row_tuition')),
@@ -104,6 +105,10 @@ void main() {
     await tester.tap(tuition);
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('scheduler_row_transport')),
+      140, scrollable: scrollable,
+    );
     final transport = find.descendant(
       of: find.byKey(const Key('scheduler_row_transport')),
       matching: find.byType(SwitchListTile),
@@ -112,6 +117,15 @@ void main() {
     await tester.tap(transport);
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('scheduler_row_salary')),
+      140, scrollable: scrollable,
+    );
+    expect(find.byKey(const Key('scheduler_row_salary')), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('scheduler_expense_rent-1')),
+      140, scrollable: scrollable,
+    );
     final rent = find.descendant(
       of: find.byKey(const Key('scheduler_expense_rent-1')),
       matching: find.byType(SwitchListTile),
