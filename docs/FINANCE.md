@@ -79,11 +79,24 @@ The expense category/subcategory catalog includes utilities (WiFi, electricity, 
 
 Recurring plans have a preferred day (1–27); they can be stopped without deleting historical expenses.
 
-## Monthly automation: configured, not deployed
+## Monthly automation: scheduler backend prepared; deployment pending
 
-The owner/principal can save a preferred generation day (1–27) for tuition, transport and salary in **Generate Finance → Monthly schedule preferences**. Recurring expenses also save a preferred day.
+The **Generate Finance → Monthly finance scheduler** screen now lets the owner/
+principal choose an automatic generation day (1–27) and on/off state separately
+for tuition, transport and teacher salaries. Each active recurring expense
+plan has its own optional automatic day. The backend checks schedules daily
+at **06:10 Pakistan time**. It creates only unpaid monthly obligations and
+never posts an automatic credit/debit transaction.
 
-**These are schedule preferences only. No background worker or automatic charge generation is active.** Automatic execution requires a secured Firebase Cloud Functions + Cloud Scheduler implementation and enabling Blaze billing. Until then, an owner/principal must manually open **Generate Finance** each month. The generation IDs already make retry/idempotency safe.
+The idempotent Cloud Functions v2 worker is committed in `functions/`, and
+audit documents and worker heartbeat are supported by the repository rules.
+**Deployment has NOT occurred**. Enabling Firebase Blaze billing, publishing
+the latest Firestore rules and explicitly deploying the Cloud Function are
+required before automatic generation works. Until deployment, continue
+generating the current or previous month's obligations manually.
+
+See [Monthly Finance Scheduler](FINANCE_SCHEDULER.md) for exact deployment,
+security, test and recovery instructions.
 
 ## Firestore storage
 
@@ -93,11 +106,13 @@ The owner/principal can save a preferred generation day (1–27) for tuition, tr
 | `finance_transport_rates/{studentId}` | Personal monthly transport amount |
 | `finance_salary_rates/{staffId}` | Teacher basic, allowance, bonus and total |
 | `finance_recurring_plans/{planId}` | Monthly bills, planned day, disabled automatic execution |
-| `finance_generation_settings/{category}` | Preferred day for tuition/transport/salary |
+| `finance_generation_settings/{category}` | Day and enable switch for tuition/transport/salary |
 | `finance_fee_bills/{billId}` | Unpaid/partial/paid student obligations |
 | `finance_salary_bills/{billId}` | Monthly teacher salary obligations |
 | `finance_recurring_bills/{billId}` | Generated monthly expense obligations |
 | `finance_ledger/{entryId}` | Immutable credit/debit cash movements and receipts |
+| `finance_scheduler_runtime/status` | Read-only worker heartbeat and health |
+| `finance_scheduler_runs/{month_category}` | Read-only monthly idempotency audit |
 | `finance_dashboard_preferences/{userId}` | Private dashboard preferences for each administrator |
 
 Old `payroll_records` remain protected and read-only, retained for a future migration. They are **not** automatically imported into the new ledger; no historical balances are invented.
