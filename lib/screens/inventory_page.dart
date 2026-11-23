@@ -83,12 +83,15 @@ class _InventoryPageState extends State<InventoryPage> {
           ),
         ),
         body: SafeArea(
-          child: TabBarView(children: [
-            _catalog(selling: true),
-            _catalog(selling: false),
-            if (_canManage) _purchaseHistory(),
-            _salesHistory(),
-          ]),
+          child: StreamBuilder<List<InventoryItem>>(
+            stream: _items,
+            builder: (context, snapshot) => TabBarView(children: [
+              _catalog(selling: true, snapshot: snapshot),
+              _catalog(selling: false, snapshot: snapshot),
+              if (_canManage) _purchaseHistory(),
+              _salesHistory(),
+            ]),
+          ),
         ),
       ),
     );
@@ -112,10 +115,10 @@ class _InventoryPageState extends State<InventoryPage> {
     ),
   );
 
-  Widget _catalog({required bool selling}) {
-    return StreamBuilder<List<InventoryItem>>(
-      stream: _items,
-      builder: (context, snapshot) {
+  Widget _catalog({
+    required bool selling,
+    required AsyncSnapshot<List<InventoryItem>> snapshot,
+  }) {
         if (snapshot.hasError) return Center(
           child: Padding(padding: const EdgeInsets.all(24),
             child: Text(_error(snapshot.error!), textAlign: TextAlign.center)));
@@ -245,8 +248,6 @@ class _InventoryPageState extends State<InventoryPage> {
                 ),
           ],
         );
-      },
-    );
   }
 
   Future<void> _sell(InventoryItem item) async {
