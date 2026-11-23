@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../data/admission_repository.dart';
+import '../data/admission_storage.dart';
 import '../data/school_errors.dart';
 import '../data/school_repository.dart';
 
@@ -65,6 +67,11 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   final _inputs = <String, TextEditingController>{};
   late final AdmissionRepository _repository = AdmissionRepository();
   final _attachments = <String, Map<String, dynamic>>{};
+  final AdmissionStorage _storage = AdmissionStorage();
+  final Set<String> _filesToDelete = <String>{};
+  Uint8List? _localPhotoPreview;
+  Future<Uint8List>? _remotePhotoPreview;
+  bool _uploading = false;
   late final TabController _tabs;
   Future<void> _saveQueue = Future<void>.value();
   Timer? _debounce;
@@ -130,7 +137,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     if (widget.saveOverride != null) return; // tests remain deterministic
     _debounce?.cancel();
     _debounce = Timer(const Duration(seconds: 3), () {
-      if (!mounted || _busy || _closing || !widget.record.isDraft) return;
+      if (!mounted || _busy || _uploading || _closing || !widget.record.isDraft) return;
       unawaited(_persist().catchError((Object error) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -193,6 +200,307 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     });
   }
 
+
+  static const _documentLabels = <String, String>{
+    'birth_certificate': 'Birth certificate',
+    'transfer_certificate': 'Transfer certificate',
+    'previous_school_certificate': 'Previous-school certificate',
+    'medical_report': 'Medical certificate',
+    'other': 'Other document',
+  };
+
+  void _mediaChanged() {
+    _revision++;
+    setState(() => _dirty = true);
+  }
+
+  void _queueDeletion(String path) {
+    if (AdmissionStorage.isR2Path(path)) _filesToDelete.add(path);
+  }
+
+  /// Persist the new metadata BEFORE deleting replaced objects. The Worker
+  /// also checks current Firestore references to prevent accidental removal.
+  Future<void> _saveMediaChange() async {
+    _debounce?.cancel();
+    await _persist();
+    for (final path in _filesToDelete.toList()) {
+      try {
+        await _storage.deleteFile(path);
+        _filesToDelete.remove(path);
+      } catch (_) {
+        // Metadata is already saved. An orphan can be cleaned up later.
+      }
+    }
+  }
+
+  Future<void> _uploadPhoto() async {
+    if (_busy || _uploading) return;
+    setState(() => _uploading = true);
+    try {
+      final photo = await _storage.uploadProfilePhoto(widget.record.id);
+      if (photo == null || !mounted) return;
+      _queueDeletion(_photoPath);
+      _photoPath = photo.path;
+      _localPhotoPreview = photo.bytes;
+      _remotePhotoPreview = null;
+      _mediaChanged();
+      await _saveMediaChange();
+      _showMessage('Student photo saved securely.');
+    } catch (error) {
+      _showMessage(schoolErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _removePhoto() async {
+    if (_photoPath.isEmpty || _busy || _uploading) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove student photo?'),
+        content: const Text('The photo will be removed from this student profile.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _uploading = true);
+    try {
+      _queueDeletion(_photoPath);
+      _photoPath = '';
+      _localPhotoPreview = null;
+      _remotePhotoPreview = null;
+      _mediaChanged();
+      await _saveMediaChange();
+      _showMessage('Student photo removed.');
+    } catch (error) {
+      _showMessage(schoolErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _uploadDocument() async {
+    if (_busy || _uploading) return;
+    final kind = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Select document type'),
+        children: [
+          for (final entry in _documentLabels.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, entry.key),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(entry.value),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (kind == null || !mounted) return;
+    setState(() => _uploading = true);
+    try {
+      final uploaded = await _storage.uploadDocument(widget.record.id, kind);
+      if (uploaded == null || !mounted) return;
+      final key = kind == 'other'
+          ? 'other_' + DateTime.now().microsecondsSinceEpoch.toString()
+          : kind;
+      final previous = _attachments[key]?['path']?.toString() ?? '';
+      _queueDeletion(previous);
+      _attachments[key] = uploaded;
+      _mediaChanged();
+      await _saveMediaChange();
+      _showMessage('Document uploaded and saved.');
+    } catch (error) {
+      _showMessage(schoolErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _removeDocument(String key) async {
+    if (_busy || _uploading || !_attachments.containsKey(key)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove this document?'),
+        content: const Text('It will no longer be linked to the student profile.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _uploading = true);
+    try {
+      _queueDeletion(_attachments[key]?['path']?.toString() ?? '');
+      _attachments.remove(key);
+      _mediaChanged();
+      await _saveMediaChange();
+      _showMessage('Document removed.');
+    } catch (error) {
+      _showMessage(schoolErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _viewDocument(Map<String, dynamic> file) async {
+    if (_uploading) return;
+    final path = file['path']?.toString() ?? '';
+    if (path.isEmpty) return;
+    setState(() => _uploading = true);
+    try {
+      final type = file['contentType']?.toString() ?? '';
+      if (type.startsWith('image/')) {
+        final bytes = await _storage.downloadFile(path);
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (context) => Dialog(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(child: Image.memory(bytes, fit: BoxFit.contain)),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      } else {
+        await _storage.saveDocumentToDevice(file);
+        _showMessage('Document saved to the selected device location.');
+      }
+    } catch (error) {
+      _showMessage(schoolErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Widget _photoThumbnail() {
+    if (_photoPath.isEmpty) {
+      return const CircleAvatar(radius: 33, child: Icon(Icons.person_outline, size: 31));
+    }
+    if (_localPhotoPreview != null) {
+      return CircleAvatar(radius: 33,
+        backgroundImage: MemoryImage(_localPhotoPreview!));
+    }
+    _remotePhotoPreview ??= _storage.downloadFile(_photoPath);
+    return FutureBuilder<Uint8List>(
+      future: _remotePhotoPreview,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const CircleAvatar(radius: 33,
+            child: Icon(Icons.person_outline, size: 31));
+        }
+        return CircleAvatar(radius: 33,
+          backgroundImage: MemoryImage(snapshot.data!));
+      },
+    );
+  }
+
+  Widget _photoPanel() => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Profile photo', style: TextStyle(
+            fontSize: 13, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 9),
+          Row(children: [
+            _photoThumbnail(),
+            const SizedBox(width: 14),
+            Expanded(child: Text(
+              _photoPath.isEmpty
+                ? 'No photo selected. JPEG and PNG photos are compressed to WebP, maximum 100 KB.'
+                : 'Photo securely attached to this student.',
+              style: const TextStyle(fontSize: 11),
+            )),
+          ]),
+          const SizedBox(height: 10),
+          if (!AdmissionStorage.isConfigured)
+            const Text('R2 upload is not configured in this APK.',
+              style: TextStyle(fontSize: 11)),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: _busy || _uploading || !AdmissionStorage.isConfigured
+                  ? null : _uploadPhoto,
+              icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+              label: Text(_photoPath.isEmpty ? 'Upload photo' : 'Replace photo'),
+            ),
+            if (_photoPath.isNotEmpty)
+              TextButton.icon(
+                onPressed: _busy || _uploading ? null : _removePhoto,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Remove'),
+              ),
+          ]),
+        ],
+      ),
+    ),
+  );
+
+  Widget _documentsPanel() => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Certificates and documents', style: TextStyle(
+            fontSize: 13, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          const Text('Birth, transfer, previous-school and medical certificates. PDF or image; maximum 5 MB each.',
+            style: TextStyle(fontSize: 11)),
+          const SizedBox(height: 8),
+          if (_attachments.isEmpty)
+            const Text('No documents uploaded.', style: TextStyle(fontSize: 12))
+          else
+            for (final entry in _attachments.entries)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.description_outlined),
+                title: Text(entry.value['name']?.toString() ?? 'Document',
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(_documentLabels[entry.value['kind']] ??
+                    entry.key.replaceAll('_', ' ')),
+                onTap: _uploading ? null : () => _viewDocument(entry.value),
+                trailing: IconButton(
+                  tooltip: 'Remove document',
+                  onPressed: _uploading || _busy
+                      ? null : () => _removeDocument(entry.key),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ),
+          const SizedBox(height: 9),
+          OutlinedButton.icon(
+            onPressed: _busy || _uploading || !AdmissionStorage.isConfigured
+                ? null : _uploadDocument,
+            icon: const Icon(Icons.upload_file_outlined),
+            label: Text(_uploading ? 'Uploading…' : 'Upload document'),
+          ),
+        ],
+      ),
+    ),
+  );
+
   String? _requiredStepMessage(int step) {
     final data = _collect();
     String value(String section, String key) =>
@@ -243,7 +551,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   }
 
   Future<void> _performSave({bool complete = false}) async {
-    if (_busy) return;
+    if (_busy || _uploading) return;
     _debounce?.cancel();
     setState(() => _busy = true);
     try {
@@ -310,7 +618,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   }
 
   Future<void> _saveAndClose() async {
-    if (_busy || _closing) return;
+    if (_busy || _uploading || _closing) return;
     _debounce?.cancel();
     setState(() => _busy = true);
     try {
@@ -472,8 +780,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       ['Not specified', 'National ID', 'B-Form', 'Iqama', 'Passport', 'Other']),
     _field('student', 'idNumber', 'Student ID / passport number', maxLength: 40),
     const SizedBox(height: 4),
-    const Text('A passport-style profile photo can be added under Documents.',
-      style: TextStyle(fontSize: 11)),
+    _photoPanel(),
   ]);
 
   Widget _contactPane() => _pane('contact', [
@@ -664,31 +971,8 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
       section('Parent or guardian', 'guardian'),
       section('Academic information', 'academic'),
       section('Health and special needs', 'health'),
-      Card(
-        child: Padding(
-          padding: const EdgeInsets.all(13),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Documents and photo', style: TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 9),
-              Text(_photoPath.isEmpty
-                  ? 'Photo: Not uploaded'
-                  : 'Photo: Attached',
-                  style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 7),
-              if (_attachments.isEmpty)
-                const Text('No documents uploaded.',
-                    style: TextStyle(fontSize: 12))
-              else
-                for (final file in _attachments.values)
-                  Text(file['name']?.toString() ?? 'Document',
-                    style: const TextStyle(fontSize: 12)),
-            ],
-          ),
-        ),
-      ),
+      _photoPanel(),
+      _documentsPanel(),
     ]);
   }
 
@@ -706,7 +990,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
           leading: IconButton(
             tooltip: 'Save draft and close',
             icon: const Icon(Icons.close_rounded),
-            onPressed: _busy ? null : _saveAndClose,
+            onPressed: _busy || _uploading ? null : _saveAndClose,
           ),
           title: Text(widget.record.isDraft ? 'New admission' : 'Student record',
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
@@ -784,7 +1068,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
                   children: [
                     if (_tabs.index > 0) ...[
                       OutlinedButton(
-                        onPressed: _busy
+                        onPressed: _busy || _uploading
                             ? null : () => _tabs.animateTo(_tabs.index - 1),
                         child: const Text('Back'),
                       ),
@@ -800,7 +1084,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilledButton(
-                        onPressed: _busy ? null
+                        onPressed: _busy || _uploading ? null
                             : _tabs.index == _steps.length - 1 ? _finish : _next,
                         child: Text(_tabs.index == _steps.length - 1
                             ? widget.record.isDraft ? 'Review & admit' : 'Save reviewed changes'
