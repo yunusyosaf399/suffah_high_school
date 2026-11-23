@@ -202,7 +202,64 @@ service cloud.firestore {
           'lastMovementId', 'lastMovementType', 'createdBy', 'createdAt',
           'updatedBy', 'updatedAt'])
         && request.resource.data.sku == itemId
-        && itemId.matches('^[A-Z0-9_-]{3,32}
+        && itemId.matches('^[A-Z0-9_-]{3,32}$')
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.department in ['canteen', 'stationery']
+        && request.resource.data.unit is string
+        && request.resource.data.unit.size() > 0
+        && request.resource.data.unit.size() <= 24
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 250
+        && request.resource.data.priceMinor is int
+        && request.resource.data.priceMinor > 0
+        && request.resource.data.priceMinor <= 100000000000
+        && request.resource.data.stockQty is int
+        && request.resource.data.stockQty >= 0
+        && request.resource.data.stockQty <= 100000000
+        && request.resource.data.reorderPoint is int
+        && request.resource.data.reorderPoint >= 0
+        && request.resource.data.active is bool
+        && request.resource.data.currency == 'PKR';
+    }
+
+    function validInventorySaleMovement(itemId) {
+      let event = /databases/$(database)/documents/inventory_sales/$(request.resource.data.lastMovementId);
+      return request.resource.data.lastMovementType == 'sale'
+        && request.resource.data.stockQty < resource.data.stockQty
+        && !exists(event)
+        && getAfter(event).data.itemId == itemId
+        && getAfter(event).data.sellerUid == request.auth.uid
+        && getAfter(event).data.quantity ==
+             resource.data.stockQty - request.resource.data.stockQty;
+    }
+
+    function validInventoryPurchaseMovement(itemId) {
+      let event = /databases/$(database)/documents/inventory_purchases/$(request.resource.data.lastMovementId);
+      return canManageInventory()
+        && request.resource.data.lastMovementType == 'purchase'
+        && request.resource.data.stockQty > resource.data.stockQty
+        && !exists(event)
+        && getAfter(event).data.itemId == itemId
+        && getAfter(event).data.recordedBy == request.auth.uid
+        && getAfter(event).data.quantity ==
+             request.resource.data.stockQty - resource.data.stockQty;
+    }
+
+    function validInventoryAdjustmentMovement(itemId) {
+      let event = /databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId);
+      return canManageInventory()
+        && request.resource.data.lastMovementType == 'adjustment'
+        && request.resource.data.stockQty != resource.data.stockQty
+        && !exists(event)
+        && getAfter(event).data.itemId == itemId
+        && getAfter(event).data.recordedBy == request.auth.uid
+        && getAfter(event).data.delta ==
+             request.resource.data.stockQty - resource.data.stockQty;
+    }
+
+    match /users/{userId} {
       // All accounts can read only their own school role; owner can list them.
       allow get: if isOwner()
         || (request.auth != null && request.auth.uid == userId);
@@ -925,631 +982,6 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'adjustment'
         && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedBy == request.auth.uid;
       allow update, delete: if false;
-    }
-
-    // Everything else stays inaccessible until role-specific modules are
-    // implemented and reviewed. DO NOT add a broad match allow rule here.
-    match /{other=**} {
-      allow read, write: if false;
-    }
-  }
-}
-)
-        && request.resource.data.name is string
-        && request.resource.data.name.size() >= 2
-        && request.resource.data.name.size() <= 100
-        && request.resource.data.department in ['canteen', 'stationery']
-        && request.resource.data.unit is string
-        && request.resource.data.unit.size() > 0
-        && request.resource.data.unit.size() <= 24
-        && request.resource.data.description is string
-        && request.resource.data.description.size() <= 250
-        && request.resource.data.priceMinor is int
-        && request.resource.data.priceMinor > 0
-        && request.resource.data.priceMinor <= 100000000000
-        && request.resource.data.stockQty is int
-        && request.resource.data.stockQty >= 0
-        && request.resource.data.stockQty <= 100000000
-        && request.resource.data.reorderPoint is int
-        && request.resource.data.reorderPoint >= 0
-        && request.resource.data.active is bool
-        && request.resource.data.currency == 'PKR';
-    }
-
-    function validInventorySaleMovement(itemId) {
-      let event = /databases/$(database)/documents/inventory_sales/$(request.resource.data.lastMovementId);
-      return request.resource.data.lastMovementType == 'sale'
-        && request.resource.data.stockQty < resource.data.stockQty
-        && !exists(event)
-        && getAfter(event).data.itemId == itemId
-        && getAfter(event).data.sellerUid == request.auth.uid
-        && getAfter(event).data.quantity ==
-             resource.data.stockQty - request.resource.data.stockQty;
-    }
-
-    function validInventoryPurchaseMovement(itemId) {
-      let event = /databases/$(database)/documents/inventory_purchases/$(request.resource.data.lastMovementId);
-      return canManageInventory()
-        && request.resource.data.lastMovementType == 'purchase'
-        && request.resource.data.stockQty > resource.data.stockQty
-        && !exists(event)
-        && getAfter(event).data.itemId == itemId
-        && getAfter(event).data.recordedBy == request.auth.uid
-        && getAfter(event).data.quantity ==
-             request.resource.data.stockQty - resource.data.stockQty;
-    }
-
-    function validInventoryAdjustmentMovement(itemId) {
-      let event = /databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId);
-      return canManageInventory()
-        && request.resource.data.lastMovementType == 'adjustment'
-        && request.resource.data.stockQty != resource.data.stockQty
-        && !exists(event)
-        && getAfter(event).data.itemId == itemId
-        && getAfter(event).data.recordedBy == request.auth.uid
-        && getAfter(event).data.delta ==
-             request.resource.data.stockQty - resource.data.stockQty;
-    }
-
-    match /users/{userId} {
-      // All accounts can read only their own school role; owner can list them.
-      allow get: if isOwner()
-        || (request.auth != null && request.auth.uid == userId);
-      allow list: if isOwner();
-      allow create: if isOwner()
-        && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
-        && allowedNewRole()
-        && request.resource.data.active == true
-        && (
-          request.resource.data.role != 'teacher'
-          || validTeacherAccount(userId)
-        );
-      // Suspensions only. Role changes are a separate, audited future flow.
-      allow update: if isOwner()
-        && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['active', 'updatedAt']);
-      allow delete: if false;
-    }
-
-    match /classes/{classId} {
-      allow read, create, update: if canManageAdmissions();
-      allow delete: if false;
-    }
-
-    // Owner-managed subject catalog, distinct for each class and section.
-    match /classes/{classId}/subjects/{subjectId} {
-      allow get, list: if canManageAdmissions();
-      allow create: if canManageAdmissions()
-        && exists(/databases/$(database)/documents/classes/$(classId))
-        && get(/databases/$(database)/documents/classes/$(classId)).data.active == true
-        && request.resource.data.classId == classId
-        && request.resource.data.name is string
-        && request.resource.data.name.size() >= 2
-        && request.resource.data.name.size() <= 60
-        && request.resource.data.nameKey is string
-        && request.resource.data.code is string
-        && request.resource.data.description is string
-        && request.resource.data.weeklyPeriods is int
-        && request.resource.data.weeklyPeriods >= 0
-        && request.resource.data.weeklyPeriods <= 30
-        && request.resource.data.active == true;
-      allow update: if canManageAdmissions()
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.name == resource.data.name
-        && request.resource.data.nameKey == resource.data.nameKey
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.code is string
-        && request.resource.data.description is string
-        && request.resource.data.weeklyPeriods is int
-        && request.resource.data.weeklyPeriods >= 0
-        && request.resource.data.weeklyPeriods <= 30
-        && request.resource.data.active is bool;
-      allow delete: if false;
-    }
-
-    match /counters/{counterId} {
-      allow read, create, update: if canManageAdmissions();
-      allow delete: if false;
-    }
-
-    match /students/{studentId} {
-      // School records are readable in this phase only by owner/principal.
-      // Parent and teacher access needs verified child/class links later.
-      allow read: if canManageAdmissions();
-
-      // New admissions must begin as reserved drafts. Existing legacy IDs
-      // can still be read/updated without changing their original numbers.
-      allow create: if canManageAdmissions()
-        && request.resource.data.admissionNo == studentId
-        && request.resource.data.status == 'draft'
-        && request.resource.data.rollNo is string
-        && request.resource.data.rollNo.matches('[1-9][0-9]{4}');
-
-      // After admission the record is locked against everyone except
-      // the owner or principal, including clients bypassing the Flutter UI.
-      // Never change immutable identity, family links, or creation time.
-      allow update: if canManageAdmissions()
-        && request.resource.data.get('admissionNo', studentId)
-           == resource.data.get('admissionNo', studentId)
-        && request.resource.data.get('rollNo', '')
-           == resource.data.get('rollNo', '')
-        && request.resource.data.get('parentUids', [])
-           == resource.data.get('parentUids', [])
-        && request.resource.data.get('createdAt', null)
-           == resource.data.get('createdAt', null)
-        && request.resource.data.get('status', 'admitted')
-           in ['draft', 'admitted']
-        && !(resource.data.get('status', 'admitted') == 'admitted'
-          && request.resource.data.get('status', 'admitted') == 'draft');
-
-      allow delete: if false;
-    }
-
-    // One designated attendance teacher per class; one class per teacher.
-    // Only owner/principal may change either mapping.
-    match /attendance_class_assignments/{classId} {
-      allow get, list: if canManageAdmissions();
-      allow create, update: if canManageAdmissions()
-        && request.resource.data.classId == classId
-        && request.resource.data.staffId is string
-        && request.resource.data.className is string
-        && request.resource.data.staffName is string
-        && request.resource.data.active == true;
-      allow delete: if canManageAdmissions();
-    }
-
-    match /attendance_teacher_links/{staffId} {
-      allow get: if canManageAdmissions() || isLinkedTeacher(staffId);
-      allow list: if canManageAdmissions();
-      allow create, update: if canManageAdmissions()
-        && request.resource.data.staffId == staffId
-        && request.resource.data.classId is string
-        && request.resource.data.className is string
-        && request.resource.data.staffName is string
-        && request.resource.data.active == true;
-      allow delete: if canManageAdmissions();
-    }
-
-    // Teachers cannot enumerate all attendance days. Their mark queries
-    // must filter by their own assigned class ID.
-    match /attendance_days/{dayId} {
-      allow get: if canManageAdmissions()
-        || (resource.data.classId is string
-          && dayId.matches('^' + resource.data.classId + '_[0-9]{8}$')
-          && canMarkClassAttendance(resource.data.classId));
-      allow list: if canManageAdmissions();
-      allow create: if (canManageAdmissions()
-          || (request.resource.data.classId is string
-            && request.resource.data.date is string
-            && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-            && dayId.matches('^' + request.resource.data.classId + '_[0-9]{8}$')
-            && canMarkClassAttendance(request.resource.data.classId)))
-        && request.resource.data.classId is string
-        && request.resource.data.date is string
-        && request.resource.data.lastEditedBy == request.auth.uid;
-      allow update: if (canManageAdmissions()
-          || (resource.data.classId is string
-            && dayId.matches('^' + resource.data.classId + '_[0-9]{8}$')
-            && canMarkClassAttendance(resource.data.classId)))
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.date == resource.data.date
-        && request.resource.data.lastEditedBy == request.auth.uid;
-      allow delete: if false;
-
-      match /marks/{studentId} {
-        allow get, list: if canManageAdmissions()
-          || (resource.data.classId is string
-            && dayId.matches('^' + resource.data.classId + '_[0-9]{8}$')
-            && canMarkClassAttendance(resource.data.classId));
-        allow create: if (canManageAdmissions()
-            || validTeacherAttendanceMark(dayId, studentId))
-          && request.resource.data.studentId == studentId
-          && request.resource.data.classId is string
-          && request.resource.data.date is string
-          && request.resource.data.status
-            in ['present', 'absent', 'late', 'leave', 'unmarked']
-          && request.resource.data.updatedBy == request.auth.uid;
-        allow update: if (canManageAdmissions()
-            || validTeacherAttendanceMark(dayId, studentId))
-          && request.resource.data.studentId == resource.data.studentId
-          && request.resource.data.classId == resource.data.classId
-          && request.resource.data.date == resource.data.date
-          && request.resource.data.status
-            in ['present', 'absent', 'late', 'leave', 'unmarked']
-          && request.resource.data.updatedBy == request.auth.uid;
-        allow delete: if false;
-      }
-    }
-
-    // School staff directory; only owner/principal can view and modify it.
-    match /staff/{staffId} {
-      allow get: if canManageAdmissions() || isLinkedTeacher(staffId);
-      allow list: if canManageAdmissions();
-      allow create: if canManageAdmissions()
-        && request.resource.data.staffNo == staffId
-        && request.resource.data.active == true
-        && request.resource.data.roleType
-          in ['teacher', 'administration', 'office', 'support']
-        && request.resource.data.fullName is string
-        && request.resource.data.phone is string;
-      allow update: if canManageAdmissions()
-        && request.resource.data.staffNo == resource.data.staffNo
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.roleType
-          in ['teacher', 'administration', 'office', 'support']
-        && request.resource.data.active is bool;
-      allow delete: if false;
-    }
-
-    // One teacher-to-class-and-subject assignment per stable document ID.
-    match /teacher_assignments/{assignmentId} {
-      allow read: if canManageAdmissions() || isLinkedTeacher(resource.data.staffId);
-      allow create: if canManageAdmissions()
-        && request.resource.data.staffId is string
-        && request.resource.data.classId is string
-        && request.resource.data.subject is string
-        && request.resource.data.subjectId is string
-        && validClassSubject(request.resource.data.classId,
-          request.resource.data.subjectId, request.resource.data.subject)
-        && request.resource.data.className is string
-        && request.resource.data.active == true
-        && exists(/databases/$(database)/documents/staff/$(request.resource.data.staffId))
-        && exists(/databases/$(database)/documents/classes/$(request.resource.data.classId))
-        && get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.active == true
-        && get(/databases/$(database)/documents/staff/$(request.resource.data.staffId)).data.roleType == 'teacher'
-        && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.active == true;
-      allow update: if canManageAdmissions()
-        && request.resource.data.staffId == resource.data.staffId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.subject == resource.data.subject
-        && (
-          request.resource.data.get('subjectId', '') == resource.data.get('subjectId', '')
-          || (resource.data.get('subjectId', '') == ''
-              && request.resource.data.subjectId is string
-              && validClassSubject(resource.data.classId,
-                request.resource.data.subjectId, resource.data.subject))
-        )
-        && request.resource.data.className is string
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.active is bool
-        && (
-          request.resource.data.active == false
-          || (
-            exists(/databases/$(database)/documents/staff/$(resource.data.staffId))
-            && exists(/databases/$(database)/documents/classes/$(resource.data.classId))
-            && get(/databases/$(database)/documents/staff/$(resource.data.staffId)).data.active == true
-            && get(/databases/$(database)/documents/staff/$(resource.data.staffId)).data.roleType == 'teacher'
-            && get(/databases/$(database)/documents/classes/$(resource.data.classId)).data.active == true
-            && (resource.data.get('subjectId', '') == ''
-              || validClassSubject(resource.data.classId, resource.data.subjectId, resource.data.subject))
-          )
-        );
-      allow delete: if false;
-    }
-
-    // One-time migration markers are administrator-only.
-    match /system_migrations/{migrationId} {
-      allow read, create, update: if canManageAdmissions();
-      allow delete: if false;
-    }
-
-    // Teachers can read only the class/subject assignments linked to their
-    // own active staff profile. Assignment creation remains owner/principal.
-    match /teacher_class_links/{linkId} {
-      allow read: if canManageAdmissions() || isLinkedTeacher(resource.data.staffId);
-      allow create, update: if canManageAdmissions()
-        && request.resource.data.staffId is string
-        && request.resource.data.classId is string
-        && request.resource.data.active is bool
-        && request.resource.data.assignmentIds is list;
-      allow delete: if false;
-    }
-
-    // Safe roster projection: names and roll numbers only, never guardian,
-    // contact, address or health details from the student record.
-    match /class_rosters/{classId}/students/{studentId} {
-      allow get, list: if canManageAdmissions()
-        || (resource.data.active == true
-          && (hasTeacherClassAccess(classId) || canMarkClassAttendance(classId)));
-      allow create, update: if canManageAdmissions()
-        && request.resource.data.studentId == studentId
-        && request.resource.data.classId == classId
-        && request.resource.data.fullName is string
-        && request.resource.data.rollNo is string
-        && request.resource.data.active is bool;
-      allow delete: if false;
-    }
-
-    // Teacher-created assignments and homework are scoped to an active
-    // teacher/class/subject assignment and the authenticated linked teacher.
-    match /classwork/{workId} {
-      allow get, list: if canManageAdmissions()
-        || (isLinkedTeacher(resource.data.staffId)
-          && resource.data.teacherUid == request.auth.uid);
-      allow create: if request.auth != null
-        && request.resource.data.teacherUid == request.auth.uid
-        && isLinkedTeacher(request.resource.data.staffId)
-        && request.resource.data.kind in ['assignment', 'homework']
-        && request.resource.data.title is string
-        && request.resource.data.active == true
-        && activeTeacherAssignment(
-          request.resource.data.assignmentId,
-          request.resource.data.staffId,
-          request.resource.data.classId,
-          request.resource.data.subject
-        );
-      allow update: if canManageAdmissions()
-        || (isLinkedTeacher(resource.data.staffId)
-          && resource.data.teacherUid == request.auth.uid
-          && request.resource.data.teacherUid == resource.data.teacherUid
-          && request.resource.data.staffId == resource.data.staffId
-          && request.resource.data.assignmentId == resource.data.assignmentId
-          && request.resource.data.classId == resource.data.classId
-          && request.resource.data.subject == resource.data.subject);
-      allow delete: if false;
-    }
-
-    // School administrators publish exams; assigned teachers can view their
-    // own exam and enter marks only for students in their safe class roster.
-    match /examinations/{examId} {
-      // The list query is constrained by staffId and active. Exam creation
-      // already verifies the exact active class/subject assignment, while
-      // marks writes re-check that assignment through canMarkExam().
-      // Keeping the list rule staff-scoped lets Firestore prove the query is
-      // safe instead of treating security rules as client-side filters.
-      allow get, list: if canManageAdmissions()
-        || (resource.data.active == true
-          && isLinkedTeacher(resource.data.staffId));
-      allow create: if canManageAdmissions()
-        && request.resource.data.assignmentId is string
-        && request.resource.data.staffId is string
-        && request.resource.data.classId is string
-        && request.resource.data.subject is string
-        && request.resource.data.title is string
-        && request.resource.data.maxMarks is number
-        && request.resource.data.maxMarks > 0
-        && exists(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId))
-        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.active == true
-        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.staffId == request.resource.data.staffId
-        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.classId == request.resource.data.classId
-        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.subject == request.resource.data.subject;
-      allow update: if canManageAdmissions()
-        && request.resource.data.assignmentId == resource.data.assignmentId
-        && request.resource.data.staffId == resource.data.staffId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.subject == resource.data.subject
-        && request.resource.data.maxMarks is number
-        && request.resource.data.maxMarks > 0;
-      allow delete: if false;
-
-      match /marks/{studentId} {
-        allow get, list: if canManageAdmissions() || canMarkExam(examId);
-        allow create, update: if canManageAdmissions()
-          || (
-            canMarkExam(examId)
-            && request.resource.data.examId == examId
-            && request.resource.data.studentId == studentId
-            && request.resource.data.teacherUid == request.auth.uid
-            && request.resource.data.classId
-              == get(/databases/$(database)/documents/examinations/$(examId)).data.classId
-            && request.resource.data.score is number
-            && request.resource.data.score >= 0
-            && request.resource.data.score
-              <= get(/databases/$(database)/documents/examinations/$(examId)).data.maxMarks
-            && exists(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId))
-            && get(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId)).data.active == true
-          );
-        allow delete: if false;
-      }
-    }
-
-    // Payroll redesign is deferred. Preserve historical documents privately,
-    // but block new financial records and disable teacher access meanwhile.
-    match /payroll_records/{payrollId} {
-      allow get, list: if canManageAdmissions();
-      allow create, update, delete: if false;
-    }
-
-    // Finance setup: the tuition class rate is owner-only and the initial
-    // creation timestamp cannot be rewritten. Other setup is admin-scoped.
-    match /finance_tuition_rates/{classId} {
-      allow get, list: if canManageAdmissions();
-      allow create: if isOwner()
-        && request.resource.data.classId == classId
-        && request.resource.data.className is string
-        && request.resource.data.amountMinor is int
-        && request.resource.data.amountMinor > 0
-        && request.resource.data.currency == 'PKR'
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedBy == request.auth.uid
-        && exists(/databases/$(database)/documents/classes/$(classId));
-      allow update: if isOwner()
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.amountMinor is int
-        && request.resource.data.amountMinor > 0
-        && request.resource.data.currency == 'PKR'
-        && request.resource.data.updatedBy == request.auth.uid;
-      allow delete: if false;
-    }
-
-    match /finance_transport_rates/{studentId} {
-      allow get, list: if canManageAdmissions();
-      allow create, update: if canManageAdmissions()
-        && request.resource.data.studentId == studentId
-        && request.resource.data.studentName is string
-        && request.resource.data.classId is string
-        && request.resource.data.amountMinor is int
-        && request.resource.data.amountMinor >= 0
-        && request.resource.data.active ==
-          (request.resource.data.amountMinor > 0)
-        && request.resource.data.currency == 'PKR'
-        && request.resource.data.updatedBy == request.auth.uid;
-      allow delete: if false;
-    }
-
-    match /finance_salary_rates/{staffId} {
-      allow get, list: if canManageAdmissions();
-      allow create, update: if canManageAdmissions()
-        && request.resource.data.staffId == staffId
-        && request.resource.data.staffName is string
-        && request.resource.data.basicMinor is int
-        && request.resource.data.basicMinor > 0
-        && request.resource.data.allowanceMinor is int
-        && request.resource.data.allowanceMinor >= 0
-        && request.resource.data.bonusMinor is int
-        && request.resource.data.bonusMinor >= 0
-        && request.resource.data.amountMinor ==
-          request.resource.data.basicMinor
-          + request.resource.data.allowanceMinor
-          + request.resource.data.bonusMinor
-        && request.resource.data.currency == 'PKR'
-        && request.resource.data.updatedBy == request.auth.uid;
-      allow delete: if false;
-    }
-
-    match /finance_recurring_plans/{planId} {
-      allow get, list: if canManageAdmissions();
-      allow create, update: if canManageAdmissions()
-        && request.resource.data.planId == planId
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.category is string
-        && request.resource.data.subcategory is string
-        && request.resource.data.amountMinor is int
-        && request.resource.data.amountMinor > 0
-        && request.resource.data.scheduleDay is int
-        && request.resource.data.scheduleDay >= 1
-        && request.resource.data.scheduleDay <= 27
-        && request.resource.data.active is bool
-        && request.resource.data.automaticEnabled is bool
-        && request.resource.data.currency == 'PKR'
-        && request.resource.data.updatedBy == request.auth.uid;
-      allow delete: if false;
-    }
-
-    match /finance_generation_settings/{category} {
-      allow get, list: if canManageAdmissions();
-      allow create, update: if canManageAdmissions()
-        && category in ['tuition', 'transport', 'salary']
-        && request.resource.data.category == category
-        && request.resource.data.scheduleDay is int
-        && request.resource.data.scheduleDay >= 1
-        && request.resource.data.scheduleDay <= 27
-        && request.resource.data.automaticEnabled is bool
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.updatedAt == request.time;
-      allow delete: if false;
-    }
-
-    // Written exclusively by trusted Firebase Admin SDK worker.
-    // Client owners/principals may inspect recent heartbeat and audit runs,
-    // but never forge deployment status or scheduler completion.
-    match /finance_scheduler_runtime/{statusId} {
-      allow get: if canManageAdmissions() && statusId == 'status';
-      allow list, create, update, delete: if false;
-    }
-
-    match /finance_scheduler_runs/{runId} {
-      allow get, list: if canManageAdmissions();
-      allow create, update, delete: if false;
-    }
-
-    // A generated student bill does NOT record any money received.
-    match /finance_fee_bills/{billId} {
-      allow get, list: if canManageAdmissions();
-      allow create: if validFinanceBillCreate(billId)
-        && request.resource.data.category
-          in ['tuition', 'transport', 'one_time']
-        && request.resource.data.studentId is string
-        && request.resource.data.studentName is string
-        && request.resource.data.classId is string;
-      allow update: if validFinanceBillPayment(billId, 'fee');
-      allow delete: if false;
-    }
-
-    match /finance_salary_bills/{billId} {
-      allow get, list: if canManageAdmissions();
-      allow create: if validFinanceBillCreate(billId)
-        && request.resource.data.category == 'salary'
-        && request.resource.data.staffId is string
-        && request.resource.data.staffName is string
-        && request.resource.data.basicMinor is int
-        && request.resource.data.allowanceMinor is int
-        && request.resource.data.bonusMinor is int
-        && request.resource.data.amountMinor ==
-          request.resource.data.basicMinor
-          + request.resource.data.allowanceMinor
-          + request.resource.data.bonusMinor;
-      allow update: if validFinanceBillPayment(billId, 'salary');
-      allow delete: if false;
-    }
-
-    match /finance_recurring_bills/{billId} {
-      allow get, list: if canManageAdmissions();
-      allow create: if validFinanceBillCreate(billId)
-        && request.resource.data.category == 'expense'
-        && request.resource.data.planId is string;
-      allow update: if validFinanceBillPayment(billId, 'recurring_expense');
-      allow delete: if false;
-    }
-
-    // CREDIT is cash collected; DEBIT is cash paid. No update or delete is
-    // allowed. The transaction must reconcile with its bill in the same
-    // atomic Firestore transaction, except for direct expenses.
-    match /finance_ledger/{entryId} {
-      allow get, list: if canManageAdmissions();
-      allow create: if canManageAdmissions()
-        && request.resource.data.entryId == entryId
-        && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.amountMinor is int
-        && request.resource.data.amountMinor > 0
-        && request.resource.data.currency == 'PKR'
-        && request.resource.data.postedMonth is string
-        && request.resource.data.sourceId is string
-        && request.resource.data.category is string
-        && request.resource.data.payerName is string
-        && request.resource.data.recipientName is string
-        && (request.resource.data.direction != 'credit'
-          || request.resource.data.payerName.size() > 0)
-        && request.resource.data.method
-          in ['Cash', 'Bank Transfer', 'Bank Deposit', 'Easypaisa', 'JazzCash', 'Other']
-        && (
-          (request.resource.data.sourceType == 'fee'
-            && request.resource.data.direction == 'credit'
-            && request.resource.data.category
-              in ['tuition', 'transport', 'one_time']
-            && validFinanceLedgerBill('finance_fee_bills', entryId))
-          || (request.resource.data.sourceType == 'salary'
-            && request.resource.data.direction == 'debit'
-            && request.resource.data.category == 'salary'
-            && validFinanceLedgerBill('finance_salary_bills', entryId))
-          || (request.resource.data.sourceType == 'recurring_expense'
-            && request.resource.data.direction == 'debit'
-            && request.resource.data.category == 'expense'
-            && validFinanceLedgerBill('finance_recurring_bills', entryId))
-          || (request.resource.data.sourceType == 'direct_expense'
-            && request.resource.data.direction == 'debit'
-            && request.resource.data.category == 'expense'
-            && request.resource.data.sourceId == entryId)
-        );
-      allow update, delete: if false;
-    }
-
-    // Each administrator may store only their own dashboard card choices.
-    match /finance_dashboard_preferences/{userId} {
-      allow get: if canManageAdmissions()
-        && request.auth.uid == userId;
-      allow list: if false;
-      allow create, update: if canManageAdmissions()
-        && request.auth.uid == userId
-        && request.resource.data.uid == userId
-        && request.resource.data.visibleCards is list
-        && request.resource.data.rotate is bool
-        && request.resource.data.updatedAt == request.time;
-      allow delete: if false;
     }
 
     // Everything else stays inaccessible until role-specific modules are
