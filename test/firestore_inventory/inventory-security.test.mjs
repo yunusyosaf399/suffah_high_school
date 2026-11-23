@@ -310,3 +310,195 @@ test('manager delete is reversible archive; archived products cannot be sold', a
   assert.equal(restored.data().archived, false);
   assert.equal(restored.data().active, false);
 });
+
+
+async function seedStudentDirectory() {
+  const owner = db(ownerId);
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'students', 'ST-2026-0005'), {
+      admissionNo: 'ST-2026-0005', rollNo: '10004',
+      fullName: 'Aisha Khan', classId: 'class-five',
+      active: true, status: 'admitted',
+      guardianPhone: 'private-number', health: {condition: 'private'},
+    });
+  });
+  await assertSucceeds(setDoc(
+    doc(owner, 'inventory_student_directory', 'ST-2026-0005'),
+    {
+      studentId: 'ST-2026-0005',
+      fullName: 'Aisha Khan', rollNo: '10004',
+      classId: 'class-five', active: true,
+      updatedAt: serverTimestamp(),
+    },
+  ));
+}
+
+function newCartSale(saleId, sku, item, {
+  orderId = 'order-2026-001',
+  lineNumber = 1,
+  paid = false,
+  student = true,
+  sellerUid = sellerId,
+} = {}) {
+  const total = item.priceMinor * 2;
+  return {
+    saleId, orderId, lineNumber,
+    itemId: sku, itemName: item.name, department: item.department,
+    quantity: 2, stockBefore: item.stockQty,
+    unitPriceMinor: item.priceMinor, totalMinor: total, currency: 'PKR',
+    sellerUid,
+    customerType: student ? 'student' : 'other',
+    customerId: student ? 'ST-2026-0005' : '',
+    customerName: student ? 'Aisha Khan' : 'School visitor',
+    customerPhone: student ? '' : '03001234567',
+    customerClass: student ? 'class-five' : '',
+    customerRollNo: student ? '10004' : '',
+    paidMinor: paid ? total : 0,
+    paymentStatus: paid ? 'paid' : 'borrowed',
+    paymentMethod: paid ? 'Cash' : 'Unpaid',
+    lastPaymentId: '',
+    soldAt: serverTimestamp(),
+  };
+}
+
+test('sellers can see limited student checkout records but never full admissions', async () => {
+  await seedStudentDirectory();
+  const seller = db(sellerId);
+  const directory = await assertSucceeds(getDoc(
+    doc(seller, 'inventory_student_directory', 'ST-2026-0005')));
+  assert.deepEqual(Object.keys(directory.data()).sort(),
+    ['active', 'classId', 'fullName', 'rollNo', 'studentId', 'updatedAt'].sort());
+  await assertFails(getDoc(doc(seller, 'students', 'ST-2026-0005')));
+  await assertFails(setDoc(
+    doc(seller, 'inventory_student_directory', 'fake'), {
+      studentId: 'fake', fullName: 'Fake', rollNo: '90000',
+      classId: '', active: true, updatedAt: serverTimestamp(),
+    }));
+});
+
+test('seller checks out a two-product borrowed cart in one atomic transaction', async () => {
+  await seedStudentDirectory();
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'inventory_items', 'BOOK001'), {
+      ...seedItem(), sku: 'BOOK001', name: 'English workbook',
+      department: 'stationery', priceMinor: 10000, stockQty: 12,
+    });
+  });
+  const seller = db(sellerId);
+  const products = [
+    doc(seller, 'inventory_items', itemId),
+    doc(seller, 'inventory_items', 'BOOK001'),
+  ];
+  const receipts = [
+    doc(seller, 'inventory_sales', 'cart-line-001'),
+    doc(seller, 'inventory_sales', 'cart-line-002'),
+  ];
+  await assertSucceeds(runTransaction(seller, async tx => {
+    const before = [];
+    for (const ref of products) before.push((await tx.get(ref)).data());
+    for (let i = 0; i < products.length; i++) {
+      const item = before[i];
+      tx.update(products[i], {
+        stockQty: item.stockQty - 2,
+        lastMovementId: receipts[i].id, lastMovementType: 'sale',
+        updatedBy: sellerId, updatedAt: serverTimestamp(),
+      });
+      tx.set(receipts[i], newCartSale(
+        receipts[i].id, products[i].id, item, {lineNumber: i + 1}));
+    }
+  }));
+  assert.equal((await getDoc(products[0])).data().stockQty, 8);
+  assert.equal((await getDoc(products[1])).data().stockQty, 10);
+  assert.equal((await getDoc(receipts[0])).data().paidMinor, 0);
+  assert.equal((await getDoc(receipts[1])).data().paymentStatus, 'borrowed');
+});
+
+test('borrowed payment is appended and only increases paid balance by collected amount', async () => {
+  await seedStudentDirectory();
+  const seller = db(sellerId);
+  const item = doc(seller, 'inventory_items', itemId);
+  const sale = doc(seller, 'inventory_sales', 'cart-credit-001');
+  await assertSucceeds(runTransaction(seller, async tx => {
+    const original = (await tx.get(item)).data();
+    tx.update(item, {
+      stockQty: original.stockQty - 2, lastMovementId: sale.id,
+      lastMovementType: 'sale', updatedBy: sellerId,
+      updatedAt: serverTimestamp(),
+    });
+    tx.set(sale, newCartSale(sale.id, itemId, original));
+  }));
+  await assertFails(updateDoc(sale, {
+    paidMinor: 1000, paymentStatus: 'partially_paid',
+    lastPaymentId: 'fake', lastPaymentAt: serverTimestamp(),
+  }));
+  let paidBefore = 0;
+  for (const [paymentId, amount] of [['payment-part', 3000], ['payment-rest', 7000]]) {
+    const payment = doc(seller, 'inventory_payments', paymentId);
+    await assertSucceeds(runTransaction(seller, async tx => {
+      const before = (await tx.get(sale)).data();
+      assert.equal(before.paidMinor, paidBefore);
+      tx.update(sale, {
+        paidMinor: paidBefore + amount,
+        paymentStatus: paidBefore + amount === 10000 ? 'paid' : 'partially_paid',
+        lastPaymentId: paymentId,
+        lastPaymentAt: serverTimestamp(),
+      });
+      tx.set(payment, {
+        paymentId, saleId: sale.id, orderId: before.orderId,
+        sellerUid: sellerId, customerId: before.customerId,
+        customerName: before.customerName,
+        amountMinor: amount, paidBeforeMinor: paidBefore,
+        balanceAfterMinor: 10000 - paidBefore - amount,
+        method: 'Cash', collectedBy: sellerId,
+        collectedAt: serverTimestamp(),
+      });
+    }));
+    paidBefore += amount;
+  }
+  assert.equal((await getDoc(sale)).data().paidMinor, 10000);
+  assert.equal((await getDoc(sale)).data().paymentStatus, 'paid');
+  assert.equal((await getDoc(item)).data().stockQty, 8);
+  await assertFails(updateDoc(sale, {
+    paidMinor: 11000, lastPaymentId: 'fraud',
+    lastPaymentAt: serverTimestamp(),
+  }));
+});
+
+test('seller cannot borrow for a forged student or without contact for other buyer', async () => {
+  const seller = db(sellerId);
+  const item = doc(seller, 'inventory_items', itemId);
+  const sale = doc(seller, 'inventory_sales', 'fake-customer-sale');
+  await assertFails(runTransaction(seller, async tx => {
+    const original = (await tx.get(item)).data();
+    tx.update(item, {
+      stockQty: 8, lastMovementId: sale.id, lastMovementType: 'sale',
+      updatedBy: sellerId, updatedAt: serverTimestamp(),
+    });
+    tx.set(sale, newCartSale(sale.id, itemId, original));
+  }));
+  const otherSale = doc(seller, 'inventory_sales', 'uncontacted-buyer');
+  await assertFails(runTransaction(seller, async tx => {
+    const original = (await tx.get(item)).data();
+    tx.update(item, {
+      stockQty: 8, lastMovementId: otherSale.id, lastMovementType: 'sale',
+      updatedBy: sellerId, updatedAt: serverTimestamp(),
+    });
+    tx.set(otherSale, {
+      ...newCartSale(otherSale.id, itemId, original, {student: false}),
+      customerPhone: '',
+    });
+  }));
+});
+
+test('principal can read inventory analytics but cannot change seller balances', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'principal-uid'), {
+      displayName: 'Principal', role: 'principal', active: true,
+    });
+  });
+  const principal = db('principal-uid');
+  await assertSucceeds(getDocs(collection(principal, 'inventory_sales')));
+  await assertSucceeds(getDocs(collection(principal, 'inventory_payments')));
+  await assertFails(updateDoc(
+    doc(principal, 'inventory_items', itemId), {priceMinor: 1}));
+});
