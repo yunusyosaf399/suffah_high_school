@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +34,35 @@ class _InventoryPageState extends State<InventoryPage> {
   late final Stream<List<InventoryItem>> _items =
       widget.itemsStream ?? _repo.watchItems();
   String _department = 'all';
+  // A single live Firestore listener feeds both tabs. Cached values ensure
+  // the off-screen Stock view is populated even when the database is empty.
+  List<InventoryItem>? _currentItems;
+  Object? _itemsError;
+  late final StreamSubscription<List<InventoryItem>> _itemsSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _itemsSubscription = _items.listen(
+      (items) {
+        if (!mounted) return;
+        setState(() {
+          _currentItems = items;
+          _itemsError = null;
+        });
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() => _itemsError = error);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _itemsSubscription.cancel();
+    super.dispose();
+  }
 
   bool get _canManage =>
       widget.role == 'owner' || widget.role == 'inventory_manager';
@@ -69,6 +100,13 @@ class _InventoryPageState extends State<InventoryPage> {
           title: const Text('Canteen & Stationery',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
           actions: [
+            if (_canManage)
+              IconButton(
+                key: const Key('inventory_add_product_action'),
+                tooltip: 'Add product',
+                onPressed: () => _editItem(),
+                icon: const Icon(Icons.add_box_outlined),
+              ),
             if (widget.role == 'canteen_seller' || widget.role == 'inventory_manager')
               IconButton(
                 tooltip: 'Sign out',
@@ -83,15 +121,12 @@ class _InventoryPageState extends State<InventoryPage> {
           ),
         ),
         body: SafeArea(
-          child: StreamBuilder<List<InventoryItem>>(
-            stream: _items,
-            builder: (context, snapshot) => TabBarView(children: [
-              _catalog(selling: true, snapshot: snapshot),
-              _catalog(selling: false, snapshot: snapshot),
-              if (_canManage) _purchaseHistory(),
-              _salesHistory(),
-            ]),
-          ),
+          child: TabBarView(children: [
+            _catalog(selling: true),
+            _catalog(selling: false),
+            if (_canManage) _purchaseHistory(),
+            _salesHistory(),
+          ]),
         ),
       ),
     );
@@ -115,17 +150,9 @@ class _InventoryPageState extends State<InventoryPage> {
     ),
   );
 
-  Widget _catalog({
-    required bool selling,
-    required AsyncSnapshot<List<InventoryItem>> snapshot,
-  }) {
-        if (snapshot.hasError) return Center(
-          child: Padding(padding: const EdgeInsets.all(24),
-            child: Text(_error(snapshot.error!), textAlign: TextAlign.center)));
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final all = snapshot.data!;
+  Widget _catalog({required bool selling}) {
+        final all = _currentItems ?? const <InventoryItem>[];
+        final waitingForItems = _currentItems == null && _itemsError == null;
         final filtered = all.where((item) =>
           _department == 'all' || item.department == _department).toList();
         final available = all.where((item) => item.canSell).length;
@@ -141,7 +168,7 @@ class _InventoryPageState extends State<InventoryPage> {
                 FilledButton.icon(
                   onPressed: () => _editItem(),
                   icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add item'),
+                  label: const Text('Add product'),
                 ),
             ]),
             const SizedBox(height: 6),
@@ -163,9 +190,39 @@ class _InventoryPageState extends State<InventoryPage> {
             ]),
             const SizedBox(height: 12),
             _filterChips(),
-            if (filtered.isEmpty)
-              const Padding(padding: EdgeInsets.all(28),
-                child: Center(child: Text('No items in this category.')))
+            if (_itemsError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 22),
+                child: Text(_error(_itemsError!),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              )
+            else if (waitingForItems)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 22),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (filtered.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 28),
+                child: Column(
+                  children: [
+                    const Icon(Icons.inventory_2_outlined, size: 42),
+                    const SizedBox(height: 12),
+                    Text(selling ? 'No products available to sell yet.'
+                      : 'No stock items have been added yet.',
+                      textAlign: TextAlign.center),
+                    if (!selling && _canManage) ...[
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: () => _editItem(),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Create first product'),
+                      ),
+                    ],
+                  ],
+                ),
+              )
             else
               for (final item in filtered)
                 Card(
