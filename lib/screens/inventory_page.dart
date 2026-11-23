@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../data/inventory_repository.dart';
+import '../data/inventory_checkout_service.dart';
+import 'inventory_checkout_page.dart';
 import '../data/inventory_catalog.dart';
 import '../data/inventory_product_service.dart';
 import 'inventory_product_form.dart';
@@ -36,18 +38,61 @@ class _InventoryPageState extends State<InventoryPage> {
       widget.repository ?? InventoryRepository();
   late final Stream<List<InventoryItem>> _items =
       widget.itemsStream ?? _repo.watchItems();
+  late final Stream<List<Map<String, dynamic>>> _sales =
+      widget.salesStream ?? _repo.watchSales(manager: _canManage);
+  late final Stream<List<Map<String, dynamic>>> _borrowed =
+      widget.salesStream == null
+          ? _repo.watchBorrowed(manager: _canManage)
+          : Stream.value(const <Map<String, dynamic>>[]);
+  late final Stream<List<Map<String, dynamic>>> _purchases =
+      widget.purchasesStream ?? _repo.watchPurchases();
   String _department = 'all';
   bool _showArchived = false;
+  final Map<String, int> _cart = {};
+  String _salesSearch = '';
+  late final InventoryCheckoutService _checkout = InventoryCheckoutService();
   late final InventoryProductService _products = InventoryProductService();
   // A single live Firestore listener feeds both tabs. Cached values ensure
   // the off-screen Stock view is populated even when the database is empty.
   List<InventoryItem>? _currentItems;
   Object? _itemsError;
   late final StreamSubscription<List<InventoryItem>> _itemsSubscription;
+  late final StreamSubscription<List<Map<String, dynamic>>> _salesSubscription;
+  late final StreamSubscription<List<Map<String, dynamic>>> _borrowedSubscription;
+  List<Map<String, dynamic>>? _currentSales;
+  List<Map<String, dynamic>>? _currentBorrowed;
+  Object? _salesError;
+  Object? _borrowedError;
 
   @override
   void initState() {
     super.initState();
+    _borrowedSubscription = _borrowed.listen(
+      (sales) {
+        if (!mounted) return;
+        setState(() {
+          _currentBorrowed = sales;
+          _borrowedError = null;
+        });
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() => _borrowedError = error);
+      },
+    );
+    _salesSubscription = _sales.listen(
+      (sales) {
+        if (!mounted) return;
+        setState(() {
+          _currentSales = sales;
+          _salesError = null;
+        });
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() => _salesError = error);
+      },
+    );
     _itemsSubscription = _items.listen(
       (items) {
         if (!mounted) return;
@@ -66,12 +111,59 @@ class _InventoryPageState extends State<InventoryPage> {
   @override
   void dispose() {
     _itemsSubscription.cancel();
+    _salesSubscription.cancel();
+    _borrowedSubscription.cancel();
     super.dispose();
   }
 
   bool get _canManage =>
       widget.role == 'owner' || widget.role == 'inventory_manager';
   bool get _canAccess => _canManage || widget.role == 'canteen_seller';
+
+  int get _cartUnits => _cart.values.fold(0, (sum, qty) => sum + qty);
+
+  void _addToCart(InventoryItem item) {
+    if (!item.canSell) return;
+    if (!_cart.containsKey(item.id) && _cart.length >= 6) {
+      _notice('One checkout supports up to six different products.');
+      return;
+    }
+    final next = (_cart[item.id] ?? 0) + 1;
+    if (next > item.stockQty || next > 100) {
+      _notice('Quantity cannot exceed available stock or 100 units.');
+      return;
+    }
+    setState(() => _cart[item.id] = next);
+    _notice('${item.name} added to cart. $_cartUnits units in cart.');
+  }
+
+  Future<void> _openCart() async {
+    if (_cart.isEmpty) {
+      _notice('Add at least one item to the cart.');
+      return;
+    }
+    final items = _currentItems ?? const <InventoryItem>[];
+    final orderId = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => InventoryCheckoutPage(
+          items: items, cart: _cart,
+        ),
+      ),
+    );
+    if (orderId != null && mounted) {
+      setState(() => _cart.clear());
+      _notice('Checkout recorded. Receipt ${orderId.substring(0, 8).toUpperCase()}.');
+    }
+  }
+
+  Future<void> _syncStudents() async {
+    try {
+      final count = await _checkout.syncStudentDirectory();
+      _notice('Canteen student directory updated: $count school records.');
+    } catch (error) {
+      _notice(_error(error));
+    }
+  }
 
   void _notice(String message) {
     if (!mounted) return;
@@ -96,8 +188,8 @@ class _InventoryPageState extends State<InventoryPage> {
         child: Text('This account cannot access the canteen inventory.')));
     }
     final sections = _canManage
-        ? const ['Sell', 'Stock', 'Purchases', 'Sales']
-        : const ['Sell', 'Stock', 'My sales'];
+        ? const ['Sell', 'Stock', 'Purchases', 'Sales', 'Borrowed']
+        : const ['Sell', 'Stock', 'My sales', 'Borrowed'];
     return DefaultTabController(
       length: sections.length,
       child: Scaffold(
@@ -105,6 +197,16 @@ class _InventoryPageState extends State<InventoryPage> {
           title: const Text('Canteen & Stationery',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
           actions: [
+            IconButton(
+              key: const Key('inventory_open_cart_action'),
+              tooltip: 'Cart ($_cartUnits units)',
+              onPressed: _openCart,
+              icon: Badge(
+                label: Text('$_cartUnits'),
+                isLabelVisible: _cartUnits > 0,
+                child: const Icon(Icons.shopping_cart_outlined),
+              ),
+            ),
             if (_canManage)
               IconButton(
                 key: const Key('inventory_add_product_action'),
@@ -131,6 +233,7 @@ class _InventoryPageState extends State<InventoryPage> {
             _catalog(selling: false),
             if (_canManage) _purchaseHistory(),
             _salesHistory(),
+            _salesHistory(onlyBorrowed: true),
           ]),
         ),
       ),
@@ -172,7 +275,14 @@ class _InventoryPageState extends State<InventoryPage> {
             Row(children: [
               Expanded(child: Text(selling ? 'Record a sale' : 'Stock catalogue',
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800))),
-              if (!selling && _canManage)
+              if (selling)
+                FilledButton.icon(
+                  key: const Key('inventory_open_cart'),
+                  onPressed: _openCart,
+                  icon: const Icon(Icons.shopping_cart_checkout, size: 18),
+                  label: Text('Cart ($_cartUnits)'),
+                )
+              else if (_canManage)
                 FilledButton.icon(
                   onPressed: () => _editItem(),
                   icon: const Icon(Icons.add, size: 18),
@@ -181,7 +291,7 @@ class _InventoryPageState extends State<InventoryPage> {
             ]),
             const SizedBox(height: 6),
             Text(selling
-                ? 'The selling price is fixed by the owner. Recording a sale automatically reduces stock.'
+                ? 'Add products to your cart, select a student or another customer, then record paid or borrowed items. Stock is reduced at checkout.'
                 : _canManage
                   ? 'Only authorized managers can edit prices, receive stock or record adjustments.'
                   : 'View prices and quantities. Stock and prices are read-only.',
@@ -198,6 +308,16 @@ class _InventoryPageState extends State<InventoryPage> {
             ]),
             const SizedBox(height: 12),
             _filterChips(),
+            if (selling && widget.role == 'owner')
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const Key('inventory_sync_student_directory'),
+                  onPressed: _syncStudents,
+                  icon: const Icon(Icons.sync),
+                  label: const Text('Sync students for checkout'),
+                ),
+              ),
             if (!selling && _canManage)
               SwitchListTile.adaptive(
                 key: const Key('inventory_show_deleted'),
@@ -307,10 +427,11 @@ class _InventoryPageState extends State<InventoryPage> {
                         if (selling)
                           Align(alignment: Alignment.centerRight,
                             child: FilledButton.icon(
+                              key: Key('inventory_add_to_cart_${item.id}'),
                               onPressed: item.canSell
-                                  ? () => _sell(item) : null,
-                              icon: const Icon(Icons.point_of_sale_outlined, size: 18),
-                              label: const Text('Sell item'),
+                                  ? () => _addToCart(item) : null,
+                              icon: const Icon(Icons.add_shopping_cart, size: 18),
+                              label: const Text('Add to cart'),
                             ))
                         else if (_canManage)
                           Wrap(spacing: 8, runSpacing: 6, children: [
@@ -351,86 +472,6 @@ class _InventoryPageState extends State<InventoryPage> {
                 ),
           ],
         );
-  }
-
-  Future<void> _sell(InventoryItem item) async {
-    final quantity = TextEditingController(text: '1');
-    String method = 'Cash';
-    String? error;
-    bool busy = false;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, update) => AlertDialog(
-          scrollable: true,
-          title: const Text('Confirm sale'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(item.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 4),
-              Text('Unit price: ${inventoryRupees(item.priceMinor)}'),
-              Text('Available: ${item.stockQty} ${item.unit}'),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('inventory_sale_quantity'),
-                controller: quantity,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Quantity sold *'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: method,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Payment method'),
-                items: [for (final m in inventoryPaymentMethods)
-                  DropdownMenuItem(value: m, child: Text(m))],
-                onChanged: busy ? null : (value) {
-                  if (value != null) update(() => method = value);
-                },
-              ),
-              const SizedBox(height: 8),
-              Text('Seller cannot change the unit price. Final amount is calculated from current stock data.',
-                style: TextStyle(fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              if (error != null) ...[
-                const SizedBox(height: 8),
-                Text(error!, style: TextStyle(color:
-                  Theme.of(context).colorScheme.error, fontSize: 12)),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext),
-              child: const Text('Cancel')),
-            FilledButton(
-              onPressed: busy ? null : () async {
-                final count = int.tryParse(quantity.text.trim());
-                if (count == null || count <= 0 || count > 100) {
-                  update(() => error = 'Enter a quantity between 1 and 100.');
-                  return;
-                }
-                update(() { busy = true; error = null; });
-                try {
-                  await _repo.recordSale(
-                    sku: item.id, quantity: count, paymentMethod: method);
-                  if (!dialogContext.mounted) return;
-                  Navigator.pop(dialogContext);
-                  _notice('Sale recorded. Stock updated automatically.');
-                } catch (e) {
-                  if (dialogContext.mounted) {
-                    update(() { busy = false; error = _error(e); });
-                  }
-                }
-              },
-              child: Text(busy ? 'Recording…' : 'Record sale'),
-            ),
-          ],
-        ),
-      ),
-    );
-    quantity.dispose();
   }
 
   Future<void> _editItem([InventoryItem? item]) async {
@@ -616,40 +657,220 @@ class _InventoryPageState extends State<InventoryPage> {
     notes.dispose();
   }
 
-  Widget _salesHistory() => StreamBuilder<List<Map<String, dynamic>>>(
-    stream: widget.salesStream ?? _repo.watchSales(manager: _canManage),
-    builder: (context, snap) {
-      if (snap.hasError) return Center(child: Text(_error(snap.error!)));
-      if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-      final sales = snap.data!;
-      if (sales.isEmpty) return const Center(child: Text('No recorded sales yet.'));
-      return ListView.builder(
-        padding: const EdgeInsets.all(14), itemCount: sales.length + 1,
-        itemBuilder: (context, index) {
-          if (index == 0) return const Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: Text('Recent sales • last 60 records',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)));
-          final sale = sales[index - 1];
-          final price = (sale['totalMinor'] as num?)?.toInt() ?? 0;
-          return Card(child: ListTile(
-            title: Text((sale['itemName'] ?? 'Item').toString(),
-              style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text(
-              '${sale['quantity'] ?? 0} units • ${sale['paymentMethod'] ?? 'Cash'}\n'
-              '${_date(sale['soldAt'])}'
-              '${_canManage ? ' • Seller: ${sale['sellerUid'] ?? ''}' : ''}'),
-            isThreeLine: true,
-            trailing: Text(inventoryRupees(price),
-              style: const TextStyle(fontWeight: FontWeight.w800)),
-          ));
-        },
-      );
-    },
-  );
+  Widget _salesHistory({bool onlyBorrowed = false}) {
+          final error = onlyBorrowed ? _borrowedError : _salesError;
+          final source = onlyBorrowed ? _currentBorrowed : _currentSales;
+          if (error != null) {
+            return Center(child: Text(_error(error)));
+          }
+          if (source == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final orders = inventoryGroupSales(source);
+          final shown = orders.where((order) {
+            if (onlyBorrowed && order.dueMinor <= 0) return false;
+            final keyword = _salesSearch.toLowerCase().trim();
+            return keyword.isEmpty ||
+                order.customerName.toLowerCase().contains(keyword) ||
+                order.customerId.toLowerCase().contains(keyword) ||
+                order.orderId.toLowerCase().contains(keyword);
+          }).toList();
+          return ListView(
+            key: Key(onlyBorrowed ? 'inventory_borrowed_orders' : 'inventory_sales_orders'),
+            padding: const EdgeInsets.all(14),
+            children: [
+              Text(
+                onlyBorrowed ? 'Outstanding customer balances'
+                    : 'Recent sales and receipts',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(onlyBorrowed
+                  ? 'All available open balances. Paid lines of the same order '
+                    'are excluded from this view; use Sales for recent complete receipts.'
+                  : 'Orders are grouped by checkout. Paid and borrowed '
+                    'amounts are tracked separately; repayments do not reduce '
+                    'stock a second time.',
+                  style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 12),
+              TextField(
+                key: Key(onlyBorrowed
+                    ? 'inventory_search_borrowed' : 'inventory_search_sales'),
+                decoration: const InputDecoration(
+                  labelText: 'Search customer, student registration or receipt',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) => setState(() => _salesSearch = value),
+              ),
+              const SizedBox(height: 14),
+              if (shown.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 28),
+                  child: Center(
+                    child: Text(onlyBorrowed
+                        ? 'No outstanding borrowed sales.'
+                        : 'No recorded sales yet.'),
+                  ),
+                ),
+              for (final order in shown)
+                Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Expanded(child: Text(order.customerName,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w800, fontSize: 15))),
+                          Text(order.dueMinor == 0 ? 'PAID' : 'BORROWED',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 11,
+                              color: order.dueMinor == 0
+                                  ? Colors.green : Colors.deepOrange,
+                            )),
+                        ]),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Receipt ${order.orderId.substring(0, order.orderId.length < 8 ? order.orderId.length : 8).toUpperCase()}'
+                          ' • ${_date(order.soldAt)}'
+                          '${order.customerId.isNotEmpty ? ' • ${order.customerId}' : ''}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        if (order.customerClass.isNotEmpty)
+                          Text('Class: ${order.customerClass}',
+                            style: const TextStyle(fontSize: 11)),
+                        if (order.customerPhone.isNotEmpty)
+                          Text('Contact: ${order.customerPhone}',
+                            style: const TextStyle(fontSize: 11)),
+                        const Divider(height: 20),
+                        for (final line in order.lines)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Row(children: [
+                              Expanded(child: Text(
+                                '${line.itemName} × ${line.quantity}',
+                                style: const TextStyle(fontSize: 12),
+                              )),
+                              Text(inventoryRupees(line.totalMinor),
+                                style: const TextStyle(fontSize: 12)),
+                            ]),
+                          ),
+                        const SizedBox(height: 10),
+                        Wrap(spacing: 12, runSpacing: 5, children: [
+                          Text('${onlyBorrowed ? 'Open lines total' : 'Total'}: '
+                            '${inventoryRupees(order.totalMinor)}',
+                            style: const TextStyle(fontWeight: FontWeight.w800)),
+                          Text('Paid: ${inventoryRupees(order.paidMinor)}'),
+                          Text('Due: ${inventoryRupees(order.dueMinor)}',
+                            style: const TextStyle(fontWeight: FontWeight.w700)),
+                        ]),
+                        if (order.dueMinor > 0) ...[
+                          const SizedBox(height: 12),
+                          Align(alignment: Alignment.centerRight,
+                            child: FilledButton.icon(
+                              key: Key('inventory_collect_${order.orderId}'),
+                              icon: const Icon(Icons.payments_outlined),
+                              label: const Text('Collect payment'),
+                              onPressed: () => _collectPayment(order),
+                            )),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          );
+  }
+
+  Future<void> _collectPayment(InventoryOrderSummary order) async {
+    final amount = TextEditingController(
+      text: (order.dueMinor / 100).toStringAsFixed(2),
+    );
+    String method = 'Cash';
+    String? error;
+    var busy = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, update) => AlertDialog(
+          scrollable: true,
+          title: const Text('Collect borrowed payment'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(order.customerName,
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text('Outstanding: ${inventoryRupees(order.dueMinor)}'),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('inventory_collect_amount'),
+                controller: amount,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Payment amount (PKR)',
+                  border: OutlineInputBorder(),
+                  helperText: 'Full or partial payment',
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: method,
+                decoration: const InputDecoration(
+                  labelText: 'Payment method',
+                  border: OutlineInputBorder(),
+                ),
+                items: [for (final m in inventoryPaymentMethods)
+                  DropdownMenuItem(value: m, child: Text(m))],
+                onChanged: busy ? null : (v) {
+                  if (v != null) update(() => method = v);
+                },
+              ),
+              if (error != null)
+                Padding(padding: const EdgeInsets.only(top: 12),
+                  child: Text(error!,
+                    style: TextStyle(
+                      color: Theme.of(dialogContext).colorScheme.error))),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: busy ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('inventory_confirm_collection'),
+              onPressed: busy ? null : () async {
+                update(() { busy = true; error = null; });
+                try {
+                  final minor = inventoryMoneyMinor(amount.text);
+                  await _checkout.collectPayment(
+                    order: order, amountMinor: minor, method: method);
+                  if (!dialogContext.mounted) return;
+                  Navigator.pop(dialogContext);
+                  _notice('Payment collected and balance updated.');
+                } catch (e) {
+                  if (dialogContext.mounted) {
+                    update(() { busy = false; error = _error(e); });
+                  }
+                }
+              },
+              child: Text(busy ? 'Collecting…' : 'Confirm payment'),
+            ),
+          ],
+        ),
+      ),
+    );
+    amount.dispose();
+  }
 
   Widget _purchaseHistory() => StreamBuilder<List<Map<String, dynamic>>>(
-    stream: widget.purchasesStream ?? _repo.watchPurchases(),
+    stream: _purchases,
     builder: (context, snap) {
       if (snap.hasError) return Center(child: Text(_error(snap.error!)));
       if (!snap.hasData) return const Center(child: CircularProgressIndicator());

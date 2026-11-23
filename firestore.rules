@@ -830,6 +830,28 @@ service cloud.firestore {
 
     // Price and stock are not trusted from the seller's device. A sale
     // requires a matching stock decrement in the SAME atomic transaction.
+    // Inventory sellers only see this deliberately restricted projection,
+    // never the students collection with guardian/health data.
+    match /inventory_student_directory/{studentId} {
+      allow get, list: if canSellInventory();
+      allow create, update: if canManageAdmissions()
+        && request.resource.data.keys().hasOnly([
+          'studentId', 'fullName', 'rollNo', 'classId', 'active', 'updatedAt'])
+        && request.resource.data.studentId == studentId
+        && request.resource.data.updatedAt == request.time
+        && exists(/databases/$(database)/documents/students/$(studentId))
+        && request.resource.data.fullName ==
+          getAfter(/databases/$(database)/documents/students/$(studentId)).data.fullName
+        && request.resource.data.rollNo ==
+          getAfter(/databases/$(database)/documents/students/$(studentId)).data.rollNo
+        && request.resource.data.classId ==
+          getAfter(/databases/$(database)/documents/students/$(studentId)).data.classId
+        && request.resource.data.active ==
+          (getAfter(/databases/$(database)/documents/students/$(studentId)).data.status == 'admitted'
+          && getAfter(/databases/$(database)/documents/students/$(studentId)).data.active == true);
+      allow delete: if false;
+    }
+
     match /inventory_items/{itemId} {
       allow get, list: if canSellInventory();
       allow create: if canManageInventory()
@@ -912,17 +934,20 @@ service cloud.firestore {
     }
 
     match /inventory_sales/{saleId} {
-      allow get: if canManageInventory()
+      allow get: if canManageInventory() || isPrincipal()
         || (inventoryRole('canteen_seller')
             && resource.data.sellerUid == request.auth.uid);
-      allow list: if canManageInventory()
+      allow list: if canManageInventory() || isPrincipal()
         || (inventoryRole('canteen_seller')
             && resource.data.sellerUid == request.auth.uid);
       allow create: if canSellInventory()
         && request.resource.data.keys().hasOnly([
            'saleId', 'itemId', 'itemName', 'department',
            'quantity', 'stockBefore', 'unitPriceMinor', 'totalMinor',
-           'currency', 'sellerUid', 'paymentMethod', 'soldAt'])
+           'currency', 'sellerUid', 'paymentMethod', 'soldAt',
+           'orderId', 'lineNumber', 'customerType', 'customerId',
+           'customerName', 'customerPhone', 'customerClass', 'customerRollNo',
+           'paidMinor', 'paymentStatus', 'lastPaymentId', 'lastPaymentAt'])
         && request.resource.data.saleId == saleId
         && request.resource.data.itemId is string
         && exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
@@ -933,7 +958,60 @@ service cloud.firestore {
         && request.resource.data.soldAt == request.time
         && request.resource.data.currency == 'PKR'
         && request.resource.data.paymentMethod in
-            ['Cash', 'Easypaisa', 'JazzCash', 'Bank Transfer', 'Other']
+            ['Cash', 'Easypaisa', 'JazzCash', 'Bank Transfer', 'Other', 'Unpaid']
+        && (
+          (!('orderId' in request.resource.data)
+            && request.resource.data.paymentMethod != 'Unpaid')
+          ||
+          (
+            request.resource.data.orderId is string
+            && request.resource.data.orderId.size() >= 8
+            && request.resource.data.orderId.size() <= 64
+            && request.resource.data.lineNumber is int
+            && request.resource.data.lineNumber >= 1
+            && request.resource.data.lineNumber <= 6
+            && request.resource.data.customerType in ['student', 'other']
+            && request.resource.data.customerId is string
+            && request.resource.data.customerName is string
+            && request.resource.data.customerName.size() >= 2
+            && request.resource.data.customerName.size() <= 100
+            && request.resource.data.customerPhone is string
+            && request.resource.data.customerPhone.size() <= 30
+            && request.resource.data.customerClass is string
+            && request.resource.data.customerRollNo is string
+            && request.resource.data.lastPaymentId == ''
+            && request.resource.data.paidMinor is int
+            && request.resource.data.paidMinor in [0, request.resource.data.totalMinor]
+            && request.resource.data.paymentStatus ==
+               (request.resource.data.paidMinor == 0 ? 'borrowed' : 'paid')
+            && (
+              (request.resource.data.paidMinor == 0
+                && request.resource.data.paymentMethod == 'Unpaid')
+              || (request.resource.data.paidMinor > 0
+                && request.resource.data.paymentMethod != 'Unpaid')
+            )
+            && (
+              (request.resource.data.customerType == 'other'
+                && request.resource.data.customerId == ''
+                && request.resource.data.customerClass == ''
+                && request.resource.data.customerRollNo == ''
+                && (request.resource.data.paidMinor != 0
+                  || request.resource.data.customerPhone.size() > 0))
+              ||
+              (request.resource.data.customerType == 'student'
+                && request.resource.data.customerPhone == ''
+                && request.resource.data.customerId.size() > 0
+                && exists(/databases/$(database)/documents/inventory_student_directory/$(request.resource.data.customerId))
+                && get(/databases/$(database)/documents/inventory_student_directory/$(request.resource.data.customerId)).data.active == true
+                && request.resource.data.customerName ==
+                   get(/databases/$(database)/documents/inventory_student_directory/$(request.resource.data.customerId)).data.fullName
+                && request.resource.data.customerClass ==
+                   get(/databases/$(database)/documents/inventory_student_directory/$(request.resource.data.customerId)).data.classId
+                && request.resource.data.customerRollNo ==
+                   get(/databases/$(database)/documents/inventory_student_directory/$(request.resource.data.customerId)).data.rollNo)
+            )
+          )
+        )
         && request.resource.data.itemName ==
            get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name
         && request.resource.data.department ==
@@ -953,6 +1031,68 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'sale'
         && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedBy == request.auth.uid
         && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedAt == request.time;
+      allow update: if canSellInventory()
+        && ('orderId' in resource.data)
+        && (canManageInventory() || resource.data.sellerUid == request.auth.uid)
+        && request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['paidMinor', 'paymentStatus', 'lastPaymentId', 'lastPaymentAt'])
+        && request.resource.data.paidMinor is int
+        && request.resource.data.paidMinor > resource.data.paidMinor
+        && request.resource.data.paidMinor <= resource.data.totalMinor
+        && request.resource.data.paymentStatus ==
+           (request.resource.data.paidMinor == resource.data.totalMinor
+              ? 'paid' : 'partially_paid')
+        && request.resource.data.lastPaymentId is string
+        && request.resource.data.lastPaymentId != resource.data.lastPaymentId
+        && request.resource.data.lastPaymentAt == request.time
+        && !exists(/databases/$(database)/documents/inventory_payments/$(request.resource.data.lastPaymentId))
+        && getAfter(/databases/$(database)/documents/inventory_payments/$(request.resource.data.lastPaymentId)).data.saleId == saleId
+        && getAfter(/databases/$(database)/documents/inventory_payments/$(request.resource.data.lastPaymentId)).data.collectedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/inventory_payments/$(request.resource.data.lastPaymentId)).data.amountMinor ==
+           request.resource.data.paidMinor - resource.data.paidMinor;
+      allow delete: if false;
+    }
+
+    // Every subsequent collection is append-only and must move the linked
+    // receipt balance by the exact same amount in the same transaction.
+    match /inventory_payments/{paymentId} {
+      allow get, list: if canManageInventory() || isPrincipal()
+        || (inventoryRole('canteen_seller')
+            && resource.data.sellerUid == request.auth.uid);
+      allow create: if canSellInventory()
+        && request.resource.data.keys().hasOnly([
+          'paymentId', 'saleId', 'orderId', 'sellerUid',
+          'customerId', 'customerName', 'amountMinor', 'paidBeforeMinor',
+          'balanceAfterMinor', 'method', 'collectedBy', 'collectedAt'])
+        && request.resource.data.paymentId == paymentId
+        && request.resource.data.saleId is string
+        && exists(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId))
+        && request.resource.data.collectedBy == request.auth.uid
+        && request.resource.data.collectedAt == request.time
+        && request.resource.data.method in
+           ['Cash', 'Easypaisa', 'JazzCash', 'Bank Transfer', 'Other']
+        && request.resource.data.amountMinor is int
+        && request.resource.data.amountMinor > 0
+        && request.resource.data.paidBeforeMinor ==
+           get(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.paidMinor
+        && request.resource.data.amountMinor <=
+           get(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.totalMinor -
+           request.resource.data.paidBeforeMinor
+        && request.resource.data.orderId ==
+           get(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.orderId
+        && request.resource.data.sellerUid ==
+           get(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.sellerUid
+        && (canManageInventory() || request.resource.data.sellerUid == request.auth.uid)
+        && request.resource.data.customerId ==
+           get(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.customerId
+        && request.resource.data.customerName ==
+           get(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.customerName
+        && request.resource.data.balanceAfterMinor ==
+           get(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.totalMinor -
+           request.resource.data.paidBeforeMinor - request.resource.data.amountMinor
+        && getAfter(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.paidMinor ==
+           request.resource.data.paidBeforeMinor + request.resource.data.amountMinor
+        && getAfter(/databases/$(database)/documents/inventory_sales/$(request.resource.data.saleId)).data.lastPaymentId == paymentId;
       allow update, delete: if false;
     }
 

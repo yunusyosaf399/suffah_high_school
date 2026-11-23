@@ -1,3 +1,98 @@
+## Sales cart, customer credit and analytics (November 2026)
+
+### Seller checkout
+
+1. Open **Canteen & Stationery → Sell**. Tap **Add to cart** for each
+   product. Tap the **Cart** button, then change quantities with + / -.
+   A single checkout accepts up to six distinct products and up to 100 units
+   per product. The transaction re-reads each unit price and current stock
+   from Firestore and commits *all* stock changes and sale lines atomically.
+2. Under **Customer details**, choose:
+   - **Student:** Search by name, student registration ID, roll number or
+     class. The directory contains **only** registration ID, name, roll
+     number and class; sellers cannot read admission, health, photo,
+     guardians or contact documents.
+   - **Other:** Enter customer name, and optionally a contact number;
+     the number becomes mandatory for borrowed purchases.
+3. Under **Payment**, choose **Paid** (and payment method) or **Borrowed**.
+   **Paid** counts toward collected cash immediately. **Borrowed** removes
+   stock but creates a receivable for the named customer and does not count
+   as received cash.
+4. Tap **Complete paid sale** or **Save borrowed sale** once.
+   Every cart line receives an immutable sale record with the same order ID.
+   The checkout uses no seller-supplied unit price.
+
+### Borrowed balances and payment collection
+
+- **Sales / My sales** groups recent sale lines by receipt, with customer,
+  item quantities, total, paid amount and outstanding balance.
+- **Borrowed** uses a separate server query, so older open credit sales are
+  still collectible even when they fall outside recent sales. For sellers,
+  it shows only their own borrowed sales; owners/managers can see all.
+- Tap **Collect payment**, enter full or partial amount and method. A
+  Firestore transaction allocates the collection across the order's
+  outstanding lines. Each allocation writes an append-only
+  `inventory_payments` event and updates only that receipt's payment
+  balance/status. A later collection never reduces stock again.
+- Fully paid lines disappear from the Borrowed query; the original sales
+  remain in the Sales history. The form rejects amounts above the current
+  outstanding balance. After reading server data, transaction retries
+  prevent duplicate or lost payments.
+- Sales created in older APK versions are interpreted as **paid** for
+  backward-compatible historical reporting; they are not treated as debt.
+
+### Student directory synchronization
+
+The **owner** should open **Canteen & Stationery → Sell → Sync students for
+checkout** after first deploying the updated Firestore rules. This
+backfills the previously admitted students into
+`inventory_student_directory`, excluding guardian/contact/health details.
+Future admitted-student edits sync the directory automatically as a
+best-effort follow-up without putting admission saves at risk.
+
+### Finance → Analytics
+
+The Finance **Analytics** tab has a separate **Canteen & Stationery sales
+analytics** section: past six calendar months of sales and actual cash
+collections, open credit balances, average order, quantities, canteen vs
+stationery revenue, top products and month-by-month bars. These are **not**
+mixed into tuition-fee or salary accounting.
+
+Reporting queries are capped at the most recent 1,500 sale lines and
+1,500 payment records; if a cap is reached the screen warns that totals
+may be incomplete. Outstanding balances cover available receipt history,
+not an unlimited all-time audited balance sheet.
+
+### Firebase deployment requirements
+
+1. Publish the **complete** repository `firestore.rules` in Firebase.
+2. Create the composite index for `inventory_sales` with fields
+   `sellerUid ASC` and `paymentStatus ASC` (Collection scope). The
+   `firestore.indexes.json` file contains the required definition.
+
+   **Important:** This repository did not previously track Firebase composite
+   indexes. Firebase CLI index deployments can propose deletion of manually
+   created indexes that aren't represented in the local file. **Before**
+   running `firebase deploy --only firestore:indexes`, review and merge
+   all existing indexes from the live Firebase project into the file, then
+   review any deletion prompts carefully. Alternatively, create just this
+   one index manually in the Firebase Console without disturbing others.
+
+   Publish rules separately when needed:
+
+   ```bash
+   firebase deploy --only firestore:rules
+   ```
+
+   The new composite index must finish building before seller-specific
+   Borrowed queries become available.
+3. In the owner app, tap **Sync students for checkout**, then verify a
+   named student credit checkout and a small partial/full collection.
+4. Review role-based security tests and ensure the old client cannot
+   create a credit sale without a customer/receipt. **Do not** grant
+   sellers access to the full `students` collection.
+
+
 # Canteen and Stationery — Controlled Inventory
 
 ## Permission model

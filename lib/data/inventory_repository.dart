@@ -123,12 +123,35 @@ class InventoryRepository {
       .snapshots()
       .map((snap) => snap.docs.map(InventoryItem.fromSnapshot).toList());
 
+  Stream<List<Map<String, dynamic>>> watchBorrowed({required bool manager}) {
+    // Separate query means old borrowed items remain collectible after
+    // they are no longer in the recent-sales window.
+    final source = _db.collection('inventory_sales');
+    final query = manager
+        ? source.where('paymentStatus',
+            whereIn: ['borrowed', 'partially_paid']).limit(1000)
+        : source.where('sellerUid', isEqualTo: _uid)
+            .where('paymentStatus',
+                whereIn: ['borrowed', 'partially_paid']).limit(1000);
+    return query.snapshots().map((snap) {
+      final data = snap.docs.map((doc) =>
+        {...doc.data(), 'id': doc.id}).toList();
+      data.sort((a, b) {
+        final first = a['soldAt'];
+        final second = b['soldAt'];
+        if (first is! Timestamp || second is! Timestamp) return 0;
+        return second.compareTo(first);
+      });
+      return data;
+    });
+  }
+
   Stream<List<Map<String, dynamic>>> watchSales({required bool manager}) {
     final query = manager
         ? _db.collection('inventory_sales')
-            .orderBy('soldAt', descending: true).limit(60)
+            .orderBy('soldAt', descending: true).limit(300)
         : _db.collection('inventory_sales')
-            .where('sellerUid', isEqualTo: _uid).limit(60);
+            .where('sellerUid', isEqualTo: _uid).limit(300);
     return query.snapshots().map((snap) {
       final records = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
       records.sort((a, b) {

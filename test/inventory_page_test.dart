@@ -28,7 +28,8 @@ void main() {
     expect(find.text('Stock'), findsOneWidget);
     expect(find.text('My sales'), findsOneWidget);
     expect(find.text('Purchases'), findsNothing);
-    expect(find.text('Sell item'), findsOneWidget);
+    expect(find.text('Add to cart'), findsOneWidget);
+    expect(find.text('Borrowed'), findsOneWidget);
     expect(find.text('Rs 85.00'), findsOneWidget);
     await tester.tap(find.text('Stock'));
     await tester.pumpAndSettle();
@@ -41,17 +42,21 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('sale dialog displays locked price and quantity-only entry',
+  testWidgets('seller adds product to cart and opens customer checkout',
       (tester) async {
     await tester.pumpWidget(inventoryHost('canteen_seller'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Sell item'));
+    await tester.tap(find.text('Add to cart'));
     await tester.pumpAndSettle();
-    expect(find.text('Confirm sale'), findsOneWidget);
-    expect(find.text('Unit price: Rs 85.00'), findsOneWidget);
-    expect(find.byKey(const Key('inventory_sale_quantity')), findsOneWidget);
+    expect(find.byKey(const Key('inventory_open_cart_action')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('inventory_open_cart_action')));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen checkout'), findsOneWidget);
+    expect(find.text('Shopping cart'), findsOneWidget);
+    expect(find.text('Customer details'), findsOneWidget);
+    expect(find.text('Rs 85.00'), findsWidgets);
     expect(find.widgetWithText(TextField, 'Selling price (PKR) *'), findsNothing);
-    await tester.tap(find.text('Cancel'));
+    await tester.pageBack();
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
@@ -135,7 +140,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('cannot access the canteen inventory'),
       findsOneWidget);
-    expect(find.text('Sell item'), findsNothing);
+    expect(find.text('Add to cart'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }
