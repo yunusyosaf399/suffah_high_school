@@ -52,6 +52,8 @@ async function firebaseToken(request, projectId) {
     });
     const now = Math.floor(Date.now() / 1000);
     if (!payload.sub || payload.sub.length > 128 ||
+        typeof payload.iat !== 'number' || payload.iat > now ||
+        typeof payload.exp !== 'number' || payload.exp <= now ||
         typeof payload.auth_time !== 'number' || payload.auth_time > now) {
       throw new Error('Invalid Firebase ID token claims.');
     }
