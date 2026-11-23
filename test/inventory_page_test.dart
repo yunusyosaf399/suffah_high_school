@@ -32,7 +32,8 @@ void main() {
     expect(find.text('Rs 85.00'), findsOneWidget);
     await tester.tap(find.text('Stock'));
     await tester.pumpAndSettle();
-    expect(find.text('Add item'), findsNothing);
+    expect(find.text('Add product'), findsNothing);
+    expect(find.byKey(const Key('inventory_add_product_action')), findsNothing);
     expect(find.text('Edit'), findsNothing);
     expect(find.text('Receive stock'), findsNothing);
     expect(find.text('Adjust'), findsNothing);
@@ -62,10 +63,67 @@ void main() {
     expect(find.text('Purchases'), findsOneWidget);
     await tester.tap(find.text('Stock'));
     await tester.pumpAndSettle();
-    expect(find.text('Add item'), findsOneWidget);
+    expect(find.text('Add product'), findsOneWidget);
+    expect(find.byKey(const Key('inventory_add_product_action')), findsOneWidget);
     expect(find.text('Edit'), findsOneWidget);
     expect(find.text('Receive stock'), findsOneWidget);
     expect(find.text('Adjust'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('owner always has Add product with zero stock and working tabs',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: InventoryPage(
+        role: 'owner',
+        itemsStream: Stream.value(const <InventoryItem>[]),
+        salesStream: Stream.value(const <Map<String, dynamic>>[]),
+        purchasesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('No products available to sell yet.'), findsOneWidget);
+    expect(find.byKey(const Key('inventory_add_product_action')), findsOneWidget);
+
+    await tester.tap(find.text('Stock'));
+    await tester.pumpAndSettle();
+    expect(find.text('Stock catalogue'), findsOneWidget);
+    expect(find.text('Add product'), findsOneWidget);
+    expect(find.text('No stock items have been added yet.'), findsOneWidget);
+    expect(find.text('Create first product'), findsOneWidget);
+
+    await tester.tap(find.text('Create first product'));
+    await tester.pumpAndSettle();
+    expect(find.text('Add stock item'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Item name *'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Selling price (PKR) *'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sell'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stock'));
+    await tester.pumpAndSettle();
+    expect(find.text('Create first product'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('seller never receives product-creation actions with empty stock',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: InventoryPage(
+        role: 'canteen_seller',
+        itemsStream: Stream.value(const <InventoryItem>[]),
+        salesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stock'));
+    await tester.pumpAndSettle();
+    expect(find.text('No stock items have been added yet.'), findsOneWidget);
+    expect(find.text('Create first product'), findsNothing);
+    expect(find.text('Add product'), findsNothing);
+    expect(find.byKey(const Key('inventory_add_product_action')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
