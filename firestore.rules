@@ -200,7 +200,10 @@ service cloud.firestore {
           'sku', 'name', 'department', 'unit', 'description', 'priceMinor',
           'stockQty', 'reorderPoint', 'active', 'currency',
           'lastMovementId', 'lastMovementType', 'createdBy', 'createdAt',
-          'updatedBy', 'updatedAt'])
+          'updatedBy', 'updatedAt',
+          'category', 'subcategory', 'customType', 'classLevel',
+          'bookSeries', 'subject', 'publisher', 'brand', 'variant',
+          'expiryDate', 'archived', 'archivedBy', 'archivedAt'])
         && request.resource.data.sku == itemId
         && itemId.matches('^[A-Z0-9_-]{3,32}$')
         && request.resource.data.name is string
@@ -221,13 +224,39 @@ service cloud.firestore {
         && request.resource.data.reorderPoint is int
         && request.resource.data.reorderPoint >= 0
         && request.resource.data.active is bool
-        && request.resource.data.currency == 'PKR';
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.get('category', 'other') is string
+        && request.resource.data.get('category', 'other').size() <= 48
+        && request.resource.data.get('subcategory', 'other') is string
+        && request.resource.data.get('subcategory', 'other').size() <= 60
+        && request.resource.data.get('customType', '') is string
+        && request.resource.data.get('customType', '').size() <= 80
+        && request.resource.data.get('classLevel', '') is string
+        && request.resource.data.get('classLevel', '').size() <= 32
+        && request.resource.data.get('bookSeries', '') is string
+        && request.resource.data.get('bookSeries', '').size() <= 100
+        && request.resource.data.get('subject', '') is string
+        && request.resource.data.get('subject', '').size() <= 80
+        && request.resource.data.get('publisher', '') is string
+        && request.resource.data.get('publisher', '').size() <= 100
+        && request.resource.data.get('brand', '') is string
+        && request.resource.data.get('brand', '').size() <= 100
+        && request.resource.data.get('variant', '') is string
+        && request.resource.data.get('variant', '').size() <= 80
+        && request.resource.data.get('expiryDate', '') is string
+        && request.resource.data.get('expiryDate', '').size() <= 10
+        && request.resource.data.get('archived', false) is bool
+        && request.resource.data.get('archivedBy', '') is string
+        && (!('archivedAt' in request.resource.data)
+            || request.resource.data.archivedAt == null
+            || request.resource.data.archivedAt is timestamp);
     }
 
     function validInventorySaleMovement(itemId) {
       let event = /databases/$(database)/documents/inventory_sales/$(request.resource.data.lastMovementId);
       return request.resource.data.lastMovementType == 'sale'
         && request.resource.data.stockQty < resource.data.stockQty
+        && resource.data.get('archived', false) == false
         && !exists(event)
         && getAfter(event).data.itemId == itemId
         && getAfter(event).data.sellerUid == request.auth.uid
