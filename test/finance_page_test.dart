@@ -55,14 +55,14 @@ void main() {
     expect(find.text('Generate monthly finance'), findsOneWidget);
     expect(find.byKey(const Key('generate_finance_button')), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('Monthly schedule preferences'),
+      find.text('Monthly finance scheduler'),
       160,
       scrollable: find.descendant(
         of: find.byType(FinanceGenerateTab),
         matching: find.byType(Scrollable),
       ).first,
     );
-    expect(find.text('Monthly schedule preferences'), findsOneWidget);
+    expect(find.text('Monthly finance scheduler'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
