@@ -102,6 +102,12 @@ void main() {
     expect(find.byKey(const Key('salary_server_view_version')), findsOneWidget);
     expect(find.textContaining('Diagnostic v4'), findsOneWidget);
     expect(find.text('Read status: Loading saved salaries…'), findsOneWidget);
+    expect(find.byKey(const Key('salary_read_status')), findsOneWidget);
+    expect(
+      tester.getBottomRight(find.byKey(const Key('salary_read_status'))).dy,
+      lessThan(760),
+      reason: 'The salary loading status must be on screen without scrolling.',
+    );
 
     repository.pending.complete(const [
       FinanceBill(
@@ -134,6 +140,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('salary_server_view_version')), findsOneWidget);
     expect(find.text('Read status: Failed to load salaries'), findsOneWidget);
+    expect(find.byKey(const Key('salary_server_error')), findsOneWidget);
+    expect(find.textContaining('test server rejected'), findsNothing,
+      reason: 'Unexpected errors should not leak raw internal details.');
     expect(find.byKey(const Key('finance_salary_retry')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
