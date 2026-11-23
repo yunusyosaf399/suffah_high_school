@@ -102,6 +102,12 @@ void main() {
     final repository = _PendingSalaryRepository();
 
     await tester.pumpWidget(MaterialApp(
+      // Match SchoolApp's full-width FilledButton theme.
+      theme: ThemeData(
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+        ),
+      ),
       home: Scaffold(body: FinancePaySalaryTab(repository: repository)),
     ));
     await tester.pump();
