@@ -38,6 +38,10 @@ class _InventoryPageState extends State<InventoryPage> {
       widget.repository ?? InventoryRepository();
   late final Stream<List<InventoryItem>> _items =
       widget.itemsStream ?? _repo.watchItems();
+  late final Stream<List<Map<String, dynamic>>> _sales =
+      widget.salesStream ?? _repo.watchSales(manager: _canManage);
+  late final Stream<List<Map<String, dynamic>>> _purchases =
+      widget.purchasesStream ?? _repo.watchPurchases();
   String _department = 'all';
   bool _showArchived = false;
   final Map<String, int> _cart = {};
@@ -49,10 +53,26 @@ class _InventoryPageState extends State<InventoryPage> {
   List<InventoryItem>? _currentItems;
   Object? _itemsError;
   late final StreamSubscription<List<InventoryItem>> _itemsSubscription;
+  late final StreamSubscription<List<Map<String, dynamic>>> _salesSubscription;
+  List<Map<String, dynamic>>? _currentSales;
+  Object? _salesError;
 
   @override
   void initState() {
     super.initState();
+    _salesSubscription = _sales.listen(
+      (sales) {
+        if (!mounted) return;
+        setState(() {
+          _currentSales = sales;
+          _salesError = null;
+        });
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() => _salesError = error);
+      },
+    );
     _itemsSubscription = _items.listen(
       (items) {
         if (!mounted) return;
@@ -71,6 +91,7 @@ class _InventoryPageState extends State<InventoryPage> {
   @override
   void dispose() {
     _itemsSubscription.cancel();
+    _salesSubscription.cancel();
     super.dispose();
   }
 
@@ -615,17 +636,14 @@ class _InventoryPageState extends State<InventoryPage> {
     notes.dispose();
   }
 
-  Widget _salesHistory({bool onlyBorrowed = false}) =>
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: widget.salesStream ?? _repo.watchSales(manager: _canManage),
-        builder: (context, snap) {
-          if (snap.hasError) {
-            return Center(child: Text(_error(snap.error!)));
+  Widget _salesHistory({bool onlyBorrowed = false}) {
+          if (_salesError != null) {
+            return Center(child: Text(_error(_salesError!)));
           }
-          if (!snap.hasData) {
+          if (_currentSales == null) {
             return const Center(child: CircularProgressIndicator());
           }
-          final orders = inventoryGroupSales(snap.data!);
+          final orders = inventoryGroupSales(_currentSales!);
           final shown = orders.where((order) {
             if (onlyBorrowed && order.dueMinor <= 0) return false;
             final keyword = _salesSearch.toLowerCase().trim();
@@ -739,8 +757,7 @@ class _InventoryPageState extends State<InventoryPage> {
                 ),
             ],
           );
-        },
-      );
+  }
 
   Future<void> _collectPayment(InventoryOrderSummary order) async {
     final amount = TextEditingController(
@@ -826,7 +843,7 @@ class _InventoryPageState extends State<InventoryPage> {
   }
 
   Widget _purchaseHistory() => StreamBuilder<List<Map<String, dynamic>>>(
-    stream: widget.purchasesStream ?? _repo.watchPurchases(),
+    stream: _purchases,
     builder: (context, snap) {
       if (snap.hasError) return Center(child: Text(_error(snap.error!)));
       if (!snap.hasData) return const Center(child: CircularProgressIndicator());
