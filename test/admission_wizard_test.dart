@@ -42,6 +42,7 @@ void main() {
     expect(find.text('Student personal details'), findsOneWidget);
     expect(find.text('Profile photo'), findsOneWidget);
     expect(find.text('Upload photo'), findsOneWidget);
+    expect(find.text('Upload certificates & documents'), findsOneWidget);
     expect(find.text('Save draft'), findsWidgets);
 
     await tester.tap(find.text('2. Contact'));
