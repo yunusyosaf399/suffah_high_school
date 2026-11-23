@@ -90,6 +90,31 @@ object. The Worker refuses deletion while Firestore still references that
 object. Interrupted updates can create orphaned uploaded files and need
 reconciliation as part of production maintenance.
 
+## Troubleshooting file-upload failures
+
+The Worker `/health` response confirms that the Worker is reachable; it does
+**not** test Firebase permissions, Firestore REST connectivity, or an R2 write.
+If the app shows an upload error, use the **specific error code** returned by
+the Worker rather than assuming the bucket is disconnected.
+
+- `STUDENT_ACCESS_DENIED`: signed-in account lacks access according to
+  Firestore rules; verify owner/principal role. Never remove permission checks.
+- `STUDENT_NOT_FOUND`: the student draft is not saved in Firestore yet.
+- `FIRESTORE_REQUEST_FAILED` / `FIRESTORE_RESPONSE_FAILED`: the Worker could
+  not complete its user-authorized Firestore student lookup.
+- `R2_WRITE_FAILED`: the private R2 bucket rejected the write or the Worker
+  could not reach it. Verify the `STUDENT_FILES` binding and R2 status.
+- `WORKER_UNEXPECTED_FAILURE`: an unexpected runtime exception. Review
+  Cloudflare Worker **Observability → Logs** for
+  `[student-files] unexpected_runtime_failure`. These stage-based logs
+  must contain no student names, tokens or file content.
+
+For a useful diagnosis, retry a **test student** upload after deploying the
+latest Worker commit; compare the app's error code with the corresponding
+Cloudflare Worker log entry. Do not share actual student documents, Firebase
+ID tokens or Deploy Hook URLs. Log errors must never include personally
+identifiable data.
+
 ## Existing Firebase Storage photos
 
 If a student record previously stored a Firebase Storage path, its file is
