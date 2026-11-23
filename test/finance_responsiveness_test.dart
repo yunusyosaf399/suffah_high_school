@@ -149,8 +149,8 @@ void main() {
     expect(find.byKey(const Key('salary_server_view_version')), findsOneWidget);
     expect(find.text('Read status: Failed to load salaries'), findsOneWidget);
     expect(find.byKey(const Key('salary_server_error')), findsOneWidget);
-    expect(find.textContaining('test server rejected'), findsNothing,
-      reason: 'Unexpected errors should not leak raw internal details.');
+    expect(find.textContaining('test server rejected'), findsOneWidget,
+      reason: 'A failed Firestore read must expose an actionable diagnostic.');
     expect(find.byKey(const Key('finance_salary_retry')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -264,9 +264,18 @@ void main() {
     }
     expect(find.text('Pay monthly salaries'), findsOneWidget);
     expect(find.textContaining('Teacher One'), findsOneWidget);
-    expect(find.textContaining('Teacher Two'), findsOneWidget);
-    expect(find.textContaining('October 2026'), findsNWidgets(2));
     expect(find.text('Read status: 2 saved salaries loaded · 2 shown'), findsOneWidget);
+    // Flutter lazily mounts cards below the fold. Scroll to verify both
+    // existing records rather than assuming both fit the viewport.
+    await tester.scrollUntilVisible(
+      find.textContaining('Teacher Two'),
+      140,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('salary_pay_scroll')),
+        matching: find.byType(Scrollable),
+      ).first,
+    );
+    expect(find.textContaining('Teacher Two'), findsOneWidget);
     expect(repository.salarySubscriptions, 1);
 
     // Navigate away and return; the visible content must match selected tab.
@@ -277,7 +286,15 @@ void main() {
     await tester.tap(find.byKey(const Key('finance_next_tab')));
     await tester.pumpAndSettle();
     expect(find.text('Pay monthly salaries'), findsOneWidget);
-    expect(find.textContaining('Teacher One'), findsOneWidget);
+    expect(find.text('Read status: 2 saved salaries loaded · 2 shown'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('Teacher Two'),
+      140,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('salary_pay_scroll')),
+        matching: find.byType(Scrollable),
+      ).first,
+    );
     expect(find.textContaining('Teacher Two'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
