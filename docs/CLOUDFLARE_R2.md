@@ -61,7 +61,7 @@ Cloudflare project name must match the `name` in `wrangler.toml`:
 
 - Students → Add student → **Student**: upload or replace the student photo.
   The device compresses it to WebP, maximum 100 KiB.
-- **Review**: upload a birth certificate, transfer certificate, previous-school
+- **Documents**: upload a birth certificate, transfer certificate, previous-school
   certificate, medical report, or other document. Accepted formats: PDF, JPG,
   PNG and WebP, maximum 5 MiB per document.
 - Students → existing student → **Edit student**: the same controls support
