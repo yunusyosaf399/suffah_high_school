@@ -1,0 +1,38 @@
+name: Cloudflare Student Files — Worker Tests
+
+on:
+  push:
+    branches: [main, feature/cloudflare-r2-student-files]
+    paths:
+      - "cloudflare/student-files/**"
+      - ".github/workflows/cloudflare-worker-tests.yml"
+  pull_request:
+    paths:
+      - "cloudflare/student-files/**"
+      - ".github/workflows/cloudflare-worker-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-worker:
+    name: Test R2 Worker and bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: cloudflare/student-files
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate JavaScript syntax
+        run: node --check src/index.js
+      - name: Run Firestore authorization regression tests
+        run: npm test
+      - name: Verify Cloudflare Worker can bundle
+        run: npx wrangler deploy --dry-run --outdir /tmp/suffah-worker-bundle
