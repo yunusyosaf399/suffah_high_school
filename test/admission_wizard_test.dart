@@ -135,7 +135,7 @@ void main() {
       registrationNo: 'ST-2026-0003',
       rollNo: '10002',
       status: 'admitted',
-      step: 5,
+      step: 6,
       details: {
         'student': {
           'firstName': 'Mariam', 'lastName': 'Khan',
