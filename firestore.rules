@@ -1026,18 +1026,31 @@ service cloud.firestore {
           'reason', 'notes', 'recordedBy', 'recordedAt'])
         && request.resource.data.adjustmentId == adjustmentId
         && request.resource.data.itemId is string
-        && exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
-        && request.resource.data.itemName ==
-           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name
+        && request.resource.data.itemId is string
+        && (
+          (exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+            && request.resource.data.itemName ==
+               get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name)
+          ||
+          (!exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+            && request.resource.data.itemName ==
+               getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name)
+        )
         && request.resource.data.delta is int
         && request.resource.data.delta != 0
         && request.resource.data.delta >= -100000
         && request.resource.data.delta <= 100000
         && request.resource.data.stockBefore ==
-           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty
+           (exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+             ? get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty
+             : 0)
         && request.resource.data.stockBefore + request.resource.data.delta >= 0
         && request.resource.data.reason in
-            ['damage', 'expired', 'wastage', 'return', 'correction']
+            ['opening', 'damage', 'expired', 'wastage', 'return', 'correction']
+        && (request.resource.data.reason != 'opening'
+            || (!exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+                && request.resource.data.stockBefore == 0
+                && request.resource.data.delta > 0))
         && request.resource.data.notes is string
         && request.resource.data.notes.size() <= 250
         && request.resource.data.recordedBy == request.auth.uid
@@ -1045,7 +1058,8 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty ==
            request.resource.data.stockBefore + request.resource.data.delta
         && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementId == adjustmentId
-        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'adjustment'
+        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType ==
+           (request.resource.data.reason == 'opening' ? 'opening' : 'adjustment')
         && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedBy == request.auth.uid;
       allow update, delete: if false;
     }
