@@ -147,47 +147,55 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
   String? _result;
 
   Future<void> _editGenerationDay() async {
-    Map<String, int> prior;
+    Map<String, ({int day, bool enabled})> prior;
     try {
-      prior = await widget.repository.loadGenerationDays();
+      prior = await widget.repository.loadGenerationPreferences();
     } catch (error) {
       if (mounted) financeSnack(context, schoolErrorMessage(error));
       return;
     }
     if (!mounted) return;
     var category = 'tuition';
-    var day = prior[category] ?? 1;
+    var day = prior[category]?.day ?? 1;
+    var enabled = prior[category]?.enabled ?? false;
     var busy = false;
     final success = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, update) => AlertDialog(
           scrollable: true,
-          title: const Text('Monthly generation day preference'),
+          title: const Text('Automatic monthly bill generation'),
           content: SizedBox(width: 390, child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Save the preferred day (1–27). This does not '
-                  'automatically generate fees or salaries yet. '
-                  'Firebase scheduled Functions require Blaze billing.',
+              const Text('Enabled types generate unpaid bills on the saved day '
+                  'or the next daily run if that day has passed. '
+                  'Dates use Pakistan time.',
                 style: TextStyle(fontSize: 12)),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: category,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Finance type'),
                 items: const [
                   DropdownMenuItem(value: 'tuition', child: Text('Tuition fees')),
                   DropdownMenuItem(value: 'transport', child: Text('Transport fees')),
                   DropdownMenuItem(value: 'salary', child: Text('Teacher salaries')),
+                  DropdownMenuItem(value: 'recurring_expenses',
+                    child: Text('Recurring expenses')),
                 ],
                 onChanged: busy ? null : (v) {
                   if (v != null) update(() {
                     category = v;
-                    day = prior[v] ?? 1;
+                    day = prior[v]?.day ?? 1;
+                    enabled = prior[v]?.enabled ?? false;
                   });
                 },
               ),
               const SizedBox(height: 12),
+              if (category == 'recurring_expenses')
+                const Text('Each active expense plan uses its own saved day.')
+              else
               DropdownButtonFormField<int>(
                 key: ValueKey(category),
                 initialValue: day,
@@ -201,6 +209,13 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
                   if (v != null) update(() => day = v);
                 },
               ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Generate automatically'),
+                value: enabled,
+                onChanged: busy ? null : (value) =>
+                    update(() => enabled = value),
+              ),
             ],
           )),
           actions: [
@@ -211,8 +226,8 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
               onPressed: busy ? null : () async {
                 update(() => busy = true);
                 try {
-                  await widget.repository.saveGenerationDay(
-                    category: category, scheduleDay: day);
+                  await widget.repository.saveGenerationPreference(
+                    category: category, scheduleDay: day, enabled: enabled);
                   if (context.mounted) Navigator.pop(context, true);
                 } catch (error) {
                   if (context.mounted) {
@@ -227,8 +242,7 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
       ),
     );
     if (success == true && mounted) {
-      financeSnack(context, 'Preferred generation day saved. '
-          'Automatic execution is still disabled.');
+      financeSnack(context, 'Monthly generation preference saved.');
     }
   }
 
@@ -317,16 +331,10 @@ class _FinanceGenerateTabState extends State<FinanceGenerateTab> {
       Card(child: ListTile(
         leading: const Icon(Icons.edit_calendar_outlined),
         title: const Text('Monthly schedule preferences'),
-        subtitle: const Text('Set a day from 1 to 27 for fees and salaries '
-            '(automatic execution not yet active)'),
+        subtitle: const Text('Choose which bills to generate automatically.'),
         trailing: const Icon(Icons.chevron_right),
         onTap: _editGenerationDay,
       )),
-      const SizedBox(height: 8),
-      const Text('Automatic backend scheduling is not enabled. '
-          'The saved monthly expense schedule dates are for a future '
-          'Firebase Functions integration after billing is configured.',
-        style: TextStyle(fontSize: 11)),
     ],
   );
 }
