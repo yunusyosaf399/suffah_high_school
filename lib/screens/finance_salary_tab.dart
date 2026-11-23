@@ -1,3 +1,8 @@
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+
 import 'package:flutter/material.dart';
 
 import '../data/finance_models.dart';
@@ -91,15 +96,23 @@ class FinancePaySalaryTab extends StatefulWidget {
     this.onSwipePrevious,
     this.onSwipeNext,
   });
+
   final FinanceRepository repository;
   final VoidCallback? onSwipePrevious;
   final VoidCallback? onSwipeNext;
+
   @override
   State<FinancePaySalaryTab> createState() => _FinancePaySalaryTabState();
 }
 
+/// Every stage of the server read is held in explicit State, not inside a
+/// nested FutureBuilder or ListView. The status row is always rendered,
+/// even when Firestore hangs, denies access, or returns an empty result.
 class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
-  late Future<List<FinanceBill>> _salaryRequest;
+  List<FinanceBill> _bills = const [];
+  Object? _readError;
+  bool _loading = true;
+  int _requestNumber = 0;
   double _horizontalSwipeDistance = 0;
   String _query = '';
   bool _includePaid = false;
@@ -107,21 +120,70 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
   @override
   void initState() {
     super.initState();
-    _salaryRequest = widget.repository.loadSalaryBills();
+    _loadBills(initial: true);
   }
 
   @override
   void didUpdateWidget(covariant FinancePaySalaryTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.repository != widget.repository) {
-      _salaryRequest = widget.repository.loadSalaryBills();
+      _loadBills();
     }
   }
 
-  void _refreshBills() {
-    setState(() {
-      _salaryRequest = widget.repository.loadSalaryBills();
-    });
+  @override
+  void dispose() {
+    _requestNumber++;
+    super.dispose();
+  }
+
+  Future<void> _loadBills({bool initial = false}) async {
+    final request = ++_requestNumber;
+    if (!initial && mounted) {
+      setState(() {
+        _loading = true;
+        _readError = null;
+      });
+    }
+    try {
+      final fetched = await widget.repository.loadSalaryBills()
+          .timeout(const Duration(seconds: 24));
+      if (!mounted || request != _requestNumber) return;
+      setState(() {
+        _bills = fetched;
+        _readError = null;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted || request != _requestNumber) return;
+      setState(() {
+        _readError = error;
+        _loading = false;
+      });
+    }
+  }
+
+  String _connectionDetails() {
+    try {
+      final projectId = Firebase.app().options.projectId;
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final account = uid == null
+          ? 'signed out'
+          : '…${uid.substring(uid.length > 5 ? uid.length - 5 : 0)}';
+      return 'Project: $projectId · account: $account';
+    } catch (_) {
+      return 'Project/account details unavailable in this environment';
+    }
+  }
+
+  String _failureDetails(Object error) {
+    if (error is FirebaseException) {
+      return 'Firestore code: ${error.code}\n${schoolErrorMessage(error)}';
+    }
+    if (error is TimeoutException) {
+      return 'Request timeout\n${schoolErrorMessage(error)}';
+    }
+    return '${error.runtimeType}\n${schoolErrorMessage(error)}';
   }
 
   Future<void> _pay(FinanceBill bill) async {
@@ -143,218 +205,200 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
     );
     if (receipt != null && mounted) {
       financeSnack(context, 'Salary payment saved. Debit receipt: $receipt');
-      _refreshBills();
+      await _loadBills();
     }
   }
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    behavior: HitTestBehavior.translucent,
-    // The nested salary list can win gestures over TabBarView. Explicitly
-    // handle horizontal drags here so adjacent Finance tabs remain reachable.
-    onHorizontalDragStart: (widget.onSwipePrevious != null ||
-            widget.onSwipeNext != null)
-        ? (_) => _horizontalSwipeDistance = 0
-        : null,
-    onHorizontalDragUpdate: (widget.onSwipePrevious != null ||
-            widget.onSwipeNext != null)
-        ? (details) {
-            _horizontalSwipeDistance += details.primaryDelta ?? 0;
-          }
-        : null,
-    onHorizontalDragEnd: (widget.onSwipePrevious != null ||
-            widget.onSwipeNext != null)
-        ? (details) {
-            final speed = details.primaryVelocity ?? 0;
-            if (_horizontalSwipeDistance > 70 || speed > 350) {
-              widget.onSwipePrevious?.call();
-            } else if (_horizontalSwipeDistance < -70 || speed < -350) {
-              widget.onSwipeNext?.call();
-            }
-            _horizontalSwipeDistance = 0;
-          }
-        : null,
-    child: ListView(
-      key: const Key('salary_pay_scroll'),
-      physics: const AlwaysScrollableScrollPhysics(),
-      children: [
-    Padding(
-      padding: const EdgeInsets.all(14),
-      child: Column(children: [
-        Row(children: [
-          Expanded(child: Text('Pay monthly salaries',
-            style: Theme.of(context).textTheme.titleMedium)),
-          IconButton(
-            key: const Key('finance_refresh_salaries'),
-            tooltip: 'Reload generated salary bills',
-            onPressed: _refreshBills,
-            icon: const Icon(Icons.refresh),
-          ),
-        ]),
-        const SizedBox(height: 6),
-        const Text('Only confirmed payments go into the Debit ledger. '
-            'Partial salary payment and remaining balances are tracked.',
-          style: TextStyle(fontSize: 12)),
-        const SizedBox(height: 12),
-        TextField(
-          key: const Key('salary_bill_search'),
-          decoration: const InputDecoration(
-            labelText: 'Search teacher, month or salary ID',
-            prefixIcon: Icon(Icons.search)),
-          onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
-        ),
-        CheckboxListTile(
-          dense: true,
-          value: _includePaid,
-          title: const Text('Show fully paid salaries'),
-          onChanged: (v) => setState(() => _includePaid = v ?? false)),
-      ]),
-    ),
-    Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-      child: Text(
-        'Salary records · finance_salary_bills · Server view v3',
-        key: const Key('salary_server_view_version'),
-        style: Theme.of(context).textTheme.labelSmall,
-      ),
-    ),
-    FutureBuilder<List<FinanceBill>>(
-      future: _salaryRequest,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.cloud_off_outlined, size: 36),
+  Widget build(BuildContext context) {
+    final records = _bills.where((bill) =>
+      (_includePaid || !bill.isPaid) &&
+      (bill.staffName.toLowerCase().contains(_query) ||
+       bill.month.toLowerCase().contains(_query) ||
+       bill.id.toLowerCase().contains(_query))
+    ).toList();
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart:
+          (widget.onSwipePrevious != null || widget.onSwipeNext != null)
+              ? (_) => _horizontalSwipeDistance = 0
+              : null,
+      onHorizontalDragUpdate:
+          (widget.onSwipePrevious != null || widget.onSwipeNext != null)
+              ? (details) {
+                  _horizontalSwipeDistance += details.primaryDelta ?? 0;
+                }
+              : null,
+      onHorizontalDragEnd:
+          (widget.onSwipePrevious != null || widget.onSwipeNext != null)
+              ? (details) {
+                  final speed = details.primaryVelocity ?? 0;
+                  if (_horizontalSwipeDistance > 70 || speed > 350) {
+                    widget.onSwipePrevious?.call();
+                  } else if (_horizontalSwipeDistance < -70 || speed < -350) {
+                    widget.onSwipeNext?.call();
+                  }
+                  _horizontalSwipeDistance = 0;
+                }
+              : null,
+      child: RefreshIndicator(
+        onRefresh: _loadBills,
+        child: ListView(
+          key: const Key('salary_pay_scroll'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 32),
+          children: [
+            Row(children: [
+              Expanded(child: Text(
+                'Pay monthly salaries',
+                style: Theme.of(context).textTheme.titleMedium,
+              )),
+              IconButton(
+                key: const Key('finance_refresh_salaries'),
+                tooltip: 'Read salary bills from Firestore again',
+                onPressed: _loadBills,
+                icon: const Icon(Icons.refresh),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            const Text(
+              'Only confirmed payments go into the Debit ledger. '
+              'Partial salary payment and remaining balances are tracked.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('salary_bill_search'),
+              decoration: const InputDecoration(
+                labelText: 'Search teacher, month or salary ID',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (v) {
+                setState(() => _query = v.trim().toLowerCase());
+              },
+            ),
+            CheckboxListTile(
+              dense: true,
+              value: _includePaid,
+              title: const Text('Show fully paid salaries'),
+              onChanged: (v) {
+                setState(() => _includePaid = v ?? false);
+              },
+            ),
+            const Divider(),
+            const Text(
+              'Salary records · finance_salary_bills · Diagnostic v4',
+              key: Key('salary_server_view_version'),
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              _connectionDetails(),
+              key: const Key('salary_connection_details'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            // Never put this status inside a conditional async widget.
+            Text(
+              _loading
+                  ? 'Read status: Loading saved salaries…'
+                  : _readError != null
+                      ? 'Read status: Failed to load salaries'
+                      : 'Read status: ${_bills.length} saved salaries loaded · '
+                        '${records.length} shown',
+              key: const Key('salary_read_status'),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: _readError == null
+                    ? Theme.of(context).colorScheme.onSurface
+                    : Theme.of(context).colorScheme.error,
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (_loading)
+              const LinearProgressIndicator(key: Key('salary_server_loading'))
+            else if (_readError != null) ...[
+              Text(
+                _failureDetails(_readError!),
+                key: const Key('salary_server_error'),
+              ),
               const SizedBox(height: 10),
-              const Text('Unable to load saved salary bills',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 10),
-              Text(schoolErrorMessage(snapshot.error!),
-                textAlign: TextAlign.center),
-              const SizedBox(height: 8),
-              const Text('Source: finance_salary_bills (Firestore server)',
-                style: TextStyle(fontSize: 11)),
-              const SizedBox(height: 14),
               OutlinedButton.icon(
                 key: const Key('finance_salary_retry'),
-                onPressed: _refreshBills,
+                onPressed: _loadBills,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Retry loading salaries'),
               ),
-            ]),
-          ));
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 14),
-              Text('Checking saved salaries on Firestore server…'),
-            ],
-          ));
-        }
-        final records = snapshot.data!.where((bill) =>
-          (_includePaid || !bill.isPaid) &&
-          (bill.staffName.toLowerCase().contains(_query) ||
-           bill.month.toLowerCase().contains(_query) ||
-           bill.id.toLowerCase().contains(_query))).toList();
-        if (records.isEmpty) {
-          return Center(child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('${snapshot.data!.length} salary bills loaded from Firestore',
-                style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 10),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(_query.isNotEmpty
-                    ? 'No salaries match this search. Clear the search or show paid records.'
-                    : snapshot.data!.isEmpty
-                        ? 'No saved salary bills were returned by the server. '
-                            'Check the finance_salary_bills collection and sign-in account.'
-                        : 'All fetched salaries are paid or filtered. '
-                            'Enable Show fully paid salaries to inspect them.',
-                  textAlign: TextAlign.center),
+            ] else if (records.isEmpty) ...[
+              Text(
+                _query.isNotEmpty
+                    ? 'No salaries match the search. Clear the search.'
+                    : _bills.isEmpty
+                        ? 'The server returned no salary bills. Check the '
+                          'Firebase project, published rules and signed-in account.'
+                        : 'All salary bills are paid or filtered. '
+                          'Enable Show fully paid salaries.',
+                key: const Key('salary_server_empty'),
               ),
               const SizedBox(height: 10),
-              OutlinedButton(
-                onPressed: _refreshBills,
-                child: const Text('Refresh salary bills'),
+              OutlinedButton.icon(
+                onPressed: _loadBills,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Check Firestore again'),
               ),
-            ],
-          ));
-        }
-        return ListView.builder(
-          key: const Key('salary_cards_list'),
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-          itemCount: records.length + 1,
-          itemBuilder: (context, i) {
-            if (i == 0) {
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
-                child: Text(
-                  '${snapshot.data!.length} saved salaries loaded · '
-                  '${records.length} shown',
-                  key: const Key('salary_loaded_count'),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              );
-            }
-            final bill = records[i - 1];
-            return Card(
-              key: Key('salary_bill_${bill.id}'),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${bill.staffName} · ${financeMonthLabel(bill.month)}',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Basic ${financeMoney(bill.basicMinor)} · '
-                      'Allowances ${financeMoney(bill.allowanceMinor)} · '
-                      'Bonus ${financeMoney(bill.bonusMinor)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Total ${financeMoney(bill.amountMinor)} · '
-                      'Paid ${financeMoney(bill.paidMinor)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 5),
-                    Row(children: [
-                      Expanded(child: Text(
-                        'Remaining ${financeMoney(bill.remainingMinor)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      )),
-                      const SizedBox(width: 8),
-                      if (bill.isPaid)
-                        const Icon(Icons.check_circle_outline, size: 22)
-                      else
-                        FilledButton(
-                          key: Key('finance_pay_salary_${bill.id}'),
-                          onPressed: () => _pay(bill),
-                          child: const Text('Pay'),
+            ] else
+              for (final bill in records)
+                Card(
+                  key: Key('salary_bill_${bill.id}'),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${bill.staffName} · ${financeMonthLabel(bill.month)}',
+                          style: Theme.of(context).textTheme.titleSmall,
                         ),
-                    ]),
-                  ],
+                        const SizedBox(height: 6),
+                        Text(
+                          'Basic ${financeMoney(bill.basicMinor)} · '
+                          'Allowances ${financeMoney(bill.allowanceMinor)} · '
+                          'Bonus ${financeMoney(bill.bonusMinor)}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Total ${financeMoney(bill.amountMinor)} · '
+                          'Paid ${financeMoney(bill.paidMinor)}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(children: [
+                          Expanded(child: Text(
+                            'Remaining ${financeMoney(bill.remainingMinor)}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          )),
+                          const SizedBox(width: 8),
+                          if (bill.isPaid)
+                            const Icon(Icons.check_circle_outline, size: 22)
+                          else
+                            FilledButton(
+                              key: Key('finance_pay_salary_${bill.id}'),
+                              onPressed: () => _pay(bill),
+                              child: const Text('Pay'),
+                            ),
+                        ]),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            );
-          },
-        );
-      },
-    ),
-  ]),
-  );
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// The salary form owns its controllers until its dialog route is disposed.
