@@ -7,6 +7,7 @@ import '../data/finance_models.dart';
 import '../data/finance_repository.dart';
 import '../data/school_errors.dart';
 import 'finance_common.dart';
+import 'inventory_sales_analytics_section.dart';
 
 class FinanceAnalyticsTab extends StatefulWidget {
   const FinanceAnalyticsTab({super.key, required this.repository});
@@ -81,6 +82,10 @@ class _FinanceAnalyticsTabState extends State<FinanceAnalyticsTab> {
                 ],
               ),
             )),
+            const SizedBox(height: 12),
+            const InventorySalesAnalyticsSection(
+              key: Key('finance_inventory_sales_analytics'),
+            ),
             const SizedBox(height: 10),
             Card(child: Padding(
               padding: const EdgeInsets.all(14),
