@@ -855,10 +855,23 @@ service cloud.firestore {
       allow get, list: if canSellInventory();
       allow create: if canManageInventory()
         && validInventoryItem(itemId)
-        && request.resource.data.stockQty == 0
         && request.resource.data.active == true
-        && request.resource.data.lastMovementId == ''
-        && request.resource.data.lastMovementType == ''
+        && request.resource.data.get('archived', false) == false
+        && (
+          (request.resource.data.stockQty == 0
+            && request.resource.data.lastMovementId == ''
+            && request.resource.data.lastMovementType == '')
+          ||
+          (request.resource.data.stockQty > 0
+            && request.resource.data.lastMovementType == 'opening'
+            && request.resource.data.lastMovementId is string
+            && !exists(/databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId))
+            && getAfter(/databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId)).data.itemId == itemId
+            && getAfter(/databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId)).data.recordedBy == request.auth.uid
+            && getAfter(/databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId)).data.stockBefore == 0
+            && getAfter(/databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId)).data.delta == request.resource.data.stockQty
+            && getAfter(/databases/$(database)/documents/inventory_adjustments/$(request.resource.data.lastMovementId)).data.reason == 'opening')
+        )
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedBy == request.auth.uid
@@ -875,8 +888,30 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['name', 'department', 'unit', 'description',
                          'priceMinor', 'reorderPoint', 'active',
+                         'category', 'subcategory', 'customType',
+                         'classLevel', 'bookSeries', 'subject', 'publisher',
+                         'brand', 'variant', 'expiryDate',
+                         'archived', 'archivedAt', 'archivedBy',
                          'updatedAt', 'updatedBy'])
-            && request.resource.data.stockQty == resource.data.stockQty)
+            && request.resource.data.stockQty == resource.data.stockQty
+            && (!request.resource.data.get('archived', false)
+                || (request.resource.data.active == false
+                    && request.resource.data.archivedBy == request.auth.uid
+                    && request.resource.data.archivedAt == request.time)))
+          ||
+          (canManageInventory()
+            && resource.data.get('archived', false) == false
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['name', 'department', 'unit', 'description',
+                         'priceMinor', 'reorderPoint', 'active',
+                         'category', 'subcategory', 'customType',
+                         'classLevel', 'bookSeries', 'subject', 'publisher',
+                         'brand', 'variant', 'expiryDate',
+                         'stockQty', 'lastMovementId', 'lastMovementType',
+                         'updatedAt', 'updatedBy'])
+            && request.resource.data.stockQty != resource.data.stockQty
+            && request.resource.data.lastMovementId != resource.data.lastMovementId
+            && validInventoryAdjustmentMovement(itemId))
           ||
           // All stock changes must be reconciled with an append-only event.
           (canSellInventory()
@@ -884,6 +919,7 @@ service cloud.firestore {
                .hasOnly(['stockQty', 'lastMovementId', 'lastMovementType',
                          'updatedAt', 'updatedBy'])
             && request.resource.data.stockQty != resource.data.stockQty
+            && resource.data.get('archived', false) == false
             && request.resource.data.lastMovementId is string
             && request.resource.data.lastMovementId != ''
             && request.resource.data.lastMovementId != resource.data.lastMovementId
@@ -924,6 +960,7 @@ service cloud.firestore {
         && request.resource.data.department ==
            get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.department
         && get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.active == true
+        && get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.get('archived', false) == false
         && request.resource.data.stockBefore ==
            get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty
         && request.resource.data.stockBefore >= request.resource.data.quantity
