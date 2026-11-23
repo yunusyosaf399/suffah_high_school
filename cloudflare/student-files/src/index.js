@@ -86,13 +86,21 @@ async function authorizeStudent(env, token, studentId) {
   try {
     response = await fetch(url, {
       headers: { Authorization: 'Bearer ' + token },
-      redirect: 'error',
+      // Cloudflare Workers does not support redirect: 'error'.
+      // Manual mode blocks forwarding a Firebase bearer token to a redirect target.
+      redirect: 'manual',
     });
   } catch (cause) {
     logFailure('firestore_request_failed', cause);
     throw new ApiError(502,
       'Could not contact Firestore to check student access. Try again.',
       'FIRESTORE_REQUEST_FAILED');
+  }
+  if (response.status >= 300 && response.status < 400) {
+    console.error('[student-files] firestore_redirect_refused', { status: response.status });
+    throw new ApiError(502,
+      'Firestore permission endpoint redirected unexpectedly.',
+      'FIRESTORE_REDIRECT_BLOCKED');
   }
   if (response.status === 401 || response.status === 403) {
     throw new ApiError(403, 'Your account may not access this student.', 'STUDENT_ACCESS_DENIED');
@@ -184,7 +192,7 @@ async function handle(request, env) {
   }
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname === '/health') {
-    return json({ status: 'ok', release: 'r2-upload-diagnostics-v2' });
+    return json({ status: 'ok', release: 'r2-firestore-redirect-v3' });
   }
   const token = await firebaseToken(request, env.FIREBASE_PROJECT_ID);
 
@@ -280,3 +288,6 @@ export default {
     }
   },
 };
+
+// Exported for direct regression tests; no additional public HTTP endpoint.
+export { authorizeStudent };
