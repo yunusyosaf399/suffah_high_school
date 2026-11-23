@@ -36,6 +36,27 @@ The Worker already uses the Firebase project ID **suffah-high-school**. Update
 the Worker FIREBASE_PROJECT_ID variable if you ever switch Firebase projects.
 The Worker relies on its R2 binding, not R2 API keys.
 
+## Cloudflare Git deployment (mobile-friendly)
+
+In **Workers & Pages → Worker → Settings → Builds**, select the production
+branch **feature/cloudflare-r2-student-files**. This branch contains the Worker;
+the GitHub default branch **main** does not contain it yet.
+
+For a reliable monorepo setup, use the repository root as the Cloudflare root
+directory (**/**, or blank where accepted), with these commands:
+
+- Build: `cd cloudflare/student-files && npm install`
+- Deploy: `cd cloudflare/student-files && npx wrangler deploy`
+
+After changing the production branch, start a **new build for a commit on that
+branch**. Retrying an old `main` build can still check out the old `main`
+commit and will fail because the Worker subdirectory is absent there. New
+pushes to the selected production branch automatically start builds.
+
+If the new build reaches Wrangler but reports a Worker name mismatch, the
+Cloudflare project name must match the `name` in `wrangler.toml`:
+`suffah-student-files`.
+
 ## Admissions and existing student edits
 
 - Students → Add student → **Student**: upload or replace the student photo.
