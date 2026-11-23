@@ -774,6 +774,12 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     _heading('Student personal details',
       hint: 'Names should match official identification. Middle name is optional.'),
     _photoPanel(),
+    OutlinedButton.icon(
+      onPressed: _busy || _uploading ? null : () => _tabs.animateTo(5),
+      icon: const Icon(Icons.upload_file_outlined),
+      label: const Text('Upload certificates & documents'),
+    ),
+    const SizedBox(height: 12),
     _field('student', 'firstName', 'First name', required: true),
     _field('student', 'middleName', 'Middle name (optional)'),
     _field('student', 'lastName', 'Last name', required: true),
