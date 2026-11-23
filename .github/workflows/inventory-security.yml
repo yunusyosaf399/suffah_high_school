@@ -8,7 +8,7 @@ on:
       - "test/firestore_inventory/**"
       - ".github/workflows/inventory-security.yml"
   push:
-    branches: [main, feature/canteen-stationery-inventory, feature/inventory-catalog-direct-stock]
+    branches: [main, feature/canteen-stationery-inventory, feature/inventory-catalog-direct-stock, feature/canteen-cart-credit-analytics]
     paths:
       - "firestore.rules"
       - "firebase.json"
