@@ -380,6 +380,7 @@ class FinanceRepository {
     required String description,
     required int amountMinor,
     required int scheduleDay,
+    bool automaticEnabled = false,
   }) async {
     if (name.trim().isEmpty || amountMinor <= 0 || scheduleDay < 1 ||
         scheduleDay > 27 || !financeExpenseCategories.containsKey(category)) {
@@ -396,8 +397,8 @@ class FinanceRepository {
       'amountMinor': amountMinor,
       'scheduleDay': scheduleDay,
       'active': true,
-      // No background worker is deployed. This is a future scheduling setting.
-      'automaticEnabled': false,
+      // Desired schedule. A trusted deployed worker must be online to run.
+      'automaticEnabled': automaticEnabled,
       'currency': 'PKR',
       'updatedBy': _uid,
       'updatedAt': FieldValue.serverTimestamp(),
