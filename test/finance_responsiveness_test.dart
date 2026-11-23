@@ -100,8 +100,8 @@ void main() {
 
     expect(find.byKey(const Key('salary_pay_scroll')), findsOneWidget);
     expect(find.byKey(const Key('salary_server_view_version')), findsOneWidget);
-    expect(find.textContaining('Server view v3'), findsOneWidget);
-    expect(find.textContaining('Checking saved salaries'), findsOneWidget);
+    expect(find.textContaining('Diagnostic v4'), findsOneWidget);
+    expect(find.text('Read status: Loading saved salaries…'), findsOneWidget);
 
     repository.pending.complete(const [
       FinanceBill(
@@ -118,7 +118,7 @@ void main() {
       ),
     ]);
     await tester.pumpAndSettle();
-    expect(find.text('2 saved salaries loaded · 2 shown'), findsOneWidget);
+    expect(find.text('Read status: 2 saved salaries loaded · 2 shown'), findsOneWidget);
     expect(find.textContaining('Teacher Ali'), findsOneWidget);
     expect(find.textContaining('Teacher Bilal'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -133,7 +133,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('salary_server_view_version')), findsOneWidget);
-    expect(find.text('Unable to load saved salary bills'), findsOneWidget);
+    expect(find.text('Read status: Failed to load salaries'), findsOneWidget);
     expect(find.byKey(const Key('finance_salary_retry')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -147,7 +147,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Teacher Muhammad Khan'), findsWidgets);
     expect(find.textContaining('Remaining Rs 25,000.00'), findsOneWidget);
-    expect(find.byKey(const Key('salary_loaded_count')), findsOneWidget);
+    expect(find.byKey(const Key('salary_read_status')), findsOneWidget);
     expect(find.byKey(const Key('finance_pay_salary_SAL-202611-EMP-001')),
         findsOneWidget);
     expect(repository.salarySubscriptions, 1);
@@ -227,7 +227,7 @@ void main() {
     expect(find.textContaining('Teacher One'), findsOneWidget);
     expect(find.textContaining('Teacher Two'), findsOneWidget);
     expect(find.textContaining('October 2026'), findsNWidgets(2));
-    expect(find.text('2 saved salaries loaded · 2 shown'), findsOneWidget);
+    expect(find.text('Read status: 2 saved salaries loaded · 2 shown'), findsOneWidget);
     expect(repository.salarySubscriptions, 1);
 
     // Navigate away and return; the visible content must match selected tab.
