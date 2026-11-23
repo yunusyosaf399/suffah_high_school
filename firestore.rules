@@ -608,7 +608,7 @@ service cloud.firestore {
         && request.resource.data.scheduleDay >= 1
         && request.resource.data.scheduleDay <= 27
         && request.resource.data.active is bool
-        && request.resource.data.automaticEnabled == false
+        && request.resource.data.automaticEnabled is bool
         && request.resource.data.currency == 'PKR'
         && request.resource.data.updatedBy == request.auth.uid;
       allow delete: if false;
@@ -622,10 +622,23 @@ service cloud.firestore {
         && request.resource.data.scheduleDay is int
         && request.resource.data.scheduleDay >= 1
         && request.resource.data.scheduleDay <= 27
-        && request.resource.data.automaticEnabled == false
+        && request.resource.data.automaticEnabled is bool
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.updatedAt == request.time;
       allow delete: if false;
+    }
+
+    // Written exclusively by trusted Firebase Admin SDK worker.
+    // Client owners/principals may inspect recent heartbeat and audit runs,
+    // but never forge deployment status or scheduler completion.
+    match /finance_scheduler_runtime/{statusId} {
+      allow get: if canManageAdmissions() && statusId == 'status';
+      allow list, create, update, delete: if false;
+    }
+
+    match /finance_scheduler_runs/{runId} {
+      allow get, list: if canManageAdmissions();
+      allow create, update, delete: if false;
     }
 
     // A generated student bill does NOT record any money received.
