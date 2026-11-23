@@ -117,6 +117,7 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
   double _horizontalSwipeDistance = 0;
   String _query = '';
   bool _includePaid = false;
+  int _visibleSalaryCount = 40;
 
   @override
   void initState() {
@@ -330,11 +331,16 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
               : null,
       child: RefreshIndicator(
         onRefresh: _loadBills,
-        child: ListView(
+        // Build the loaded rows directly in one column. A ListView's sliver
+        // child recycling previously left payment rows absent on some Android
+        // devices even when the status counted every saved salary bill.
+        child: SingleChildScrollView(
           key: const Key('salary_pay_scroll'),
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 32),
-          children: [
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Row(children: [
               Expanded(child: Text(
                 'Pay monthly salaries',
@@ -442,8 +448,18 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
                 icon: const Icon(Icons.refresh),
                 label: const Text('Check Firestore again'),
               ),
-            ] else
-              for (final bill in records)
+            ],
+            // Keep payment rows independent of the loading/error/empty
+            // branches. The text above proves records.length > 0; a separate
+            // explicit branch avoids accidentally omitting the collection-for.
+            if (!_loading && _readError == null && records.isNotEmpty) ...[
+              Text(
+                'Salaries available for payment',
+                key: const Key('salary_results_heading'),
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              for (final bill in records.take(_visibleSalaryCount))
                 Card(
                   key: Key('salary_bill_${bill.id}'),
                   margin: const EdgeInsets.only(bottom: 10),
@@ -489,7 +505,18 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
                     ),
                   ),
                 ),
+              if (records.length > _visibleSalaryCount)
+                OutlinedButton.icon(
+                  key: const Key('finance_more_salary_bills'),
+                  onPressed: () => setState(() => _visibleSalaryCount += 40),
+                  icon: const Icon(Icons.expand_more),
+                  label: Text(
+                    'Show more salaries (${records.length - _visibleSalaryCount} remaining)',
+                  ),
+                ),
+            ],
           ],
+          ),
         ),
       ),
     );
