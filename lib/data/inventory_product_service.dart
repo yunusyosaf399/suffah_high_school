@@ -157,6 +157,11 @@ class InventoryProductService {
       if (current.archived) {
         throw StateError('Restore this item before editing.');
       }
+      if (current.stockQty != item.stockQty) {
+        throw StateError(
+          'Stock changed while this form was open. Reopen and review quantity.',
+        );
+      }
       final difference = input.quantity - current.stockQty;
       if (difference.abs() > 100000) {
         throw ArgumentError('Stock correction cannot exceed 100,000 per change.');
