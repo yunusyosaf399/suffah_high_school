@@ -307,5 +307,25 @@ class AdmissionRepository {
       }
     }
     await batch.commit();
+
+    // Separate best-effort synchronization protects admission saves even
+    // before updated inventory directory rules are deployed. The directory
+    // deliberately contains no private guardian, health or contact details.
+    if (complete) {
+      try {
+        await _db.collection('inventory_student_directory')
+            .doc(admission.id).set({
+          'studentId': admission.id,
+          'fullName': name,
+          'rollNo': admission.rollNo,
+          'classId': value('academic', 'classId'),
+          'active': data['active'] == true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {
+        // Owner can retry using Inventory -> Sync students for checkout.
+        // Do not fail a successfully saved student admission.
+      }
+    }
   }
 }
