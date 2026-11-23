@@ -35,7 +35,7 @@ class StudentProfilePage extends StatefulWidget {
 
 class _StudentProfilePageState extends State<StudentProfilePage> {
   late final AdmissionRepository _repository = AdmissionRepository();
-  final AdmissionStorage _storage = AdmissionStorage();
+  late final AdmissionStorage _storage = AdmissionStorage();
   String? _photoCachePath;
   Future<Uint8List>? _photoCache;
   late Future<AdmissionRecord> _recordFuture = widget.initialRecord != null
@@ -140,7 +140,10 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Flexible(child: Image.memory(bytes, fit: BoxFit.contain)),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 440),
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
                   TextButton(onPressed: () => Navigator.pop(context),
                     child: const Text('Close')),
                 ],
