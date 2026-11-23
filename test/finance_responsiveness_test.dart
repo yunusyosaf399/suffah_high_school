@@ -134,6 +134,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Read status: 2 saved salaries loaded · 2 shown'), findsOneWidget);
     expect(find.textContaining('Teacher Ali'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('Teacher Bilal'),
+      140,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('salary_pay_scroll')),
+        matching: find.byType(Scrollable),
+      ).first,
+    );
     expect(find.textContaining('Teacher Bilal'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
