@@ -146,6 +146,11 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
                 'will be changed.',
                 style: TextStyle(fontSize: 12),
               ),
+              const SizedBox(height: 10),
+              Text(
+                _connectionDetails(),
+                style: const TextStyle(fontSize: 11),
+              ),
               const SizedBox(height: 12),
               TextFormField(
                 key: const Key('salary_probe_document_id'),
