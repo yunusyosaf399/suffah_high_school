@@ -36,7 +36,7 @@ with headroom for 800+. Target platforms: Android first, then Windows and iOS.
 - Error, loading, empty and confirmation states
 
 ## Next priorities
-Automatic monthly finance generation after Blaze/Cloud Functions setup, full inventory/stock for books, stationery and canteen, staff employee attendance (separate from student attendance), result cards and exports, parent accounts linking multiple children,
+Monthly finance scheduler is implemented in source code but not deployed (Blaze/Cloud Functions setup still required), full inventory/stock for books, stationery and canteen, staff employee attendance (separate from student attendance), result cards and exports, parent accounts linking multiple children,
 notices and messaging.
 
 See [class subjects and multi-class assignments](docs/CLASS_SUBJECTS.md), [staff and teacher assignments](docs/STAFF_AND_ASSIGNMENTS.md),
