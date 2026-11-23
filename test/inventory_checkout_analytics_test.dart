@@ -106,6 +106,6 @@ void main() {
     ]);
     expect(orders.first.orderId, 'new-order');
     expect(orders.first.dueMinor, 9000);
-    expect(orders.last.isPaid, isNot(isNull)); // Receipt remains available.
+    expect(orders.last.dueMinor, 0); // Fully paid receipt remains available.
   });
 }
