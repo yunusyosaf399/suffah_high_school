@@ -19,10 +19,20 @@ const maxPhotoBytes = 100 * 1024;
 const maxDocumentBytes = 5 * 1024 * 1024;
 
 class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code = 'REQUEST_REJECTED') {
     super(message);
     this.status = status;
+    this.code = code;
   }
+}
+
+// Never log Firebase bearer tokens, student names, file content, or document
+// metadata. Only stage names and bounded error descriptions are logged.
+function logFailure(stage, cause) {
+  console.error('[student-files]', stage, {
+    errorType: typeof cause?.name === 'string' ? cause.name.slice(0, 60) : 'UnknownError',
+    message: typeof cause?.message === 'string' ? cause.message.slice(0, 220) : 'No error message',
+  });
 }
 
 function json(data, status = 200) {
@@ -72,16 +82,37 @@ async function authorizeStudent(env, token, studentId) {
   const url = 'https://firestore.googleapis.com/v1/projects/' +
     encodeURIComponent(env.FIREBASE_PROJECT_ID) +
     '/databases/(default)/documents/students/' + encodeURIComponent(studentId);
-  const response = await fetch(url, {
-    headers: { Authorization: 'Bearer ' + token },
-    redirect: 'error',
-  });
-  if (response.status === 401 || response.status === 403) {
-    throw new ApiError(403, 'Your account may not access this student.');
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { Authorization: 'Bearer ' + token },
+      redirect: 'error',
+    });
+  } catch (cause) {
+    logFailure('firestore_request_failed', cause);
+    throw new ApiError(502,
+      'Could not contact Firestore to check student access. Try again.',
+      'FIRESTORE_REQUEST_FAILED');
   }
-  if (response.status === 404) throw new ApiError(404, 'Student record not found.');
-  if (!response.ok) throw new ApiError(502, 'Could not verify school permissions.');
-  return response.json();
+  if (response.status === 401 || response.status === 403) {
+    throw new ApiError(403, 'Your account may not access this student.', 'STUDENT_ACCESS_DENIED');
+  }
+  if (response.status === 404) {
+    throw new ApiError(404, 'Student draft was not found. Save the student draft first.',
+      'STUDENT_NOT_FOUND');
+  }
+  if (!response.ok) {
+    console.error('[student-files] firestore_response_failed', { status: response.status });
+    throw new ApiError(502, 'Student permission check failed. Please try again.',
+      'FIRESTORE_RESPONSE_FAILED');
+  }
+  try {
+    return await response.json();
+  } catch (cause) {
+    logFailure('firestore_invalid_response', cause);
+    throw new ApiError(502, 'Student permission check returned an invalid response.',
+      'FIRESTORE_INVALID_RESPONSE');
+  }
 }
 
 async function limitedBody(request, limit) {
@@ -177,10 +208,20 @@ async function handle(request, env) {
     const path = isPhoto
       ? 'student-photos/' + studentId + '/' + crypto.randomUUID() + '.webp'
       : 'student-documents/' + studentId + '/' + kind + '/' + crypto.randomUUID() + '.' + extension;
-    await env.STUDENT_FILES.put(path, bytes, {
-      httpMetadata: { contentType: type },
-      customMetadata: { schoolStudentId: studentId },
-    });
+    try {
+      const stored = await env.STUDENT_FILES.put(path, bytes, {
+        httpMetadata: { contentType: type },
+        customMetadata: { schoolStudentId: studentId },
+      });
+      if (!stored) {
+        throw new Error('R2 put did not confirm a stored object.');
+      }
+    } catch (cause) {
+      logFailure('r2_write_failed', cause);
+      throw new ApiError(502,
+        'Cloudflare R2 could not store the file. Contact the administrator.',
+        'R2_WRITE_FAILED');
+    }
     const proposedName = request.headers.get('X-File-Name') || (isPhoto ? 'profile.webp' : kind + '.' + extension);
     const name = proposedName.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 100);
     return json({ path, name, contentType: type, kind: isPhoto ? 'photo' : kind, bytes: bytes.length }, 201);
@@ -195,11 +236,22 @@ async function handle(request, env) {
       if (stillReferenced(student, path)) {
         throw new ApiError(409, 'Remove this file from the student record before deleting it.');
       }
-      await env.STUDENT_FILES.delete(path);
+      try {
+        await env.STUDENT_FILES.delete(path);
+      } catch (cause) {
+        logFailure('r2_delete_failed', cause);
+        throw new ApiError(502, 'Cloudflare R2 could not remove the file.', 'R2_DELETE_FAILED');
+      }
       return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
     }
-    const object = await env.STUDENT_FILES.get(path);
-    if (!object) throw new ApiError(404, 'File not found in Cloudflare R2.');
+    let object;
+    try {
+      object = await env.STUDENT_FILES.get(path);
+    } catch (cause) {
+      logFailure('r2_read_failed', cause);
+      throw new ApiError(502, 'Cloudflare R2 could not retrieve the file.', 'R2_READ_FAILED');
+    }
+    if (!object) throw new ApiError(404, 'File not found in Cloudflare R2.', 'R2_FILE_MISSING');
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
@@ -217,8 +269,14 @@ export default {
     try {
       return await handle(request, env);
     } catch (error) {
-      if (error instanceof ApiError) return json({ error: error.message }, error.status);
-      return json({ error: 'Storage service temporarily unavailable.' }, 500);
+      if (error instanceof ApiError) {
+        return json({ error: error.message, code: error.code }, error.status);
+      }
+      logFailure('unexpected_runtime_failure', error);
+      return json({
+        error: 'Storage service temporarily unavailable. Check Cloudflare Worker logs.',
+        code: 'WORKER_UNEXPECTED_FAILURE',
+      }, 500);
     }
   },
 };
