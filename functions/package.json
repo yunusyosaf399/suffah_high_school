@@ -1,0 +1,17 @@
+{
+  "name": "suffah-high-school-finance-functions",
+  "description": "Trusted daily scheduler for school finance obligations; bills only, never ledger transactions",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check index.js && node --check scheduler.js && node --test test/*.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.1",
+    "firebase-functions": "^7.4.0"
+  }
+}
