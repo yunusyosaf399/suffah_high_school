@@ -177,16 +177,17 @@ class AdmissionStorage {
     return response.bodyBytes;
   }
 
-  Future<void> saveDocumentToDevice(Map<String, dynamic> document) async {
+  Future<bool> saveDocumentToDevice(Map<String, dynamic> document) async {
     final path = (document['path'] ?? '').toString();
     final name = (document['name'] ?? 'document.pdf')
         .toString().replaceAll(RegExp(r'[/\\\r\n]'), '_');
     final bytes = await downloadFile(path);
-    await FilePicker.platform.saveFile(
+    final savedPath = await FilePicker.platform.saveFile(
       dialogTitle: 'Save student document',
       fileName: name,
       bytes: bytes,
     );
+    return savedPath != null;
   }
 
   /// The Worker refuses deletion of a still-referenced Firestore file.
