@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../data/finance_models.dart';
 import '../data/finance_repository.dart';
 import '../data/school_errors.dart';
+import '../data/school_user_service.dart' show schoolOwnerUid;
 import '../data/staff_repository.dart';
 import 'finance_common.dart';
 import 'finance_fees_tab.dart';
@@ -169,7 +170,9 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       final account = uid == null
           ? 'signed out'
-          : '…${uid.substring(uid.length > 5 ? uid.length - 5 : 0)}';
+          : uid == schoolOwnerUid
+              ? 'registered owner account'
+              : 'UID …${uid.substring(uid.length > 5 ? uid.length - 5 : 0)}';
       return 'Project: $projectId · account: $account';
     } catch (_) {
       return 'Project/account details unavailable in this environment';
@@ -184,6 +187,89 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
       return 'Request timeout\n${schoolErrorMessage(error)}';
     }
     return '${error.runtimeType}\n${schoolErrorMessage(error)}';
+  }
+
+  Future<void> _probeSalaryDocument() async {
+    var billId = 'SAL-202611-EMP-2026-0001';
+    String? result;
+    var busy = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, updateDialog) => AlertDialog(
+          scrollable: true,
+          title: const Text('Check a saved salary document'),
+          content: SizedBox(
+            width: 420,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text(
+                'This performs a read-only Firestore GET on one bill. '
+                'It does not generate, edit, or pay any salary.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const Key('salary_probe_document_id'),
+                initialValue: billId,
+                decoration: const InputDecoration(
+                  labelText: 'Exact salary bill document ID',
+                ),
+                onChanged: (value) => billId = value,
+              ),
+              if (result != null) ...[
+                const SizedBox(height: 14),
+                SelectableText(
+                  result!,
+                  key: const Key('salary_probe_result'),
+                ),
+              ],
+            ]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: busy ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+            FilledButton.icon(
+              key: const Key('salary_probe_read'),
+              onPressed: busy ? null : () async {
+                updateDialog(() {
+                  busy = true;
+                  result = 'Checking document on Firestore server…';
+                });
+                try {
+                  final bill = await widget.repository.probeSalaryBill(billId);
+                  if (!dialogContext.mounted) return;
+                  updateDialog(() {
+                    result = bill == null
+                        ? 'Document GET succeeded, but this ID does not exist. '
+                          'Verify the document ID and Firebase project.'
+                        : 'Document GET succeeded.\n'
+                          'Teacher: ${bill.staffName}\n'
+                          'Month: ${bill.month}\n'
+                          'Outstanding: ${financeMoney(bill.remainingMinor)}\n'
+                          'If the main list is empty, the collection LIST '
+                          'and the direct GET are behaving differently.';
+                    busy = false;
+                  });
+                } catch (error) {
+                  if (!dialogContext.mounted) return;
+                  updateDialog(() {
+                    result = 'Document GET failed: '
+                        '${schoolErrorMessage(error)} '
+                        '(type: ${error.runtimeType})';
+                    busy = false;
+                  });
+                }
+              },
+              icon: const Icon(Icons.manage_search),
+              label: const Text('Check document'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _pay(FinanceBill bill) async {
@@ -297,6 +383,15 @@ class _FinancePaySalaryTabState extends State<FinancePaySalaryTab> {
               _connectionDetails(),
               key: const Key('salary_connection_details'),
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const Key('finance_salary_probe'),
+                onPressed: _probeSalaryDocument,
+                icon: const Icon(Icons.manage_search, size: 18),
+                label: const Text('Check a specific saved salary bill'),
+              ),
             ),
             const SizedBox(height: 8),
             // Never put this status inside a conditional async widget.
