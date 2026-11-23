@@ -1,0 +1,29 @@
+name: Finance scheduler backend tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "firebase.json"
+      - "firestore.rules"
+      - ".github/workflows/finance-scheduler.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-scheduler:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check syntax and run scheduler unit tests
+        working-directory: functions
+        run: npm run check
+      - name: Verify Firebase configuration
+        run: |
+          node -e "const f=require('./firebase.json'); if(f.functions?.source!=='functions'||f.functions?.runtime!=='nodejs22')process.exit(1)"
