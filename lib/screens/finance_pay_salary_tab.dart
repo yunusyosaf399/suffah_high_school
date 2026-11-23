@@ -569,8 +569,8 @@ class _SalaryPaymentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final paidPercent = bill.amountMinor > 0
-        ? (bill.paidMinor / bill.amountMinor).clamp(0.0, 1.0)
+    final double paidPercent = bill.amountMinor > 0
+        ? (bill.paidMinor / bill.amountMinor).clamp(0.0, 1.0).toDouble()
         : 0.0;
     final isPartial = bill.paidMinor > 0 && !bill.isPaid;
     return Card(
