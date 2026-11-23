@@ -100,7 +100,9 @@ jobs:
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
 
       - name: Build Android APK (development / debug signed)
-        run: flutter build apk --debug --build-number "${{ github.run_number }}"
+        env:
+          R2_WORKER_URL: ${{ vars.R2_WORKER_URL }}
+        run: flutter build apk --debug --dart-define="R2_WORKER_URL=${R2_WORKER_URL}" --build-number "${{ github.run_number }}"
 
       - name: Preserve preview signature for future updates
         if: env.HAS_SIGNING_SECRET != 'true' && steps.debug_signing_cache.outputs.cache-hit != 'true'
