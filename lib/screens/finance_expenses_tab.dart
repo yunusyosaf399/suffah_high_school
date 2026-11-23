@@ -4,6 +4,7 @@ import '../data/finance_models.dart';
 import '../data/finance_repository.dart';
 import '../data/school_errors.dart';
 import 'finance_common.dart';
+import 'finance_monthly_scheduler_page.dart';
 import 'finance_fees_tab.dart';
 
 class FinanceExpensesTab extends StatefulWidget {
@@ -37,6 +38,7 @@ class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
       amountMinor: (doc.data()['amountMinor'] as num?)?.toInt() ?? 0,
       day: (doc.data()['scheduleDay'] as num?)?.toInt() ?? 1,
       active: doc.data()['active'] == true,
+      automaticEnabled: doc.data()['automaticEnabled'] == true,
     )).toList();
   }
 
@@ -121,6 +123,20 @@ class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
         trailing: const Icon(Icons.add_circle_outline),
         onTap: () => _addExpense(monthly: true),
       )),
+      const SizedBox(height: 8),
+      Card(child: ListTile(
+        leading: const Icon(Icons.event_repeat_outlined),
+        title: const Text('Monthly finance scheduler'),
+        subtitle: const Text('Enable recurring plans and choose their day'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () async {
+          await Navigator.of(context).push<void>(MaterialPageRoute(
+            builder: (_) => FinanceMonthlySchedulerPage(
+              repository: widget.repository),
+          ));
+          if (mounted) _loadPlans();
+        },
+      )),
       const SizedBox(height: 14),
       Text('Recurring expense plans',
         style: Theme.of(context).textTheme.titleSmall),
@@ -145,7 +161,8 @@ class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
                 title: Text(plan.name),
                 subtitle: Text(
                   '${plan.category} / ${plan.subcategory} · '
-                  'Generation day ${plan.day}'),
+                  'Generation day ${plan.day} · '
+                  '${plan.automaticEnabled ? 'Automatic configured' : 'Manual'}'),
                 trailing: PopupMenuButton<String>(
                   onSelected: (_) => _disable(plan),
                   itemBuilder: (_) => [
@@ -194,9 +211,9 @@ class _FinanceExpensesTabState extends State<FinanceExpensesTab> {
         },
       ),
       const SizedBox(height: 14),
-      const Text('Automatic generation is not active yet. The planned day '
-          '(1–27) is saved for future Firebase Functions scheduling; '
-          'until billing is configured, run Generate Finance manually.',
+      const Text('Monthly plans generate outstanding bills, not debits. '
+          'Automatic execution starts only after the trusted Firebase '
+          'scheduler is deployed; until then, use Generate Finance manually.',
         style: TextStyle(fontSize: 11)),
     ],
   );
@@ -207,6 +224,7 @@ class QueryExpensePlan {
     required this.id, required this.name, required this.category,
     required this.subcategory, required this.amountMinor,
     required this.day, required this.active,
+    this.automaticEnabled = false,
   });
   final String id;
   final String name;
@@ -215,6 +233,7 @@ class QueryExpensePlan {
   final int amountMinor;
   final int day;
   final bool active;
+  final bool automaticEnabled;
 }
 
 class _ExpenseEntryDialog extends StatefulWidget {
@@ -358,8 +377,9 @@ class _ExpenseEntryDialogState extends State<_ExpenseEntryDialog> {
               onChanged: (v) => setState(() => _day = v ?? 1),
             ),
             const SizedBox(height: 8),
-            const Text('Day is saved as a schedule preference only. '
-                'Automatic execution needs a future backend worker.',
+            const Text('Use Monthly finance scheduler to enable '
+                'automatic generation for this plan. A deployed '
+                'backend worker is required.',
               style: TextStyle(fontSize: 11)),
           ] else ...[
             const SizedBox(height: 12),
