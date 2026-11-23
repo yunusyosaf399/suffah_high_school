@@ -5,6 +5,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../data/inventory_repository.dart';
+import '../data/inventory_catalog.dart';
+import '../data/inventory_product_service.dart';
+import 'inventory_product_form.dart';
 import '../data/school_errors.dart';
 
 /// Sales and stock are intentionally separate from the school fee/salary ledger.
@@ -34,6 +37,8 @@ class _InventoryPageState extends State<InventoryPage> {
   late final Stream<List<InventoryItem>> _items =
       widget.itemsStream ?? _repo.watchItems();
   String _department = 'all';
+  bool _showArchived = false;
+  late final InventoryProductService _products = InventoryProductService();
   // A single live Firestore listener feeds both tabs. Cached values ensure
   // the off-screen Stock view is populated even when the database is empty.
   List<InventoryItem>? _currentItems;
@@ -153,10 +158,13 @@ class _InventoryPageState extends State<InventoryPage> {
   Widget _catalog({required bool selling}) {
         final all = _currentItems ?? const <InventoryItem>[];
         final waitingForItems = _currentItems == null && _itemsError == null;
+        final visible = all.where((item) => !item.archived).toList();
         final filtered = all.where((item) =>
-          _department == 'all' || item.department == _department).toList();
-        final available = all.where((item) => item.canSell).length;
-        final low = all.where((item) => item.isLowStock).length;
+          (_department == 'all' || item.department == _department) &&
+          (_canManage && !selling && _showArchived
+              ? item.archived : !item.archived)).toList();
+        final available = visible.where((item) => item.canSell).length;
+        final low = visible.where((item) => item.isLowStock).length;
         return ListView(
           key: Key(selling ? 'inventory_sell_list' : 'inventory_stock_list'),
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 28),
@@ -182,7 +190,7 @@ class _InventoryPageState extends State<InventoryPage> {
             const SizedBox(height: 14),
             Wrap(spacing: 8, runSpacing: 8, children: [
               Chip(avatar: const Icon(Icons.inventory_2_outlined, size: 17),
-                label: Text('${all.length} products')),
+                label: Text('${visible.length} products')),
               Chip(avatar: const Icon(Icons.check_circle_outline, size: 17),
                 label: Text('$available available')),
               Chip(avatar: const Icon(Icons.warning_amber_outlined, size: 17),
@@ -190,6 +198,15 @@ class _InventoryPageState extends State<InventoryPage> {
             ]),
             const SizedBox(height: 12),
             _filterChips(),
+            if (!selling && _canManage)
+              SwitchListTile.adaptive(
+                key: const Key('inventory_show_deleted'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Show deleted products'),
+                subtitle: const Text('Deleted items are hidden from sales; transaction history is kept.'),
+                value: _showArchived,
+                onChanged: (value) => setState(() => _showArchived = value),
+              ),
             if (_itemsError != null)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 22),
@@ -210,9 +227,10 @@ class _InventoryPageState extends State<InventoryPage> {
                     const Icon(Icons.inventory_2_outlined, size: 42),
                     const SizedBox(height: 12),
                     Text(selling ? 'No products available to sell yet.'
+                      : _showArchived ? 'No deleted products.'
                       : 'No stock items have been added yet.',
                       textAlign: TextAlign.center),
-                    if (!selling && _canManage) ...[
+                    if (!selling && _canManage && !_showArchived) ...[
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         onPressed: () => _editItem(),
@@ -244,6 +262,19 @@ class _InventoryPageState extends State<InventoryPage> {
                                 const SizedBox(height: 3),
                                 Text('${item.id} • ${inventoryDepartments[item.department] ?? item.department}',
                                   style: const TextStyle(fontSize: 11)),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${inventoryCategoryLabel(item.department, item.category)}'
+                                  ' / ${inventorySubcategoryLabel(item.department, item.category, item.subcategory)}'
+                                  '${item.customType.isNotEmpty ? ' • ${item.customType}' : ''}',
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                if (item.classLevel.isNotEmpty ||
+                                    item.bookSeries.isNotEmpty)
+                                  Text('${item.classLevel}'
+                                    '${item.bookSeries.isNotEmpty ? ' • ${item.bookSeries}' : ''}',
+                                    style: const TextStyle(fontSize: 11)),
+
                               ],
                             )),
                             const SizedBox(width: 8),
@@ -283,21 +314,36 @@ class _InventoryPageState extends State<InventoryPage> {
                             ))
                         else if (_canManage)
                           Wrap(spacing: 8, runSpacing: 6, children: [
-                            OutlinedButton.icon(
-                              onPressed: () => _editItem(item),
-                              icon: const Icon(Icons.edit_outlined, size: 16),
-                              label: const Text('Edit'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => _receive(item),
-                              icon: const Icon(Icons.add_box_outlined, size: 16),
-                              label: const Text('Receive stock'),
-                            ),
-                            TextButton.icon(
-                              onPressed: () => _adjust(item),
-                              icon: const Icon(Icons.tune, size: 16),
-                              label: const Text('Adjust'),
-                            ),
+                            if (item.archived)
+                              OutlinedButton.icon(
+                                key: const Key('inventory_restore_product'),
+                                onPressed: () => _restoreItem(item),
+                                icon: const Icon(Icons.restore, size: 16),
+                                label: const Text('Restore'),
+                              )
+                            else ...[
+                              OutlinedButton.icon(
+                                onPressed: () => _editItem(item),
+                                icon: const Icon(Icons.edit_outlined, size: 16),
+                                label: const Text('Edit'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => _receive(item),
+                                icon: const Icon(Icons.add_box_outlined, size: 16),
+                                label: const Text('Receive stock'),
+                              ),
+                              TextButton.icon(
+                                onPressed: () => _adjust(item),
+                                icon: const Icon(Icons.tune, size: 16),
+                                label: const Text('Adjust'),
+                              ),
+                              TextButton.icon(
+                                key: const Key('inventory_delete_product'),
+                                onPressed: () => _deleteItem(item),
+                                icon: const Icon(Icons.delete_outline, size: 16),
+                                label: const Text('Delete'),
+                              ),
+                            ],
                           ]),
                       ],
                     ),
@@ -389,113 +435,51 @@ class _InventoryPageState extends State<InventoryPage> {
 
   Future<void> _editItem([InventoryItem? item]) async {
     if (!_canManage) return;
-    final sku = TextEditingController(text: item?.id ?? '');
-    final name = TextEditingController(text: item?.name ?? '');
-    final unit = TextEditingController(text: item?.unit ?? 'piece');
-    final price = TextEditingController(
-      text: item == null ? '' : (item.priceMinor / 100).toStringAsFixed(2));
-    final threshold = TextEditingController(
-      text: item?.reorderPoint.toString() ?? '5');
-    final description = TextEditingController(text: item?.description ?? '');
-    String department = item?.department ?? 'canteen';
-    bool active = item?.active ?? true;
-    bool busy = false;
-    String? error;
-    await showDialog<void>(
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => InventoryProductForm(item: item)),
+    );
+    if (saved == true) {
+      _notice(item == null
+          ? 'Product created with its opening stock quantity.'
+          : 'Product and stock details saved.');
+    }
+  }
+
+  Future<void> _deleteItem(InventoryItem item) async {
+    if (!_canManage) return;
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, update) => AlertDialog(
-          scrollable: true,
-          title: Text(item == null ? 'Add stock item' : 'Edit item'),
-          content: SizedBox(
-            width: 400,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: sku, readOnly: item != null,
-                decoration: const InputDecoration(
-                  labelText: 'SKU / item code *',
-                  helperText: '3–32 letters, numbers, - or _')),
-              const SizedBox(height: 10),
-              TextField(controller: name, textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(labelText: 'Item name *')),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                initialValue: department, isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Department'),
-                items: [for (final entry in inventoryDepartments.entries)
-                  DropdownMenuItem(value: entry.key, child: Text(entry.value))],
-                onChanged: busy ? null : (value) {
-                  if (value != null) update(() => department = value);
-                },
-              ),
-              const SizedBox(height: 10),
-              TextField(controller: unit,
-                decoration: const InputDecoration(labelText: 'Unit (piece, pack, bottle)')),
-              const SizedBox(height: 10),
-              TextField(controller: price,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Selling price (PKR) *')),
-              const SizedBox(height: 10),
-              TextField(controller: threshold,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Low stock alert quantity')),
-              const SizedBox(height: 10),
-              TextField(controller: description, maxLines: 2,
-                decoration: const InputDecoration(labelText: 'Description (optional)')),
-              if (item != null)
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Available for sale'),
-                  value: active,
-                  onChanged: busy ? null : (value) => update(() => active = value),
-                ),
-              const SizedBox(height: 8),
-              const Text('To change stock quantities, use Receive stock or Adjust. This form never changes stock.',
-                style: TextStyle(fontSize: 11)),
-              if (error != null) ...[
-                const SizedBox(height: 9),
-                Text(error!, style: TextStyle(color:
-                  Theme.of(context).colorScheme.error)),
-              ],
-            ]),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete product?'),
+        content: Text('Remove "${item.name}" from stock and sales? '
+          'Past purchases and sales will be kept for audit. You can '
+          'restore this product later.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete product'),
           ),
-          actions: [
-            TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext),
-              child: const Text('Cancel')),
-            FilledButton(onPressed: busy ? null : () async {
-              update(() { busy = true; error = null; });
-              try {
-                final p = inventoryMoneyMinor(price.text);
-                final alert = int.tryParse(threshold.text.trim());
-                if (alert == null) throw const FormatException('Enter a valid stock alert quantity.');
-                if (item == null) {
-                  await _repo.createItem(
-                    sku: sku.text, name: name.text, department: department,
-                    unit: unit.text, priceMinor: p, reorderPoint: alert,
-                    description: description.text,
-                  );
-                } else {
-                  await _repo.updateItem(
-                    item: item, name: name.text, department: department,
-                    unit: unit.text, priceMinor: p, reorderPoint: alert,
-                    active: active, description: description.text,
-                  );
-                }
-                if (!dialogContext.mounted) return;
-                Navigator.pop(dialogContext);
-                _notice(item == null ? 'Item added. Receive stock to begin selling.'
-                    : 'Item details updated.');
-              } catch (e) {
-                if (dialogContext.mounted) {
-                  update(() { busy = false; error = _error(e); });
-                }
-              }
-            }, child: Text(busy ? 'Saving…' : 'Save item')),
-          ],
-        ),
+        ],
       ),
     );
-    for (final field in [sku, name, unit, price, threshold, description]) {
-      field.dispose();
+    if (confirmed != true) return;
+    try {
+      await _products.archive(item);
+      _notice('Product deleted from active inventory. History is preserved.');
+    } catch (error) {
+      _notice(_error(error));
+    }
+  }
+
+  Future<void> _restoreItem(InventoryItem item) async {
+    if (!_canManage) return;
+    try {
+      await _products.restore(item);
+      _notice('Product restored as inactive. Edit it to enable selling.');
+    } catch (error) {
+      _notice(_error(error));
     }
   }
 
