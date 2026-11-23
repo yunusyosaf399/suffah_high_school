@@ -138,6 +138,59 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('four fetched Firestore salaries render actual payment cards on phone',
+      (tester) async {
+    tester.view.physicalSize = const Size(412, 915);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repository = _FinanceTestRepository(salaries: [
+      for (var i = 0; i < 4; i++)
+        FinanceBill.fromData('SAL-2026${i.isEven ? '11' : '10'}-EMP-$i', {
+          'staffName': 'Teacher ${i + 1}',
+          'staffId': 'EMP-$i',
+          'month': i.isEven ? '2026-11' : '2026-10',
+          'category': 'salary',
+          'amountMinor': 10150000,
+          'basicMinor': 10000000,
+          'allowanceMinor': 100000,
+          'bonusMinor': 50000,
+          'paidMinor': 0,
+          'status': 'unpaid',
+          'title': 'Monthly salary',
+        }),
+    ]);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(
+      body: FinancePaySalaryTab(repository: repository),
+    )));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Read status: 4 saved salaries loaded · 4 shown'),
+        findsOneWidget);
+    expect(find.byKey(const Key('salary_results_heading')), findsOneWidget);
+    expect(find.byKey(const Key('salary_bill_SAL-202611-EMP-0')),
+        findsOneWidget);
+    expect(find.textContaining('Teacher 1'), findsOneWidget);
+    expect(find.textContaining('Remaining Rs 101,500.00'),
+        findsAtLeastNWidgets(1));
+    final firstTop = tester.getTopLeft(
+      find.byKey(const Key('salary_bill_SAL-202611-EMP-0')));
+    expect(firstTop.dy, lessThan(915),
+        reason: 'A loaded salary must actually appear inside the phone viewport.');
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('salary_bill_SAL-202610-EMP-3')),
+      150,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('salary_pay_scroll')),
+        matching: find.byType(Scrollable),
+      ).first,
+    );
+    expect(find.textContaining('Teacher 4'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a failed salary server request leaves a visible error and retry',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
