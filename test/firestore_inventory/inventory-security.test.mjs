@@ -6,7 +6,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   doc, setDoc, getDoc, getDocs, collection, updateDoc, runTransaction,
-  query, where, serverTimestamp, Timestamp,
+  query, where, serverTimestamp, Timestamp, writeBatch,
 } from 'firebase/firestore';
 
 const ownerId = 'tQt6vca2zuagZipvknBwcmSRcrc2';
@@ -501,4 +501,72 @@ test('principal can read inventory analytics but cannot change seller balances',
   await assertSucceeds(getDocs(collection(principal, 'inventory_payments')));
   await assertFails(updateDoc(
     doc(principal, 'inventory_items', itemId), {priceMinor: 1}));
+});
+
+test('owner syncs legacy admitted students without stored active/status fields', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'students', 'ST-LEGACY-1'), {
+      fullName: 'Hina Khan', rollNo: '10007',
+      classId: 'class-4', guardianPhone: 'PRIVATE',
+    });
+    await setDoc(doc(context.firestore(), 'students', 'ST-LEGACY-2'), {
+      fullName: 'Zain Ali', guardianPhone: 'PRIVATE',
+    });
+  });
+  const owner = db(ownerId);
+  const seller = db(sellerId);
+  await assertSucceeds(setDoc(
+    doc(owner, 'inventory_student_directory', 'ST-LEGACY-1'), {
+      studentId: 'ST-LEGACY-1', fullName: 'Hina Khan',
+      rollNo: '10007', classId: 'class-4', active: true,
+      updatedAt: serverTimestamp(),
+    },
+  ));
+  await assertSucceeds(setDoc(
+    doc(owner, 'inventory_student_directory', 'ST-LEGACY-2'), {
+      studentId: 'ST-LEGACY-2', fullName: 'Zain Ali',
+      rollNo: '', classId: '', active: true,
+      updatedAt: serverTimestamp(),
+    },
+  ));
+  const list = await assertSucceeds(getDocs(query(
+    collection(seller, 'inventory_student_directory'),
+    where('active', '==', true),
+  )));
+  assert.equal(list.docs.length, 2);
+  assert.equal(list.docs[0].data().guardianPhone, undefined);
+  await assertFails(getDoc(doc(seller, 'students', 'ST-LEGACY-1')));
+  await assertFails(setDoc(
+    doc(owner, 'inventory_student_directory', 'ST-LEGACY-1'), {
+      studentId: 'ST-LEGACY-1', fullName: 'Hina Khan',
+      rollNo: '10007', classId: 'class-4', active: true,
+      guardianPhone: 'PRIVATE', updatedAt: serverTimestamp(),
+    },
+  ));
+});
+
+test('owner can commit a five-student safe directory backfill atomically', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    for (let i = 0; i < 5; i++) {
+      await setDoc(doc(context.firestore(), 'students', 'ST-BATCH-' + i), {
+        fullName: 'Student ' + i, rollNo: '1000' + i,
+        classId: 'class-5', active: true, status: 'admitted',
+      });
+    }
+  });
+  const owner = db(ownerId);
+  const batch = writeBatch(owner);
+  for (let i = 0; i < 5; i++) {
+    batch.set(doc(owner, 'inventory_student_directory', 'ST-BATCH-' + i), {
+      studentId: 'ST-BATCH-' + i, fullName: 'Student ' + i,
+      rollNo: '1000' + i, classId: 'class-5', active: true,
+      updatedAt: serverTimestamp(),
+    });
+  }
+  await assertSucceeds(batch.commit());
+  for (let i = 0; i < 5; i++) {
+    const docSnap = await assertSucceeds(getDoc(doc(
+      db(sellerId), 'inventory_student_directory', 'ST-BATCH-' + i)));
+    assert.equal(docSnap.data().fullName, 'Student ' + i);
+  }
 });
