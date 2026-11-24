@@ -235,6 +235,96 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Canteen has its own quick sale and filters stationery products',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const book = InventoryItem(
+      id: 'BOOK001', name: 'English Workbook', department: 'stationery',
+      unit: 'piece', priceMinor: 50000, stockQty: 16,
+      reorderPoint: 5, active: true);
+    await tester.pumpWidget(MaterialApp(
+      theme: SchoolApp.buildTheme(),
+      home: InventoryPage(
+        role: 'owner', department: 'canteen',
+        itemsStream: Stream.value(const [chips, book]),
+        salesStream: Stream.value(const <Map<String, dynamic>>[]),
+        purchasesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen Sales'), findsOneWidget);
+    expect(find.text('Potato chips'), findsOneWidget);
+    expect(find.text('English Workbook'), findsNothing);
+    expect(find.text('Borrowed'), findsNothing);
+    expect(find.byKey(const Key('inventory_sync_student_directory')),
+        findsNothing);
+    expect(find.byKey(const Key('canteen_sell_now_CHIPS001')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('canteen_sell_now_CHIPS001')));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen quick sale'), findsOneWidget);
+    expect(find.text('Who is buying?'), findsOneWidget);
+    expect(find.text('Student'), findsOneWidget);
+    expect(find.text('Teacher'), findsOneWidget);
+    expect(find.text('Other'), findsOneWidget);
+    expect(find.text('Select school student'), findsNothing);
+    expect(find.text('Customer details'), findsNothing);
+    expect(find.text('Borrowed'), findsNothing);
+    expect(find.byKey(const Key('canteen_complete_quick_sale')),
+      findsOneWidget);
+    await tester.tap(find.text('Teacher'));
+    await tester.pumpAndSettle();
+    final teacherChip = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'Teacher'));
+    expect(teacherChip.selected, true);
+    expect(tester.takeException(), isNull);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add to cart'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('inventory_open_cart_action')));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen quick sale'), findsOneWidget);
+    expect(find.text('Cart • 1 units'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Stationery retains named student checkout and borrowed tab',
+      (tester) async {
+    const book = InventoryItem(
+      id: 'BOOK001', name: 'English Workbook', department: 'stationery',
+      unit: 'piece', priceMinor: 50000, stockQty: 16,
+      reorderPoint: 5, active: true);
+    await tester.pumpWidget(MaterialApp(
+      theme: SchoolApp.buildTheme(),
+      home: InventoryPage(
+        role: 'owner', department: 'stationery',
+        itemsStream: Stream.value(const [chips, book]),
+        salesStream: Stream.value(const <Map<String, dynamic>>[]),
+        purchasesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Stationery & Books'), findsOneWidget);
+    expect(find.text('English Workbook'), findsOneWidget);
+    expect(find.text('Potato chips'), findsNothing);
+    expect(find.text('Borrowed'), findsOneWidget);
+    expect(find.byKey(const Key('canteen_sell_now_BOOK001')), findsNothing);
+
+    await tester.tap(find.text('Add to cart'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('inventory_open_cart_action')));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen checkout'), findsOneWidget);
+    expect(find.text('Customer details'), findsOneWidget);
+    expect(find.byKey(const Key('inventory_select_student')), findsOneWidget);
+    expect(find.text('Borrowed'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('unauthorized roles never see inventory content',
       (tester) async {
     await tester.pumpWidget(inventoryHost('teacher'));
