@@ -25,7 +25,7 @@ void main() {
       name: 'Mathematics Class 5', department: 'stationery',
       category: 'books', subcategory: 'textbook',
       classLevel: 'Class 5', bookSeries: 'Oxford Primary Maths',
-      quantity: 150, priceMinor: 85000, reorderPoint: 10,
+      quantity: 150, priceMinor: 85000, purchaseCostMinor: 8000, reorderPoint: 10,
     );
     expect(input.validate, returnsNormally);
     expect(input.quantity, 150);
@@ -38,7 +38,7 @@ void main() {
       name: 'Single line notebook', department: 'stationery',
       category: 'notebooks', subcategory: 'single_line',
       variant: '100 pages', quantity: 100,
-      priceMinor: 15000, reorderPoint: 5,
+      priceMinor: 15000, purchaseCostMinor: 8000, reorderPoint: 5,
     );
     expect(input.validate, returnsNormally);
     expect(input.bookSeries, isEmpty);
@@ -48,13 +48,13 @@ void main() {
     const noClass = InventoryProductInput(
       name: 'English reader', department: 'stationery',
       category: 'books', subcategory: 'reading',
-      quantity: 5, priceMinor: 15000, reorderPoint: 2,
+      quantity: 5, priceMinor: 15000, purchaseCostMinor: 8000, reorderPoint: 2,
     );
     expect(noClass.validate, throwsArgumentError);
     const unknown = InventoryProductInput(
       name: 'Special school item', department: 'stationery',
       category: 'other', subcategory: 'other',
-      quantity: 10, priceMinor: 5000, reorderPoint: 2,
+      quantity: 10, priceMinor: 5000, purchaseCostMinor: 8000, reorderPoint: 2,
     );
     expect(unknown.validate, throwsArgumentError);
   });
@@ -63,12 +63,12 @@ void main() {
     const negative = InventoryProductInput(
       name: 'Bottle of water', department: 'canteen',
       category: 'drinks', subcategory: 'water',
-      quantity: -1, priceMinor: 10000, reorderPoint: 5,
+      quantity: -1, priceMinor: 10000, purchaseCostMinor: 8000, reorderPoint: 5,
     );
     const free = InventoryProductInput(
       name: 'Bottle of water', department: 'canteen',
       category: 'drinks', subcategory: 'water',
-      quantity: 20, priceMinor: 0, reorderPoint: 5,
+      quantity: 20, priceMinor: 0, purchaseCostMinor: 8000, reorderPoint: 5,
     );
     expect(negative.validate, throwsArgumentError);
     expect(free.validate, throwsArgumentError);
