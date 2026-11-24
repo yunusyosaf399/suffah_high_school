@@ -134,6 +134,71 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Sell and Stock remain visible with a long product catalogue '
+      'after repeatedly changing tabs', (tester) async {
+    final items = List.generate(120, (index) => InventoryItem(
+      id: 'SKU${index.toString().padLeft(5, '0')}',
+      name: 'English Book Iqbal Series Part $index',
+      department: 'stationery', category: 'books',
+      subcategory: 'textbook', classLevel: 'Class 5',
+      bookSeries: 'Iqbal Series', unit: 'piece',
+      priceMinor: 15000, stockQty: 14, reorderPoint: 4,
+      active: true, description: 'School course textbook',
+    ));
+    await tester.pumpWidget(MaterialApp(
+      home: InventoryPage(
+        role: 'owner',
+        itemsStream: Stream.value(items),
+        salesStream: Stream.value(const <Map<String, dynamic>>[]),
+        purchasesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Record a sale'), findsOneWidget);
+    expect(find.text('120 products'), findsOneWidget);
+    expect(find.byKey(const PageStorageKey<String>('inventory_sell_list')),
+      findsOneWidget);
+    expect(find.text('English Book Iqbal Series Part 0'), findsOneWidget);
+
+    await tester.tap(find.text('Stock'));
+    await tester.pumpAndSettle();
+    expect(find.text('Stock catalogue'), findsOneWidget);
+    expect(find.byKey(const PageStorageKey<String>('inventory_stock_list')),
+      findsOneWidget);
+    expect(find.text('English Book Iqbal Series Part 0'), findsOneWidget);
+
+    await tester.tap(find.text('Purchases'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sales'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sell'));
+    await tester.pumpAndSettle();
+    expect(find.text('Record a sale'), findsOneWidget);
+    expect(find.text('120 products'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('catalogue error always shows header and Retry in both tabs',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: InventoryPage(
+        role: 'owner',
+        itemsStream: Stream<List<InventoryItem>>.error(
+          StateError('Inventory stream is temporarily unavailable')),
+        salesStream: Stream.value(const <Map<String, dynamic>>[]),
+        purchasesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Record a sale'), findsOneWidget);
+    expect(find.byKey(const Key('inventory_retry_products')), findsOneWidget);
+    await tester.tap(find.text('Stock'));
+    await tester.pumpAndSettle();
+    expect(find.text('Stock catalogue'), findsOneWidget);
+    expect(find.byKey(const Key('inventory_retry_products')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('unauthorized roles never see inventory content',
       (tester) async {
     await tester.pumpWidget(inventoryHost('teacher'));

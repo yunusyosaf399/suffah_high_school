@@ -156,6 +156,22 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
+  Future<void> _refreshItems() async {
+    if (!mounted) return;
+    setState(() => _itemsError = null);
+    try {
+      final products = await _repo.loadItems();
+      if (!mounted) return;
+      setState(() {
+        _currentItems = products;
+        _itemsError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _itemsError = error);
+    }
+  }
+
   Future<void> _syncStudents() async {
     try {
       final count = await _checkout.syncStudentDirectory();
@@ -229,8 +245,14 @@ class _InventoryPageState extends State<InventoryPage> {
         ),
         body: SafeArea(
           child: TabBarView(children: [
-            _catalog(selling: true),
-            _catalog(selling: false),
+            Builder(
+              key: const ValueKey('inventory_sell_tab_view'),
+              builder: (_) => _catalog(selling: true),
+            ),
+            Builder(
+              key: const ValueKey('inventory_stock_tab_view'),
+              builder: (_) => _catalog(selling: false),
+            ),
             if (_canManage) _purchaseHistory(),
             _salesHistory(),
             _salesHistory(onlyBorrowed: true),
@@ -259,19 +281,31 @@ class _InventoryPageState extends State<InventoryPage> {
   );
 
   Widget _catalog({required bool selling}) {
-        final all = _currentItems ?? const <InventoryItem>[];
-        final waitingForItems = _currentItems == null && _itemsError == null;
-        final visible = all.where((item) => !item.archived).toList();
-        final filtered = all.where((item) =>
-          (_department == 'all' || item.department == _department) &&
-          (_canManage && !selling && _showArchived
-              ? item.archived : !item.archived)).toList();
-        final available = visible.where((item) => item.canSell).length;
-        final low = visible.where((item) => item.isLowStock).length;
-        return ListView(
-          key: Key(selling ? 'inventory_sell_list' : 'inventory_stock_list'),
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 28),
-          children: [
+    // Build each product lazily. Previously one eager ListView built every
+    // product in *both* tabs whenever any inventory stream changed. A failed
+    // product subtree could leave the entire catalogue blank on Android.
+    final all = _currentItems ?? const <InventoryItem>[];
+    final waitingForItems = _currentItems == null && _itemsError == null;
+    final visible = all.where((item) => !item.archived).toList();
+    final filtered = all.where((item) =>
+      (_department == 'all' || item.department == _department) &&
+      (_canManage && !selling && _showArchived
+          ? item.archived : !item.archived)).toList();
+    final available = visible.where((item) => item.canSell).length;
+    final low = visible.where((item) => item.isLowStock).length;
+    final hasProducts = _itemsError == null && !waitingForItems && filtered.isNotEmpty;
+
+    return ListView.builder(
+      key: PageStorageKey<String>(
+        selling ? 'inventory_sell_list' : 'inventory_stock_list'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 28),
+      itemCount: hasProducts ? filtered.length + 1 : 1,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Row(children: [
               Expanded(child: Text(selling ? 'Record a sale' : 'Stock catalogue',
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800))),
@@ -360,10 +394,33 @@ class _InventoryPageState extends State<InventoryPage> {
                     ],
                   ],
                 ),
-              )
-            else
-              for (final item in filtered)
-                Card(
+              ),
+              if (_itemsError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: OutlinedButton.icon(
+                    key: const Key('inventory_retry_products'),
+                    onPressed: _refreshItems,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry loading products'),
+                  ),
+                ),
+              if (!waitingForItems && _itemsError == null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    key: const Key('inventory_refresh_products'),
+                    tooltip: 'Refresh products',
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _refreshItems,
+                  ),
+                ),
+            ],
+          );
+        }
+        final item = filtered[index - 1];
+        return Card(
+
                   margin: const EdgeInsets.only(bottom: 9),
                   child: Padding(
                     padding: const EdgeInsets.all(14),
@@ -469,9 +526,10 @@ class _InventoryPageState extends State<InventoryPage> {
                       ],
                     ),
                   ),
-                ),
-          ],
+
         );
+      },
+    );
   }
 
   Future<void> _editItem([InventoryItem? item]) async {
