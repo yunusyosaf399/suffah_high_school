@@ -168,6 +168,22 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
+  /// One-item fast sale without requiring a cart preparation step.
+  Future<void> _quickSellItem(InventoryItem item) async {
+    if (widget.department != 'canteen' || !item.canSell) return;
+    final receipt = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => InventoryQuickCanteenCheckoutPage(
+          items: [item], cart: {item.id: 1},
+        ),
+      ),
+    );
+    if (receipt != null && mounted) {
+      _notice('Canteen sale recorded. Receipt '
+          '${receipt.substring(0, 8).toUpperCase()}.');
+    }
+  }
+
   Future<void> _refreshItems() async {
     if (!mounted) return;
     setState(() => _itemsError = null);
@@ -516,14 +532,33 @@ class _InventoryPageState extends State<InventoryPage> {
                         ],
                         const SizedBox(height: 10),
                         if (selling)
-                          Align(alignment: Alignment.centerRight,
-                            child: FilledButton.icon(
-                              key: Key('inventory_add_to_cart_${item.id}'),
-                              onPressed: item.canSell
-                                  ? () => _addToCart(item) : null,
-                              icon: const Icon(Icons.add_shopping_cart, size: 18),
-                              label: const Text('Add to cart'),
-                            ))
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Wrap(
+                              alignment: WrapAlignment.end,
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if (widget.department == 'canteen')
+                                  OutlinedButton.icon(
+                                    key: Key('canteen_sell_now_${item.id}'),
+                                    onPressed: item.canSell
+                                        ? () => _quickSellItem(item) : null,
+                                    icon: const Icon(Icons.flash_on_outlined,
+                                        size: 18),
+                                    label: const Text('Sell now'),
+                                  ),
+                                FilledButton.icon(
+                                  key: Key('inventory_add_to_cart_${item.id}'),
+                                  onPressed: item.canSell
+                                      ? () => _addToCart(item) : null,
+                                  icon: const Icon(Icons.add_shopping_cart,
+                                      size: 18),
+                                  label: const Text('Add to cart'),
+                                ),
+                              ],
+                            ),
+                          )
                         else if (_canManage)
                           Wrap(spacing: 8, runSpacing: 6, children: [
                             if (item.archived)
