@@ -242,7 +242,7 @@ void main() {
     const book = InventoryItem(
       id: 'BOOK001', name: 'English Workbook', department: 'stationery',
       unit: 'piece', priceMinor: 50000, stockQty: 16,
-      reorderPoint: 5, active: true);
+      reorderPoint: 5, active: true, description: 'English workbook');
     await tester.pumpWidget(MaterialApp(
       theme: SchoolApp.buildTheme(),
       home: InventoryPage(
@@ -297,7 +297,7 @@ void main() {
     const book = InventoryItem(
       id: 'BOOK001', name: 'English Workbook', department: 'stationery',
       unit: 'piece', priceMinor: 50000, stockQty: 16,
-      reorderPoint: 5, active: true);
+      reorderPoint: 5, active: true, description: 'English workbook');
     await tester.pumpWidget(MaterialApp(
       theme: SchoolApp.buildTheme(),
       home: InventoryPage(
