@@ -1,8 +1,49 @@
+## Separate Canteen and Stationery sales (November 2026)
+
+**Owner dashboard** now has independent **Canteen Sales** and **Stationery &
+Books** cards. Seller/inventory-manager accounts open a two-card shop home.
+Each section shows only products, purchases and receipts for its department;
+both still use the same secured stock and sales audit collections.
+
+### Fast canteen checkout (during school break)
+
+- Owner/inventory manager creates canteen products, prices, quantities and
+  purchases in **Canteen Sales → Stock**. Sellers can only view inventory,
+  add to cart, or sell.
+- Seller opens **Canteen Sales → Sell**, taps **Sell now** on a product
+  for a single-unit checkout, or **Add to cart** for multiple products.
+- The checkout shows just quantity, total, **Student / Teacher / Other**
+  customer category, and payment method (Cash by default). No name,
+  registration, student lookup, guardian information or phone is requested.
+- **Complete paid sale** performs an atomic server-price stock decrement and
+  receipt creation. Canteen fast checkout does not offer borrowed credit:
+  unnamed customers must never be assigned recoverable debt.
+- Receipts appear in the **Canteen Sales → Sales/My sales** tab, separated
+  from stationery sales. Cash received is included in existing sales
+  analytics under the Canteen department.
+
+### Detailed stationery checkout (unchanged)
+
+- Open **Stationery & Books → Sell**, add books/notebooks/supplies to cart.
+- Choose an individual student from the protected directory, or a named
+  non-student customer. Select **Paid** or **Borrowed** as before.
+- Outstanding credit remains under **Stationery & Books → Borrowed**.
+  All inventory permissions, purchase logs, prices and repayments still
+  follow the existing secure transaction rules.
+- The protected student directory sync is needed only for **Stationery**;
+  Canteen can sell immediately without student synchronization.
+
+**Deployment:** The new anonymous-category canteen receipt format requires
+publishing the updated repository `firestore.rules` in Firebase Console.
+Older APKs do not provide the new quick checkout.
+
+---
+
 ## Sales cart, customer credit and analytics (November 2026)
 
-### Seller checkout
+### Stationery seller checkout
 
-1. Open **Canteen & Stationery → Sell**. Tap **Add to cart** for each
+1. Open **Stationery & Books → Sell**. Tap **Add to cart** for each
    product. Tap the **Cart** button, then change quantities with + / -.
    A single checkout accepts up to six distinct products and up to 100 units
    per product. The transaction re-reads each unit price and current stock
@@ -43,7 +84,7 @@
 
 ### Student directory synchronization
 
-The **owner** should open **Canteen & Stationery → Sell → Sync students for
+The **owner** should open **Stationery & Books → Sell → Sync students for
 checkout** after first deploying the updated Firestore rules. This
 backfills the previously admitted students into
 `inventory_student_directory`, excluding guardian/contact/health details.
