@@ -130,20 +130,24 @@ class _InventoryQuickCanteenCheckoutPageState
             const SizedBox(height: 20),
             Text('Who is buying?', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 10),
-            SegmentedButton<String>(
+            Wrap(
               key: const Key('canteen_quick_customer_type'),
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: 'student', label: Text('Student'),
-                  icon: Icon(Icons.school_outlined)),
-                ButtonSegment(value: 'teacher', label: Text('Teacher'),
-                  icon: Icon(Icons.badge_outlined)),
-                ButtonSegment(value: 'other', label: Text('Other'),
-                  icon: Icon(Icons.person_outline)),
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final choice in const [
+                  ('student', 'Student', Icons.school_outlined),
+                  ('teacher', 'Teacher', Icons.badge_outlined),
+                  ('other', 'Other', Icons.person_outline),
+                ])
+                  ChoiceChip(
+                    label: Text(choice.$2),
+                    avatar: Icon(choice.$3, size: 17),
+                    selected: _customerType == choice.$1,
+                    onSelected: _saving ? null : (_) =>
+                        setState(() => _customerType = choice.$1),
+                  ),
               ],
-              selected: {_customerType},
-              onSelectionChanged: _saving ? null : (choice) =>
-                  setState(() => _customerType = choice.first),
             ),
             const SizedBox(height: 9),
             const Text('No name, roll number or student lookup is needed.',
