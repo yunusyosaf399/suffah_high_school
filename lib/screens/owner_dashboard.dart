@@ -50,7 +50,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Parents', Icons.family_restroom_outlined, 'Families & children', false),
     _DashboardModule('Messages', Icons.forum_outlined, 'School communications', false),
     _DashboardModule('Users', Icons.manage_accounts_outlined, 'Staff and parent sign-ins', true),
-    _DashboardModule('Inventory & Canteen', Icons.inventory_2_outlined, 'Canteen, stationery, stock & sales', true),
+    _DashboardModule('Canteen Sales', Icons.fastfood_outlined, 'Quick selling, stock & receipts', true),
+    _DashboardModule('Stationery & Books', Icons.menu_book_outlined, 'Products, customer sales & credit', true),
   ];
 
   void _refresh() {
@@ -113,9 +114,12 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       );
       return;
     }
-    if (index == 9 && widget.role == 'owner') {
+    if ((index == 9 || index == 10) && widget.role == 'owner') {
       await Navigator.of(context).push<void>(
-        MaterialPageRoute(builder: (_) => InventoryPage(role: widget.role)),
+        MaterialPageRoute(builder: (_) => InventoryPage(
+          role: widget.role,
+          department: index == 9 ? 'canteen' : 'stationery',
+        )),
       );
       return;
     }
@@ -130,7 +134,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     final scheme = Theme.of(context).colorScheme;
     final shownModules = widget.role == 'owner'
         ? _modules
-        : _modules.where((module) => module.title != 'Users' && module.title != 'Inventory & Canteen').toList();
+        : _modules.where((module) => module.title != 'Users' &&
+            module.title != 'Canteen Sales' &&
+            module.title != 'Stationery & Books').toList();
 
     return Scaffold(
       appBar: AppBar(

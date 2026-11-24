@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:suffah_high_school/data/inventory_repository.dart';
 import 'package:suffah_high_school/main.dart';
 import 'package:suffah_high_school/screens/inventory_page.dart';
+import 'package:suffah_high_school/screens/inventory_sections_page.dart';
 
 const chips = InventoryItem(
   id: 'CHIPS001', name: 'Potato chips', department: 'canteen',
@@ -232,6 +233,148 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Stock catalogue'), findsOneWidget);
     expect(find.byKey(const Key('inventory_retry_products')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Canteen has its own quick sale and filters stationery products',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const book = InventoryItem(
+      id: 'BOOK001', name: 'English Workbook', department: 'stationery',
+      unit: 'piece', priceMinor: 50000, stockQty: 16,
+      reorderPoint: 5, active: true, description: 'English workbook');
+    await tester.pumpWidget(MaterialApp(
+      theme: SchoolApp.buildTheme(),
+      home: InventoryPage(
+        role: 'owner', department: 'canteen',
+        itemsStream: Stream.value(const [chips, book]),
+        salesStream: Stream.value(const <Map<String, dynamic>>[]),
+        purchasesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen Sales'), findsOneWidget);
+    expect(find.text('Potato chips'), findsOneWidget);
+    expect(find.text('English Workbook'), findsNothing);
+    expect(find.text('Borrowed'), findsNothing);
+    expect(find.byKey(const Key('inventory_sync_student_directory')),
+        findsNothing);
+    expect(find.byKey(const Key('canteen_sell_now_CHIPS001')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('canteen_sell_now_CHIPS001')));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen quick sale'), findsOneWidget);
+    expect(find.text('Who is buying?'), findsOneWidget);
+    expect(find.text('Student'), findsOneWidget);
+    expect(find.text('Teacher'), findsOneWidget);
+    expect(find.text('Other'), findsOneWidget);
+    expect(find.text('Select school student'), findsNothing);
+    expect(find.text('Customer details'), findsNothing);
+    expect(find.text('Borrowed'), findsNothing);
+    expect(find.byKey(const Key('canteen_complete_quick_sale')),
+      findsOneWidget);
+    await tester.tap(find.text('Teacher'));
+    await tester.pumpAndSettle();
+    final teacherChip = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'Teacher'));
+    expect(teacherChip.selected, true);
+    expect(tester.takeException(), isNull);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add to cart'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('inventory_open_cart_action')));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen quick sale'), findsOneWidget);
+    expect(find.text('Cart • 1 units'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Stationery retains named student checkout and borrowed tab',
+      (tester) async {
+    const book = InventoryItem(
+      id: 'BOOK001', name: 'English Workbook', department: 'stationery',
+      unit: 'piece', priceMinor: 50000, stockQty: 16,
+      reorderPoint: 5, active: true, description: 'English workbook');
+    await tester.pumpWidget(MaterialApp(
+      theme: SchoolApp.buildTheme(),
+      home: InventoryPage(
+        role: 'owner', department: 'stationery',
+        itemsStream: Stream.value(const [chips, book]),
+        salesStream: Stream.value(const <Map<String, dynamic>>[]),
+        purchasesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Stationery & Books'), findsOneWidget);
+    expect(find.text('English Workbook'), findsOneWidget);
+    expect(find.text('Potato chips'), findsNothing);
+    expect(find.text('Borrowed'), findsOneWidget);
+    expect(find.byKey(const Key('canteen_sell_now_BOOK001')), findsNothing);
+
+    await tester.tap(find.text('Add to cart'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('inventory_open_cart_action')));
+    await tester.pumpAndSettle();
+    expect(find.text('Stationery checkout'), findsOneWidget);
+    expect(find.text('Customer details'), findsOneWidget);
+    expect(find.byKey(const Key('inventory_select_student')), findsOneWidget);
+    expect(find.text('Borrowed'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Shop landing has dedicated Canteen and Stationery cards',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: SchoolApp.buildTheme(),
+      home: const InventorySectionsPage(role: 'canteen_seller'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('inventory_canteen_section_card')),
+        findsOneWidget);
+    expect(find.byKey(const Key('inventory_stationery_section_card')),
+        findsOneWidget);
+    expect(find.text('Canteen Sales'), findsOneWidget);
+    expect(find.text('Stationery & Books'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Canteen sales history never displays Stationery receipts',
+      (tester) async {
+    final records = <Map<String, dynamic>>[
+      {
+        'id': 'canteen-line', 'orderId': 'canteen-sale-01',
+        'department': 'canteen', 'itemName': 'Potato chips',
+        'customerName': 'Teacher', 'customerType': 'teacher',
+        'quantity': 1, 'totalMinor': 8500, 'paidMinor': 8500,
+        'sellerUid': 'seller',
+      },
+      {
+        'id': 'stationery-line', 'orderId': 'stationery-sale-01',
+        'department': 'stationery', 'itemName': 'English Workbook',
+        'customerName': 'Named School Student', 'customerType': 'student',
+        'customerId': 'ST-2026-0005',
+        'quantity': 1, 'totalMinor': 50000, 'paidMinor': 0,
+        'sellerUid': 'seller',
+      },
+    ];
+    await tester.pumpWidget(MaterialApp(
+      theme: SchoolApp.buildTheme(),
+      home: InventoryPage(
+        role: 'owner', department: 'canteen',
+        itemsStream: Stream.value(const [chips]),
+        salesStream: Stream.value(records),
+        purchasesStream: Stream.value(const <Map<String, dynamic>>[]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sales'));
+    await tester.pumpAndSettle();
+    expect(find.text('Teacher'), findsOneWidget);
+    expect(find.text('Named School Student'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
