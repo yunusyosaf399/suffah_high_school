@@ -319,7 +319,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('inventory_open_cart_action')));
     await tester.pumpAndSettle();
-    expect(find.text('Canteen checkout'), findsOneWidget);
+    expect(find.text('Stationery checkout'), findsOneWidget);
     expect(find.text('Customer details'), findsOneWidget);
     expect(find.byKey(const Key('inventory_select_student')), findsOneWidget);
     expect(find.text('Borrowed'), findsOneWidget);
