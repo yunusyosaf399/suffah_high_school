@@ -570,3 +570,88 @@ test('owner can commit a five-student safe directory backfill atomically', async
     assert.equal(docSnap.data().fullName, 'Student ' + i);
   }
 });
+
+test('canteen seller records paid Student Teacher and Other quick sales with no identity lookup', async () => {
+  const seller = db(sellerId);
+  for (const customerType of ['student', 'teacher', 'other']) {
+    const saleId = 'quick-' + customerType;
+    const product = doc(seller, 'inventory_items', itemId);
+    const receipt = doc(seller, 'inventory_sales', saleId);
+    const label = customerType[0].toUpperCase() + customerType.slice(1);
+    await assertSucceeds(runTransaction(seller, async tx => {
+      const stock = (await tx.get(product)).data();
+      tx.update(product, {
+        stockQty: stock.stockQty - 1,
+        lastMovementId: saleId, lastMovementType: 'sale',
+        updatedBy: sellerId, updatedAt: serverTimestamp(),
+      });
+      tx.set(receipt, {
+        saleId, orderId: 'order-quick-' + customerType, lineNumber: 1,
+        itemId, itemName: stock.name, department: 'canteen',
+        quantity: 1, stockBefore: stock.stockQty,
+        unitPriceMinor: stock.priceMinor, totalMinor: stock.priceMinor,
+        currency: 'PKR', sellerUid: sellerId, paymentMethod: 'Cash',
+        customerType, customerId: '', customerName: label,
+        customerPhone: '', customerClass: '', customerRollNo: '',
+        paidMinor: stock.priceMinor, paymentStatus: 'paid',
+        lastPaymentId: '', soldAt: serverTimestamp(),
+      });
+    }));
+    const recorded = await getDoc(receipt);
+    assert.equal(recorded.data().customerType, customerType);
+    assert.equal(recorded.data().customerId, '');
+    assert.equal(recorded.data().customerName, label);
+  }
+  assert.equal((await getDoc(doc(seller, 'inventory_items', itemId)))
+    .data().stockQty, 7);
+});
+
+test('quick checkout cannot borrow or impersonate identified students and cannot sell stationery', async () => {
+  const seller = db(sellerId);
+  async function attempt({customerType = 'student', name = 'Student',
+    paid = true, department = 'canteen', customerId = ''}) {
+    const itemRef = doc(seller, 'inventory_items',
+      department === 'canteen' ? itemId : 'BOOKFAST');
+    const receiptRef = doc(seller, 'inventory_sales',
+      'negative-' + Math.random().toString(36).slice(2));
+    return runTransaction(seller, async tx => {
+      const snap = await tx.get(itemRef);
+      const item = snap.data();
+      tx.update(itemRef, {
+        stockQty: item.stockQty - 1, lastMovementId: receiptRef.id,
+        lastMovementType: 'sale', updatedBy: sellerId,
+        updatedAt: serverTimestamp(),
+      });
+      tx.set(receiptRef, {
+        saleId: receiptRef.id, orderId: 'order-negative-case', lineNumber: 1,
+        itemId: itemRef.id, itemName: item.name, department,
+        quantity: 1, stockBefore: item.stockQty,
+        unitPriceMinor: item.priceMinor, totalMinor: item.priceMinor,
+        currency: 'PKR', sellerUid: sellerId,
+        paymentMethod: paid ? 'Cash' : 'Unpaid',
+        customerType, customerId, customerName: name,
+        customerPhone: '', customerClass: '', customerRollNo: '',
+        paidMinor: paid ? item.priceMinor : 0,
+        paymentStatus: paid ? 'paid' : 'borrowed',
+        lastPaymentId: '', soldAt: serverTimestamp(),
+      });
+    });
+  }
+  await environment.withSecurityRulesDisabled(async context => {
+    const admin = context.firestore();
+    await setDoc(doc(admin, 'inventory_items', 'BOOKFAST'), {
+      ...seedItem(), sku: 'BOOKFAST', name: 'Exercise book',
+      department: 'stationery',
+    });
+  });
+  await assertFails(attempt({paid: false}));
+  await assertFails(attempt({department: 'stationery'}));
+  await assertFails(attempt({name: 'Fake student'}));
+  await assertFails(attempt({customerId: 'ST-FAKE'}));
+  await assertFails(attempt({customerType: 'teacher', name: 'Fake teacher'}));
+  // Failed transactions do not write stock decrements.
+  assert.equal((await getDoc(doc(seller, 'inventory_items', itemId)))
+    .data().stockQty, 10);
+  assert.equal((await getDoc(doc(seller, 'inventory_items', 'BOOKFAST')))
+    .data().stockQty, 10);
+});
