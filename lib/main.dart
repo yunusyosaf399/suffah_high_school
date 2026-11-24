@@ -28,14 +28,12 @@ Future<void> main() async {
 class SchoolApp extends StatelessWidget {
   const SchoolApp({super.key});
 
-  @override
-  Widget build(BuildContext context) {
+  // Shared with layout regression tests: tests must use the actual school
+  // theme, rather than MaterialApp's unconstrained default button style.
+  static ThemeData buildTheme() {
     const seed = Color(0xFF176B56);
     final color = ColorScheme.fromSeed(seedColor: seed);
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Suffah High School',
-      theme: ThemeData(
+    return ThemeData(
         useMaterial3: true,
         colorScheme: color,
         scaffoldBackgroundColor: const Color(0xFFF7F9F8),
@@ -50,14 +48,25 @@ class SchoolApp extends StatelessWidget {
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         ),
         filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46),
+          // Size.fromHeight(46) has INFINITE width. It crashes constraints
+          // whenever a FilledButton appears in an unconstrained Row, as in
+          // the Sell and Stock toolbar. Always use a finite minimum width.
+          style: FilledButton.styleFrom(minimumSize: const Size(88, 46),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11))),
         ),
         textTheme: const TextTheme(
           bodyMedium: TextStyle(fontSize: 13),
           bodySmall: TextStyle(fontSize: 11),
         ),
-      ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Suffah High School',
+      theme: buildTheme(),
       home: const AuthGate(),
     );
   }
