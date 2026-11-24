@@ -123,6 +123,17 @@ class InventoryRepository {
       .snapshots()
       .map((snap) => snap.docs.map(InventoryItem.fromSnapshot).toList());
 
+  /// One-shot server reload for the Sell and Stock retry buttons. Keeping
+  /// the independent live stream ensures edits and stock movements continue
+  /// appearing automatically after a manual refresh.
+  Future<List<InventoryItem>> loadItems() async {
+    final snapshot = await _items
+        .orderBy('name')
+        .limit(300)
+        .get(const GetOptions(source: Source.server));
+    return snapshot.docs.map(InventoryItem.fromSnapshot).toList();
+  }
+
   Stream<List<Map<String, dynamic>>> watchBorrowed({required bool manager}) {
     // Separate query means old borrowed items remain collectible after
     // they are no longer in the recent-sales window.
