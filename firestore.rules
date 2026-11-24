@@ -975,7 +975,7 @@ service cloud.firestore {
             && request.resource.data.lineNumber is int
             && request.resource.data.lineNumber >= 1
             && request.resource.data.lineNumber <= 6
-            && request.resource.data.customerType in ['student', 'other']
+            && request.resource.data.customerType in ['student', 'teacher', 'other']
             && request.resource.data.customerId is string
             && request.resource.data.customerName is string
             && request.resource.data.customerName.size() >= 2
@@ -1014,6 +1014,21 @@ service cloud.firestore {
                    get(/databases/$(database)/documents/inventory_student_directory/$(request.resource.data.customerId)).data.classId
                 && request.resource.data.customerRollNo ==
                    get(/databases/$(database)/documents/inventory_student_directory/$(request.resource.data.customerId)).data.rollNo)
+              ||
+              // Paid, anonymous-by-name quick canteen checkout. Student,
+              // Teacher and Other are category labels, not account IDs.
+              (request.resource.data.department == 'canteen'
+                && request.resource.data.customerType in ['student', 'teacher', 'other']
+                && request.resource.data.customerId == ''
+                && request.resource.data.customerPhone == ''
+                && request.resource.data.customerClass == ''
+                && request.resource.data.customerRollNo == ''
+                && request.resource.data.paidMinor == request.resource.data.totalMinor
+                && request.resource.data.paymentStatus == 'paid'
+                && request.resource.data.paymentMethod != 'Unpaid'
+                && request.resource.data.customerName ==
+                  (request.resource.data.customerType == 'student' ? 'Student'
+                    : request.resource.data.customerType == 'teacher' ? 'Teacher' : 'Other'))
             )
           )
         )
