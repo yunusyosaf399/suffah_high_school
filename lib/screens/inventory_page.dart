@@ -394,7 +394,7 @@ class _InventoryPageState extends State<InventoryPage> {
                     ],
                   ],
                 ),
-              )
+              ),
               if (_itemsError != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 16),
