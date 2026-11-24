@@ -30,6 +30,48 @@ class InventoryStudent {
   }
 }
 
+/// Projection of admission information that inventory sellers are allowed to
+/// see. This deliberately omits guardian, health, contact and document fields.
+///
+/// Historical students sometimes omit status/active (the main Students screen
+/// treats those as admitted/active), and must not disappear at checkout.
+Map<String, dynamic>? inventoryStudentDirectoryProjection(
+  String studentId, Map<String, dynamic> record,
+) {
+  final name = record['fullName'];
+  if (name is! String || name.trim().isEmpty) return null;
+  final status = record['status'] is String
+      ? record['status'] as String : 'admitted';
+  if (status == 'draft') return null;
+  final rollNo = record['rollNo'];
+  final classId = record['classId'];
+  // Preserve the exact source values: Firestore rules independently verify
+  // that no private or altered student details enter the public projection.
+  return {
+    'studentId': studentId,
+    'fullName': name,
+    'rollNo': rollNo is String ? rollNo : '',
+    'classId': classId is String ? classId : '',
+    'active': status == 'admitted' && record['active'] != false,
+  };
+}
+
+class InventoryStudentSyncResult {
+  const InventoryStudentSyncResult({
+    required this.scanned,
+    required this.synced,
+    required this.active,
+    required this.skipped,
+  });
+  final int scanned;
+  final int synced;
+  final int active;
+  final int skipped;
+
+  String get summary => '$synced students synchronized '
+      '($active active, $skipped skipped).';
+}
+
 class InventoryCustomer {
   const InventoryCustomer.student(this.student)
       : type = 'student', name = '', phone = '';
@@ -187,33 +229,60 @@ class InventoryCheckoutService {
     return students;
   }
 
-  /// Admin-only, intentional one-time/backfill action for existing students.
-  /// Batches are deliberately small to stay under Firestore rules access
-  /// limits. Only non-sensitive fields are copied into the seller directory.
-  Future<int> syncStudentDirectory() async {
+  /// Owner/principal backfill of active/archived admissions into the
+  /// seller-safe directory. Page by document ID (rather than fullName):
+  /// old school records may not have indexed fullName at all.
+  ///
+  /// Use small commits because Firestore rules verify each projected record
+  /// against its corresponding private source student document.
+  Future<InventoryStudentSyncResult> syncStudentDirectory() async {
     _uid;
-    final snap = await _db.collection('students')
-        .orderBy('fullName').limit(1000)
-        .get(const GetOptions(source: Source.server));
+    const pageSize = 100;
+    const batchSize = 5;
+    QueryDocumentSnapshot<Map<String, dynamic>>? last;
+    var scanned = 0;
     var synced = 0;
-    for (var start = 0; start < snap.docs.length; start += 10) {
-      final batch = _db.batch();
-      final subset = snap.docs.skip(start).take(10);
-      for (final doc in subset) {
-        final data = doc.data();
-        batch.set(_students.doc(doc.id), {
-          'studentId': doc.id,
-          'fullName': (data['fullName'] as String?) ?? '',
-          'rollNo': (data['rollNo'] as String?) ?? '',
-          'classId': (data['classId'] as String?) ?? '',
-          'active': data['status'] == 'admitted' && data['active'] == true,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-        synced++;
+    var active = 0;
+    var skipped = 0;
+
+    while (true) {
+      Query<Map<String, dynamic>> query = _db.collection('students')
+          .orderBy(FieldPath.documentId).limit(pageSize);
+      if (last != null) query = query.startAfterDocument(last);
+      final page = await query.get(const GetOptions(source: Source.server));
+      if (page.docs.isEmpty) break;
+      scanned += page.docs.length;
+
+      final projections = <MapEntry<String, Map<String, dynamic>>>[];
+      for (final doc in page.docs) {
+        final value = inventoryStudentDirectoryProjection(doc.id, doc.data());
+        if (value == null) {
+          skipped++;
+          continue;
+        }
+        if (value['active'] == true) active++;
+        projections.add(MapEntry(doc.id, value));
       }
-      await batch.commit();
+
+      for (var offset = 0; offset < projections.length; offset += batchSize) {
+        final batch = _db.batch();
+        final group = projections.skip(offset).take(batchSize).toList();
+        for (final item in group) {
+          batch.set(_students.doc(item.key), {
+            ...item.value,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+        synced += group.length;
+      }
+
+      last = page.docs.last;
+      if (page.docs.length < pageSize) break;
     }
-    return synced;
+
+    return InventoryStudentSyncResult(
+      scanned: scanned, synced: synced, active: active, skipped: skipped);
   }
 
   /// Up to six distinct products per atomic checkout. Multiple units of the

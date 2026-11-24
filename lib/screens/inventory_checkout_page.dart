@@ -10,11 +10,14 @@ class InventoryCheckoutPage extends StatefulWidget {
     required this.items,
     required this.cart,
     this.service,
+    this.canSyncStudents = false,
   });
 
   final List<InventoryItem> items;
   final Map<String, int> cart;
   final InventoryCheckoutService? service;
+  /// Only pass true for the school owner, never for seller accounts.
+  final bool canSyncStudents;
 
   @override
   State<InventoryCheckoutPage> createState() => _InventoryCheckoutPageState();
@@ -62,8 +65,12 @@ class _InventoryCheckoutPageState extends State<InventoryCheckoutPage> {
   }
 
   Future<void> _chooseStudent() async {
-    _studentsFuture ??= _service.loadStudents();
+    // Always query again when reopening: the owner may have just synced
+    // records from another session/device.
+    _studentsFuture = _service.loadStudents();
     String search = '';
+    String? syncMessage;
+    bool syncing = false;
     final chosen = await showModalBottomSheet<InventoryStudent>(
       context: context,
       isScrollControlled: true,
@@ -83,10 +90,19 @@ class _InventoryCheckoutPageState extends State<InventoryCheckoutPage> {
                 TextField(
                   key: const Key('inventory_student_search'),
                   autofocus: true,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Search name, registration or roll number',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.search),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      key: const Key('inventory_student_refresh'),
+                      tooltip: 'Reload school students',
+                      icon: const Icon(Icons.refresh),
+                      onPressed: syncing ? null : () => update(() {
+                        _studentsFuture = _service.loadStudents();
+                        syncMessage = null;
+                      }),
+                    ),
                   ),
                   onChanged: (value) => update(() => search = value.toLowerCase()),
                 ),
@@ -121,8 +137,51 @@ class _InventoryCheckoutPageState extends State<InventoryCheckoutPage> {
                           s.classId.toLowerCase().contains(keyword);
                     }).toList();
                     if (matching.isEmpty) {
-                      return const Center(child: Text(
-                        'No students found. Ask the owner to sync the canteen student directory.'));
+                      final emptyDirectory = snap.data!.isEmpty;
+                      return Center(child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(emptyDirectory
+                                ? 'No students have been synchronized for canteen checkout.'
+                                : 'No student matches your search. Try a different name, registration or roll number.',
+                              textAlign: TextAlign.center),
+                            if (syncMessage != null) ...[
+                              const SizedBox(height: 8),
+                              Text(syncMessage!, textAlign: TextAlign.center),
+                            ],
+                            const SizedBox(height: 12),
+                            if (widget.canSyncStudents)
+                              FilledButton.icon(
+                                key: const Key('inventory_sync_students_in_checkout'),
+                                onPressed: syncing ? null : () async {
+                                  update(() { syncing = true; syncMessage = null; });
+                                  try {
+                                    final result = await _service.syncStudentDirectory();
+                                    if (!sheetContext.mounted) return;
+                                    update(() {
+                                      syncMessage = result.summary;
+                                      _studentsFuture = _service.loadStudents();
+                                      syncing = false;
+                                    });
+                                  } catch (error) {
+                                    if (!sheetContext.mounted) return;
+                                    update(() {
+                                      syncMessage = schoolErrorMessage(error);
+                                      syncing = false;
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.sync),
+                                label: Text(syncing ? 'Synchronizing…' : 'Sync students now'),
+                              )
+                            else if (emptyDirectory)
+                              const Text('Ask the school owner to open Canteen '
+                                '& Stationery → Sell → Sync students for checkout.',
+                                textAlign: TextAlign.center),
+                          ],
+                        ),
+                      ));
                     }
                     return ListView.builder(
                       itemCount: matching.length,
