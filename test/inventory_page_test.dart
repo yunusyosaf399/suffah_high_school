@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suffah_high_school/data/inventory_repository.dart';
+import 'package:suffah_high_school/main.dart';
 import 'package:suffah_high_school/screens/inventory_page.dart';
 
 const chips = InventoryItem(
@@ -10,6 +11,7 @@ const chips = InventoryItem(
 );
 
 Widget inventoryHost(String role) => MaterialApp(
+  theme: SchoolApp.buildTheme(),
   home: InventoryPage(
     role: role,
     itemsStream: Stream.value(const [chips]),
@@ -19,6 +21,36 @@ Widget inventoryHost(String role) => MaterialApp(
 );
 
 void main() {
+  test('production FilledButton has a FINITE minimum width', () {
+    // Original Size.fromHeight(46) made width infinite. Our prior tests
+    // used the default MaterialApp theme and missed the production crash.
+    expect(const Size.fromHeight(46).width.isInfinite, isTrue);
+    final minimum = SchoolApp.buildTheme()
+        .filledButtonTheme.style!.minimumSize!
+        .resolve(<WidgetState>{})!;
+    expect(minimum.width.isFinite, isTrue);
+    expect(minimum.width, greaterThan(0));
+    expect(minimum.height, 46);
+  });
+
+  testWidgets('production theme lays out the actual Sell and Stock headers',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(inventoryHost('inventory_manager'));
+    await tester.pumpAndSettle();
+    expect(find.text('Record a sale'), findsOneWidget);
+    expect(find.text('Cart (0)'), findsOneWidget);
+    expect(find.text('Potato chips'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Stock'));
+    await tester.pumpAndSettle();
+    expect(find.text('Stock catalogue'), findsOneWidget);
+    expect(find.text('Add product'), findsOneWidget);
+    expect(find.text('Potato chips'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('seller sees sale and read-only stock without manager controls',
       (tester) async {
     await tester.pumpWidget(inventoryHost('canteen_seller'));
@@ -80,6 +112,7 @@ void main() {
   testWidgets('owner always has Add product with zero stock and working tabs',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
+  theme: SchoolApp.buildTheme(),
       home: InventoryPage(
         role: 'owner',
         itemsStream: Stream.value(const <InventoryItem>[]),
@@ -118,6 +151,7 @@ void main() {
   testWidgets('seller never receives product-creation actions with empty stock',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
+  theme: SchoolApp.buildTheme(),
       home: InventoryPage(
         role: 'canteen_seller',
         itemsStream: Stream.value(const <InventoryItem>[]),
@@ -146,6 +180,7 @@ void main() {
       active: true, description: 'School course textbook',
     ));
     await tester.pumpWidget(MaterialApp(
+  theme: SchoolApp.buildTheme(),
       home: InventoryPage(
         role: 'owner',
         itemsStream: Stream.value(items),
@@ -181,6 +216,7 @@ void main() {
   testWidgets('catalogue error always shows header and Retry in both tabs',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
+  theme: SchoolApp.buildTheme(),
       home: InventoryPage(
         role: 'owner',
         itemsStream: Stream<List<InventoryItem>>.error(
