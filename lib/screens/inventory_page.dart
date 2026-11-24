@@ -147,6 +147,7 @@ class _InventoryPageState extends State<InventoryPage> {
       MaterialPageRoute(
         builder: (_) => InventoryCheckoutPage(
           items: items, cart: _cart,
+          canSyncStudents: widget.role == 'owner',
         ),
       ),
     );
@@ -174,8 +175,11 @@ class _InventoryPageState extends State<InventoryPage> {
 
   Future<void> _syncStudents() async {
     try {
-      final count = await _checkout.syncStudentDirectory();
-      _notice('Canteen student directory updated: $count school records.');
+      final result = await _checkout.syncStudentDirectory();
+      _notice(result.scanned == 0
+        ? 'No students found in school admissions to synchronize.'
+        : 'Canteen directory: ${result.summary} '
+          'Reopen the student picker to load the new list.');
     } catch (error) {
       _notice(_error(error));
     }
