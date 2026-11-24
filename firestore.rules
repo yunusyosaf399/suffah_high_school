@@ -1116,20 +1116,51 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Supplier costs stay private from sellers. A purchase record and stock
-    // increase must commit atomically; sales cannot forge stock receipts.
+    // Never store supplier or purchase costs on inventory_items: sellers
+    // are allowed to read those public stock/price documents.
+    match /inventory_costs/{itemId} {
+      allow get, list: if canManageInventory();
+      allow create: if canManageInventory()
+        && request.resource.data.keys().hasOnly([
+           'sku', 'department', 'unitCostMinor', 'currency',
+           'createdBy', 'createdAt', 'updatedBy', 'updatedAt'])
+        && request.resource.data.sku == itemId
+        && itemId.matches('^[A-Z0-9_-]{3,32}$')
+        && request.resource.data.department in ['canteen', 'stationery']
+        && request.resource.data.unitCostMinor is int
+        && request.resource.data.unitCostMinor > 0
+        && request.resource.data.unitCostMinor <= 100000000000
+        && request.resource.data.currency == 'PKR'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && getAfter(/databases/$(database)/documents/inventory_items/$(itemId)).data.department ==
+            request.resource.data.department;
+      allow update: if canManageInventory()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'unitCostMinor', 'updatedBy', 'updatedAt'])
+        && request.resource.data.unitCostMinor is int
+        && request.resource.data.unitCostMinor > 0
+        && request.resource.data.unitCostMinor <= 100000000000
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // Supplier costs stay private from sellers. Normal purchases must
+    // reconcile with stock increments. An initial valued opening receipt is
+    // recorded alongside the product's existing opening adjustment.
     match /inventory_purchases/{purchaseId} {
       allow get, list: if canManageInventory();
       allow create: if canManageInventory()
         && request.resource.data.keys().hasOnly([
           'purchaseId', 'itemId', 'itemName', 'quantity', 'stockBefore',
           'unitCostMinor', 'totalCostMinor', 'supplier', 'invoice', 'currency',
-          'recordedBy', 'purchasedAt', 'recordedAt'])
+          'recordedBy', 'purchasedAt', 'recordedAt', 'source'])
         && request.resource.data.purchaseId == purchaseId
         && request.resource.data.itemId is string
-        && exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
-        && request.resource.data.itemName ==
-           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name
+        && request.resource.data.get('source', 'receipt') in ['opening', 'receipt']
         && request.resource.data.quantity is int
         && request.resource.data.quantity >= 1
         && request.resource.data.quantity <= 100000
@@ -1138,8 +1169,6 @@ service cloud.firestore {
         && request.resource.data.unitCostMinor <= 100000000000
         && request.resource.data.totalCostMinor ==
            request.resource.data.quantity * request.resource.data.unitCostMinor
-        && request.resource.data.stockBefore ==
-           get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty
         && request.resource.data.supplier is string
         && request.resource.data.supplier.size() > 0
         && request.resource.data.supplier.size() <= 100
@@ -1149,11 +1178,32 @@ service cloud.firestore {
         && request.resource.data.recordedBy == request.auth.uid
         && request.resource.data.purchasedAt == request.time
         && request.resource.data.recordedAt == request.time
-        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty ==
-           request.resource.data.stockBefore + request.resource.data.quantity
-        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementId == purchaseId
-        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'purchase'
-        && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedBy == request.auth.uid;
+        && (
+          (request.resource.data.get('source', 'receipt') == 'receipt'
+            && exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+            && request.resource.data.itemName ==
+               get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name
+            && request.resource.data.stockBefore ==
+               get(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty
+            && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty ==
+               request.resource.data.stockBefore + request.resource.data.quantity
+            && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementId == purchaseId
+            && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'purchase'
+            && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.updatedBy == request.auth.uid)
+          ||
+          (request.resource.data.get('source', 'receipt') == 'opening'
+            && !exists(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId))
+            && request.resource.data.stockBefore == 0
+            && request.resource.data.supplier == 'Opening stock'
+            && request.resource.data.itemName ==
+               getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.name
+            && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.stockQty ==
+               request.resource.data.quantity
+            && getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementType == 'opening'
+            && getAfter(/databases/$(database)/documents/inventory_adjustments/$(getAfter(/databases/$(database)/documents/inventory_items/$(request.resource.data.itemId)).data.lastMovementId)).data.reason == 'opening'
+            && getAfter(/databases/$(database)/documents/inventory_costs/$(request.resource.data.itemId)).data.unitCostMinor ==
+               request.resource.data.unitCostMinor)
+        );
       allow update, delete: if false;
     }
 
