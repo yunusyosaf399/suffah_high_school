@@ -72,7 +72,24 @@ class InventoryStudentSyncResult {
       '($active active, $skipped skipped).';
 }
 
+const inventoryQuickCustomerTypes = ['student', 'teacher', 'other'];
+
+String inventoryQuickCustomerLabel(String type) {
+  switch (type) {
+    case 'student':
+      return 'Student';
+    case 'teacher':
+      return 'Teacher';
+    case 'other':
+      return 'Other';
+    default:
+      throw ArgumentError('Choose Student, Teacher or Other.');
+  }
+}
+
 class InventoryCustomer {
+  const InventoryCustomer.quick(this.type)
+      : student = null, name = '', phone = '';
   const InventoryCustomer.student(this.student)
       : type = 'student', name = '', phone = '';
   const InventoryCustomer.other({required this.name, this.phone = ''})
@@ -292,6 +309,7 @@ class InventoryCheckoutService {
     required InventoryCustomer customer,
     required bool paid,
     required String paymentMethod,
+    bool quickCanteen = false,
   }) async {
     if (lines.isEmpty || lines.length > 6 ||
         lines.map((line) => line.sku).toSet().length != lines.length ||
@@ -301,13 +319,21 @@ class InventoryCheckoutService {
     if (paid && !inventoryPaymentMethods.contains(paymentMethod)) {
       throw ArgumentError('Select a valid payment method.');
     }
-    if (customer.type == 'other' &&
+    if (quickCanteen &&
+        (!paid || customer.student != null ||
+         !inventoryQuickCustomerTypes.contains(customer.type))) {
+      throw ArgumentError('Canteen fast sales must be paid and categorized as Student, Teacher or Other.');
+    }
+    if (!quickCanteen && customer.type == 'teacher') {
+      throw ArgumentError('Teacher is only a customer type in fast canteen sales.');
+    }
+    if (!quickCanteen && customer.type == 'other' &&
         (customer.name.trim().length < 2 || customer.name.trim().length > 100 ||
          customer.phone.trim().length > 30 ||
          (!paid && customer.phone.trim().isEmpty))) {
       throw ArgumentError('Enter the customer name and a contact number for credit.');
     }
-    if (customer.type == 'student' && customer.student == null) {
+    if (!quickCanteen && customer.type == 'student' && customer.student == null) {
       throw ArgumentError('Select a school student.');
     }
 
@@ -333,8 +359,11 @@ class InventoryCheckoutService {
         verifiedStudent = snap.data();
       }
 
-      final customerName = verifiedStudent == null
-          ? customer.name.trim() : (verifiedStudent['fullName'] as String?) ?? '';
+      final customerName = quickCanteen
+          ? inventoryQuickCustomerLabel(customer.type)
+          : verifiedStudent == null
+              ? customer.name.trim()
+              : (verifiedStudent['fullName'] as String?) ?? '';
       final customerClass = verifiedStudent == null ? '' :
           (verifiedStudent['classId'] as String?) ?? '';
       final customerRoll = verifiedStudent == null ? '' :
@@ -350,6 +379,9 @@ class InventoryCheckoutService {
         }
         final item = InventoryItem.fromSnapshot(snapshot);
         final count = lines[index].quantity;
+        if (quickCanteen && item.department != 'canteen') {
+          throw StateError('Fast checkout accepts canteen products only.');
+        }
         if (!item.canSell || item.stockQty < count || item.priceMinor <= 0) {
           throw StateError('${item.name}: not enough active stock. Refresh your cart.');
         }
@@ -374,7 +406,8 @@ class InventoryCheckoutService {
           'customerType': customer.type,
           'customerId': customer.customerId,
           'customerName': customerName,
-          'customerPhone': customer.type == 'other' ? customer.phone.trim() : '',
+          'customerPhone': !quickCanteen && customer.type == 'other'
+              ? customer.phone.trim() : '',
           'customerClass': customerClass,
           'customerRollNo': customerRoll,
           'paidMinor': paid ? amount : 0,
