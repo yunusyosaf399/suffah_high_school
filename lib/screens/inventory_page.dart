@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../data/inventory_repository.dart';
 import '../data/inventory_checkout_service.dart';
 import 'inventory_checkout_page.dart';
+import 'inventory_quick_canteen_checkout_page.dart';
 import '../data/inventory_catalog.dart';
 import '../data/inventory_product_service.dart';
 import 'inventory_product_form.dart';
@@ -17,6 +18,7 @@ class InventoryPage extends StatefulWidget {
   const InventoryPage({
     super.key,
     required this.role,
+    this.department,
     this.itemsStream,
     this.salesStream,
     this.purchasesStream,
@@ -24,6 +26,9 @@ class InventoryPage extends StatefulWidget {
   });
 
   final String role;
+  /// 'canteen' uses fast paid checkout; 'stationery' retains detailed sales.
+  /// Null preserves legacy shared navigation for existing integrations.
+  final String? department;
   final Stream<List<InventoryItem>>? itemsStream;
   final Stream<List<Map<String, dynamic>>>? salesStream;
   final Stream<List<Map<String, dynamic>>>? purchasesStream;
@@ -46,7 +51,7 @@ class _InventoryPageState extends State<InventoryPage> {
           : Stream.value(const <Map<String, dynamic>>[]);
   late final Stream<List<Map<String, dynamic>>> _purchases =
       widget.purchasesStream ?? _repo.watchPurchases();
-  String _department = 'all';
+  late String _department;
   bool _showArchived = false;
   final Map<String, int> _cart = {};
   String _salesSearch = '';
@@ -67,6 +72,7 @@ class _InventoryPageState extends State<InventoryPage> {
   @override
   void initState() {
     super.initState();
+    _department = widget.department ?? 'all';
     _borrowedSubscription = _borrowed.listen(
       (sales) {
         if (!mounted) return;
@@ -143,12 +149,17 @@ class _InventoryPageState extends State<InventoryPage> {
       return;
     }
     final items = _currentItems ?? const <InventoryItem>[];
+    final scopedItems = widget.department == null ? items
+        : items.where((item) => item.department == widget.department).toList();
     final orderId = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (_) => InventoryCheckoutPage(
-          items: items, cart: _cart,
-          canSyncStudents: widget.role == 'owner',
-        ),
+        builder: (_) => widget.department == 'canteen'
+            ? InventoryQuickCanteenCheckoutPage(
+                items: scopedItems, cart: _cart)
+            : InventoryCheckoutPage(
+                items: scopedItems, cart: _cart,
+                canSyncStudents: widget.role == 'owner',
+              ),
       ),
     );
     if (orderId != null && mounted) {
@@ -207,15 +218,23 @@ class _InventoryPageState extends State<InventoryPage> {
       return const Scaffold(body: Center(
         child: Text('This account cannot access the canteen inventory.')));
     }
+    final fastCanteen = widget.department == 'canteen';
     final sections = _canManage
-        ? const ['Sell', 'Stock', 'Purchases', 'Sales', 'Borrowed']
-        : const ['Sell', 'Stock', 'My sales', 'Borrowed'];
+        ? (fastCanteen
+            ? const ['Sell', 'Stock', 'Purchases', 'Sales']
+            : const ['Sell', 'Stock', 'Purchases', 'Sales', 'Borrowed'])
+        : (fastCanteen
+            ? const ['Sell', 'Stock', 'My sales']
+            : const ['Sell', 'Stock', 'My sales', 'Borrowed']);
     return DefaultTabController(
       length: sections.length,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Canteen & Stationery',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+          title: Text(
+            fastCanteen ? 'Canteen Sales'
+                : widget.department == 'stationery'
+                    ? 'Stationery & Books' : 'Canteen & Stationery',
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
           actions: [
             IconButton(
               key: const Key('inventory_open_cart_action'),
@@ -259,14 +278,16 @@ class _InventoryPageState extends State<InventoryPage> {
             ),
             if (_canManage) _purchaseHistory(),
             _salesHistory(),
-            _salesHistory(onlyBorrowed: true),
+            if (!fastCanteen) _salesHistory(onlyBorrowed: true),
           ]),
         ),
       ),
     );
   }
 
-  Widget _filterChips() => Padding(
+  Widget _filterChips() => widget.department != null
+      ? const SizedBox.shrink()
+      : Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: Wrap(
       spacing: 8,
@@ -284,13 +305,21 @@ class _InventoryPageState extends State<InventoryPage> {
     ),
   );
 
+  String fastSellDescription() => widget.department == 'canteen'
+      ? 'Tap Add to cart, then choose Student, Teacher or Other and complete '
+          'the paid sale. No individual student details are required.'
+      : 'Add products to your cart, select a student or another customer, '
+          'then record paid or borrowed items. Stock is reduced at checkout.';
+
   Widget _catalog({required bool selling}) {
     // Build each product lazily. Previously one eager ListView built every
     // product in *both* tabs whenever any inventory stream changed. A failed
     // product subtree could leave the entire catalogue blank on Android.
     final all = _currentItems ?? const <InventoryItem>[];
     final waitingForItems = _currentItems == null && _itemsError == null;
-    final visible = all.where((item) => !item.archived).toList();
+    final visible = all.where((item) =>
+        !item.archived && (widget.department == null ||
+        item.department == widget.department)).toList();
     final filtered = all.where((item) =>
       (_department == 'all' || item.department == _department) &&
       (_canManage && !selling && _showArchived
@@ -329,7 +358,7 @@ class _InventoryPageState extends State<InventoryPage> {
             ]),
             const SizedBox(height: 6),
             Text(selling
-                ? 'Add products to your cart, select a student or another customer, then record paid or borrowed items. Stock is reduced at checkout.'
+                ? fastSellDescription()
                 : _canManage
                   ? 'Only authorized managers can edit prices, receive stock or record adjustments.'
                   : 'View prices and quantities. Stock and prices are read-only.',
@@ -346,7 +375,8 @@ class _InventoryPageState extends State<InventoryPage> {
             ]),
             const SizedBox(height: 12),
             _filterChips(),
-            if (selling && widget.role == 'owner')
+            if (selling && widget.role == 'owner' &&
+                widget.department != 'canteen')
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -539,7 +569,8 @@ class _InventoryPageState extends State<InventoryPage> {
   Future<void> _editItem([InventoryItem? item]) async {
     if (!_canManage) return;
     final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => InventoryProductForm(item: item)),
+      MaterialPageRoute(builder: (_) => InventoryProductForm(
+        item: item, initialDepartment: widget.department)),
     );
     if (saved == true) {
       _notice(item == null
@@ -728,7 +759,9 @@ class _InventoryPageState extends State<InventoryPage> {
           if (source == null) {
             return const Center(child: CircularProgressIndicator());
           }
-          final orders = inventoryGroupSales(source);
+          final scoped = widget.department == null ? source : source.where(
+            (sale) => sale['department'] == widget.department).toList();
+          final orders = inventoryGroupSales(scoped);
           final shown = orders.where((order) {
             if (onlyBorrowed && order.dueMinor <= 0) return false;
             final keyword = _salesSearch.toLowerCase().trim();
@@ -936,7 +969,13 @@ class _InventoryPageState extends State<InventoryPage> {
     builder: (context, snap) {
       if (snap.hasError) return Center(child: Text(_error(snap.error!)));
       if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-      final purchases = snap.data!;
+      final purchases = widget.department == null ? snap.data!
+          : snap.data!.where((purchase) {
+              final itemId = (purchase['itemId'] ?? '').toString();
+              final products = _currentItems ?? const <InventoryItem>[];
+              return products.any((item) => item.id == itemId &&
+                  item.department == widget.department);
+            }).toList();
       if (purchases.isEmpty) {
         return const Center(child: Text('No stock purchases recorded yet.'));
       }
