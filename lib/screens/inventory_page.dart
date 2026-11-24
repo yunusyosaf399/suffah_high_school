@@ -159,6 +159,8 @@ class _InventoryPageState extends State<InventoryPage> {
             : InventoryCheckoutPage(
                 items: scopedItems, cart: _cart,
                 canSyncStudents: widget.role == 'owner',
+                title: widget.department == 'stationery'
+                    ? 'Stationery checkout' : 'Canteen checkout',
               ),
       ),
     );
