@@ -27,6 +27,8 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
   late final TextEditingController _name;
   late final TextEditingController _quantity;
   late final TextEditingController _price;
+  late final TextEditingController _purchaseCost;
+  bool _costLoading = false;
   late final TextEditingController _threshold;
   late final TextEditingController _customType;
   late final TextEditingController _bookSeries;
@@ -73,6 +75,11 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
     _quantity = TextEditingController(text: item?.stockQty.toString() ?? '');
     _price = TextEditingController(text: item == null ? ''
         : (item.priceMinor / 100).toStringAsFixed(2));
+    _purchaseCost = TextEditingController();
+    if (item != null) {
+      _costLoading = true;
+      _loadPreviousPurchaseCost(item.id);
+    }
     _threshold = TextEditingController(
       text: item?.reorderPoint.toString() ?? '5');
     _customType = TextEditingController(text: item?.customType ?? '');
@@ -85,10 +92,25 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
     _description = TextEditingController(text: item?.description ?? '');
   }
 
+  Future<void> _loadPreviousPurchaseCost(String id) async {
+    try {
+      final cost = await InventoryRepository().loadCost(id);
+      if (!mounted) return;
+      if (cost != null && cost > 0) {
+        _purchaseCost.text = (cost / 100).toStringAsFixed(2);
+      }
+    } catch (_) {
+      // Older items may have no private cost record. Require the
+      // manager to enter the actual purchase price before saving.
+    } finally {
+      if (mounted) setState(() => _costLoading = false);
+    }
+  }
+
   @override
   void dispose() {
     for (final controller in [
-      _name, _quantity, _price, _threshold, _customType, _bookSeries,
+      _name, _quantity, _price, _purchaseCost, _threshold, _customType, _bookSeries,
       _subject, _publisher, _brand, _variant, _expiry, _description,
     ]) {
       controller.dispose();
@@ -165,7 +187,7 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
   }
 
   Future<void> _save() async {
-    if (!_form.currentState!.validate() || _saving) return;
+    if (_costLoading || !_form.currentState!.validate() || _saving) return;
     final quantity = int.tryParse(_quantity.text.trim());
     final point = int.tryParse(_threshold.text.trim());
     if (quantity == null || point == null) {
@@ -178,6 +200,7 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
         name: _name.text, department: _department,
         category: _category, subcategory: _subcategory,
         quantity: quantity, priceMinor: inventoryMoneyMinor(_price.text),
+        purchaseCostMinor: inventoryMoneyMinor(_purchaseCost.text),
         reorderPoint: point, unit: _unit,
         customType: (_category == 'other' || _subcategory == 'other')
             ? _customType.text : '',
@@ -341,6 +364,18 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
                 .textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
               const SizedBox(height: 12),
 
+              if (_costLoading)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: LinearProgressIndicator(),
+                ),
+              _field(
+                key: const Key('inventory_purchase_price'),
+                controller: _purchaseCost, label: 'Purchase price (PKR) *',
+                required: true,
+                keyboard: const TextInputType.numberWithOptions(decimal: true),
+                hint: 'Confidential — owner and authorized managers only',
+              ),
               _field(
                 controller: _price, label: 'Selling price (PKR) *',
                 required: true,
@@ -380,7 +415,7 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
               ],
               FilledButton.icon(
                 key: const Key('inventory_save_product'),
-                onPressed: _saving ? null : _save,
+                onPressed: _saving || _costLoading ? null : _save,
                 icon: const Icon(Icons.save_outlined),
                 label: Text(_saving ? 'Saving…' : 'Save product'),
               ),
