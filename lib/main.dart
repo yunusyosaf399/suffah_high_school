@@ -6,7 +6,7 @@ import 'screens/owner_dashboard.dart';
 import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
 import 'screens/teacher_dashboard.dart';
-import 'screens/inventory_page.dart';
+import 'screens/inventory_sections_page.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -120,7 +120,7 @@ class AuthGate extends StatelessWidget {
               return TeacherDashboard(displayName: name, staffId: staffId);
             }
             if (role == 'canteen_seller' || role == 'inventory_manager') {
-              return InventoryPage(role: role);
+              return InventorySectionsPage(role: role);
             }
             if (schoolRoles.containsKey(role)) {
               return _RoleHome(displayName: name, role: role);
