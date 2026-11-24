@@ -307,7 +307,7 @@ class InventoryRepository {
     required String supplier,
     required String invoice,
   }) async {
-    if (quantity < 1 || quantity > 100000 || unitCostMinor < 0 ||
+    if (quantity < 1 || quantity > 100000 || unitCostMinor <= 0 ||
         supplier.trim().isEmpty || supplier.trim().length > 100 ||
         invoice.trim().length > 80) {
       throw ArgumentError('Check stock quantity, supplier and purchase cost.');
