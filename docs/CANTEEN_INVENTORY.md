@@ -1,3 +1,56 @@
+## Purchase costs & department Analytics (November 2026)
+
+### New product and purchase history
+
+- **Canteen Sales → Stock** and **Stationery & Books → Stock** now require
+  a **Purchase price (PKR)** as well as the **Selling price (PKR)**.
+  Only the owner and inventory managers can access the purchase price.
+- The sellable `inventory_items` document contains only the selling price,
+  stock and catalog metadata. Confidential purchase cost lives in the
+  separately protected `inventory_costs/{sku}` document. Sellers cannot
+  read or write this collection (enforced by `firestore.rules`).
+- A new product with quantity greater than zero writes the existing
+  opening-stock audit adjustment AND a valued **Opening stock** purchase
+  receipt to `inventory_purchases` atomically. No second stock increment
+  occurs. This makes initial quantity and its unit cost visible in the
+  owner's **Purchases** history.
+- Subsequent purchases via **Receive stock** record the actual supplier,
+  unit purchase price, quantity and time and update the current unit cost.
+  Editing a product can change its owner-managed purchase cost but does
+  not fabricate a historical purchase receipt.
+
+### Analytics (owner / inventory manager)
+
+Each department has its own **Analytics** tab and an independent trend
+chart (sales, purchases and estimated gross profit). The filter offers:
+
+- **Monthly**: choose year and month; graph by day
+- **Yearly**: choose year; graph by month
+- **All**: all available stored history, graph by month
+
+Metrics: **Items available now** (live stock units, independent of date),
+**Total items sold**, **Total purchases** (valued opening stock plus stock
+purchase receipts), **Total profit (estimated)**, and **Sales value**.
+
+Gross profit is estimated as sales revenue minus units sold times the
+*current* confidential item purchase cost, not expenses or cash collected.
+It can differ from historical invoice-level margin after cost changes.
+If a sold product does not have a known purchase price, the profit card
+shows a dash rather than inventing a complete total. When safety limits
+(500 items/cost records or 2,500 sales/purchases) are reached, the screen
+warns that historic values may be partial.
+
+**Existing products** created before cost tracking have no automatically
+known historic purchase price. Open **Edit product** and enter its true
+purchase price. Older opening stock does not automatically become a
+fictitious purchase or expenditure.
+
+**Deployment:** Publish the entire updated `firestore.rules` file
+before using the new forms or analytics. A source-code merge does not
+publish live Firestore security rules.
+
+---
+
 ## Separate Canteen and Stationery sales (November 2026)
 
 **Owner dashboard** now has independent **Canteen Sales** and **Stationery &
