@@ -9,9 +9,12 @@ import '../data/school_errors.dart';
 /// Product codes are generated at save time by Firestore; the user never
 /// needs to type or reserve an identifier.
 class InventoryProductForm extends StatefulWidget {
-  const InventoryProductForm({super.key, this.item, this.service});
+  const InventoryProductForm({
+    super.key, this.item, this.service, this.initialDepartment,
+  });
   final InventoryItem? item;
   final InventoryProductService? service;
+  final String? initialDepartment;
 
   @override
   State<InventoryProductForm> createState() => _InventoryProductFormState();
@@ -51,7 +54,7 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
   void initState() {
     super.initState();
     final item = widget.item;
-    _department = item?.department ?? 'stationery';
+    _department = item?.department ?? widget.initialDepartment ?? 'stationery';
     _category = item?.category ?? 'other';
     if (!inventoryCategoriesFor(_department).containsKey(_category)) {
       _category = 'other';
@@ -235,17 +238,26 @@ class _InventoryProductFormState extends State<InventoryProductForm> {
                   : 'Item code: ${widget.item!.id}',
                 style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 18),
-              _selector(
-                label: 'Department', value: _department,
-                options: inventoryDepartments,
-                onChanged: (value) => setState(() {
-                  _department = value;
-                  _category = 'other';
-                  _subcategory = 'other';
-                  _customType.clear();
-                  _unit = value == 'canteen' ? 'packet' : 'piece';
-                }),
-              ),
+              if (widget.initialDepartment == null)
+                _selector(
+                  label: 'Department', value: _department,
+                  options: inventoryDepartments,
+                  onChanged: (value) => setState(() {
+                    _department = value;
+                    _category = 'other';
+                    _subcategory = 'other';
+                    _customType.clear();
+                    _unit = value == 'canteen' ? 'packet' : 'piece';
+                  }),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(labelText: 'Department'),
+                    child: Text(inventoryDepartments[_department] ?? _department),
+                  ),
+                ),
               _selector(
                 key: const Key('inventory_category'),
                 label: isCanteen ? 'Canteen category' : 'Stationery category',
