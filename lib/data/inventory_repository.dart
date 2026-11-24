@@ -117,6 +117,23 @@ class InventoryRepository {
   CollectionReference<Map<String, dynamic>> get _items =>
       _db.collection('inventory_items');
 
+  CollectionReference<Map<String, dynamic>> get _costs =>
+      _db.collection('inventory_costs');
+
+  /// Confidential cost documents are readable only by owner/manager.
+  Stream<Map<String, int>> watchCosts() => _costs.limit(500).snapshots().map(
+    (snap) => {
+      for (final doc in snap.docs)
+        if (doc.data()['unitCostMinor'] is num)
+          doc.id: (doc.data()['unitCostMinor'] as num).toInt(),
+    },
+  );
+
+  Future<int?> loadCost(String sku) async {
+    final snapshot = await _costs.doc(sku).get();
+    return (snapshot.data()?['unitCostMinor'] as num?)?.toInt();
+  }
+
   Stream<List<InventoryItem>> watchItems() => _items
       .orderBy('name')
       .limit(300)
@@ -290,7 +307,7 @@ class InventoryRepository {
     required String supplier,
     required String invoice,
   }) async {
-    if (quantity < 1 || quantity > 100000 || unitCostMinor < 0 ||
+    if (quantity < 1 || quantity > 100000 || unitCostMinor <= 0 ||
         supplier.trim().isEmpty || supplier.trim().length > 100 ||
         invoice.trim().length > 80) {
       throw ArgumentError('Check stock quantity, supplier and purchase cost.');
@@ -298,12 +315,27 @@ class InventoryRepository {
     final userId = _uid;
     final event = _db.collection('inventory_purchases').doc();
     final ref = _items.doc(sku);
+    final costRef = _costs.doc(sku);
     await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
+      final currentCost = await tx.get(costRef);
       if (!snap.exists) throw StateError('Item is missing.');
       final item = InventoryItem.fromSnapshot(snap);
       if (item.stockQty + quantity > 100000000) {
         throw StateError('This stock quantity is too high.');
+      }
+      if (currentCost.exists) {
+        tx.update(costRef, {
+          'unitCostMinor': unitCostMinor,
+          'updatedBy': userId, 'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else if (unitCostMinor > 0) {
+        tx.set(costRef, {
+          'sku': sku, 'department': item.department,
+          'unitCostMinor': unitCostMinor, 'currency': 'PKR',
+          'createdBy': userId, 'createdAt': FieldValue.serverTimestamp(),
+          'updatedBy': userId, 'updatedAt': FieldValue.serverTimestamp(),
+        });
       }
       tx.update(ref, {
         'stockQty': item.stockQty + quantity,
@@ -316,6 +348,7 @@ class InventoryRepository {
         'unitCostMinor': unitCostMinor,
         'totalCostMinor': unitCostMinor * quantity,
         'supplier': supplier.trim(), 'invoice': invoice.trim(),
+        'source': 'receipt',
         'currency': 'PKR', 'recordedBy': userId,
         'purchasedAt': FieldValue.serverTimestamp(),
         'recordedAt': FieldValue.serverTimestamp(),

@@ -11,6 +11,7 @@ import 'inventory_quick_canteen_checkout_page.dart';
 import '../data/inventory_catalog.dart';
 import '../data/inventory_product_service.dart';
 import 'inventory_product_form.dart';
+import 'inventory_department_analytics_tab.dart';
 import '../data/school_errors.dart';
 
 /// Sales and stock are intentionally separate from the school fee/salary ledger.
@@ -68,11 +69,29 @@ class _InventoryPageState extends State<InventoryPage> {
   List<Map<String, dynamic>>? _currentBorrowed;
   Object? _salesError;
   Object? _borrowedError;
+  Map<String, int> _unitCosts = const {};
+  Object? _costsError;
+  StreamSubscription<Map<String, int>>? _costSubscription;
 
   @override
   void initState() {
     super.initState();
     _department = widget.department ?? 'all';
+    // Never request confidential costs from seller accounts. Test-supplied
+    // item streams skip live Firebase dependency for widget regression tests.
+    if (_canManage && widget.itemsStream == null) {
+      _costSubscription = _repo.watchCosts().listen(
+        (costs) {
+          if (mounted) setState(() {
+            _unitCosts = costs;
+            _costsError = null;
+          });
+        },
+        onError: (Object error) {
+          if (mounted) setState(() => _costsError = error);
+        },
+      );
+    }
     _borrowedSubscription = _borrowed.listen(
       (sales) {
         if (!mounted) return;
@@ -117,6 +136,7 @@ class _InventoryPageState extends State<InventoryPage> {
   @override
   void dispose() {
     _itemsSubscription.cancel();
+    _costSubscription?.cancel();
     _salesSubscription.cancel();
     _borrowedSubscription.cancel();
     super.dispose();
@@ -239,8 +259,8 @@ class _InventoryPageState extends State<InventoryPage> {
     final fastCanteen = widget.department == 'canteen';
     final sections = _canManage
         ? (fastCanteen
-            ? const ['Sell', 'Stock', 'Purchases', 'Sales']
-            : const ['Sell', 'Stock', 'Purchases', 'Sales', 'Borrowed'])
+            ? const ['Sell', 'Stock', 'Purchases', 'Sales', 'Analytics']
+            : const ['Sell', 'Stock', 'Purchases', 'Sales', 'Borrowed', 'Analytics'])
         : (fastCanteen
             ? const ['Sell', 'Stock', 'My sales']
             : const ['Sell', 'Stock', 'My sales', 'Borrowed']);
@@ -297,6 +317,8 @@ class _InventoryPageState extends State<InventoryPage> {
             if (_canManage) _purchaseHistory(),
             _salesHistory(),
             if (!fastCanteen) _salesHistory(onlyBorrowed: true),
+            if (_canManage) InventoryDepartmentAnalyticsTab(
+              department: widget.department ?? 'canteen'),
           ]),
         ),
       ),
@@ -527,6 +549,18 @@ class _InventoryPageState extends State<InventoryPage> {
                               const Text('INACTIVE', style: TextStyle(
                                 fontSize: 11, color: Colors.redAccent)),
                           ]),
+                        if (!selling && _canManage) ...[
+                          const SizedBox(height: 5),
+                          Text(_unitCosts[item.id] == null
+                            ? 'Purchase price: Not set'
+                            : 'Purchase price: ${inventoryRupees(_unitCosts[item.id]!)} / ${item.unit}',
+                            key: Key('inventory_private_cost_${item.id}'),
+                            style: const TextStyle(fontSize: 12,
+                              fontWeight: FontWeight.w600)),
+                          if (_costsError != null)
+                            Text('Purchase costs unavailable. Check database rules.',
+                              style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                        ],
                         if (item.description.isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Text(item.description,
@@ -1014,7 +1048,9 @@ class _InventoryPageState extends State<InventoryPage> {
                   item.department == widget.department);
             }).toList();
       if (purchases.isEmpty) {
-        return const Center(child: Text('No stock purchases recorded yet.'));
+        return const Center(child: Text('No stock purchases recorded yet. '
+            'Opening quantities entered before purchase-cost tracking '
+            'may have no historical purchase receipt.'));
       }
       return ListView.builder(
         padding: const EdgeInsets.all(14), itemCount: purchases.length + 1,
@@ -1026,11 +1062,15 @@ class _InventoryPageState extends State<InventoryPage> {
           final purchase = purchases[index - 1];
           final cost = (purchase['totalCostMinor'] as num?)?.toInt() ?? 0;
           return Card(child: ListTile(
-            title: Text((purchase['itemName'] ?? 'Item').toString(),
+            title: Text('${purchase['source'] == 'opening' ? 'Opening stock • ' : ''}'
+                '${purchase['itemName'] ?? 'Item'}',
               style: const TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text(
-              '${purchase['quantity'] ?? 0} units • ${purchase['supplier'] ?? 'Unknown supplier'}\n'
-              '${_date(purchase['purchasedAt'])} • ${purchase['invoice'] ?? ''}'),
+              '${purchase['quantity'] ?? 0} units × '
+              '${inventoryRupees((purchase['unitCostMinor'] as num?)?.toInt() ?? 0)}'
+              ' • ${purchase['supplier'] ?? 'Unknown supplier'}\n'
+              '${_date(purchase['purchasedAt'])}'
+              '${(purchase['invoice'] ?? '').toString().isEmpty ? '' : ' • ${purchase['invoice']}'}'),
             isThreeLine: true,
             trailing: Text(inventoryRupees(cost),
               style: const TextStyle(fontWeight: FontWeight.w800)),

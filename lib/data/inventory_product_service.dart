@@ -15,6 +15,7 @@ class InventoryProductInput {
     required this.subcategory,
     required this.quantity,
     required this.priceMinor,
+    this.purchaseCostMinor = 0,
     required this.reorderPoint,
     this.unit = 'piece',
     this.customType = '',
@@ -35,6 +36,8 @@ class InventoryProductInput {
   final String subcategory;
   final int quantity;
   final int priceMinor;
+  /// Kept in manager-only inventory_costs, never in public item document.
+  final int purchaseCostMinor;
   final int reorderPoint;
   final String unit;
   final String customType;
@@ -55,8 +58,9 @@ class InventoryProductInput {
         !categories.containsKey(category) ||
         !subcategories.containsKey(subcategory) ||
         name.trim().length < 2 || name.trim().length > 100 ||
-        quantity < 0 || quantity > 100000000 ||
+        quantity < 0 || quantity > 100000 ||
         priceMinor <= 0 || priceMinor > 100000000000 ||
+        purchaseCostMinor <= 0 || purchaseCostMinor > 100000000000 ||
         reorderPoint < 0 || reorderPoint > 100000000 ||
         unit.trim().isEmpty || unit.length > 24 ||
         description.length > 250 || customType.length > 80 ||
@@ -115,11 +119,19 @@ class InventoryProductService {
     final sku = '${input.department == 'stationery' ? 'ST' : 'CN'}-${randomId.substring(0, 15)}';
     final ref = _db.collection('inventory_items').doc(sku);
     final opening = _db.collection('inventory_adjustments').doc();
+    final purchase = _db.collection('inventory_purchases').doc();
+    final costRef = _db.collection('inventory_costs').doc(sku);
 
     await _db.runTransaction((tx) async {
-      if ((await tx.get(ref)).exists) {
+      if ((await tx.get(ref)).exists || (await tx.get(costRef)).exists) {
         throw StateError('Code conflict. Please save the product again.');
       }
+      tx.set(costRef, {
+        'sku': sku, 'department': input.department,
+        'unitCostMinor': input.purchaseCostMinor, 'currency': 'PKR',
+        'createdBy': editor, 'createdAt': FieldValue.serverTimestamp(),
+        'updatedBy': editor, 'updatedAt': FieldValue.serverTimestamp(),
+      });
       tx.set(ref, {
         'sku': sku, ...input.metadata,
         'stockQty': input.quantity,
@@ -137,6 +149,17 @@ class InventoryProductService {
           'notes': 'Opening quantity entered on new product',
           'recordedBy': editor, 'recordedAt': FieldValue.serverTimestamp(),
         });
+        // Valued opening receipt is historical only; opening adjustment owns stock.
+        tx.set(purchase, {
+          'purchaseId': purchase.id, 'itemId': sku,
+          'itemName': input.name.trim(), 'quantity': input.quantity,
+          'stockBefore': 0, 'unitCostMinor': input.purchaseCostMinor,
+          'totalCostMinor': input.quantity * input.purchaseCostMinor,
+          'supplier': 'Opening stock', 'invoice': '', 'source': 'opening',
+          'currency': 'PKR', 'recordedBy': editor,
+          'purchasedAt': FieldValue.serverTimestamp(),
+          'recordedAt': FieldValue.serverTimestamp(),
+        });
       }
     });
     return sku;
@@ -150,8 +173,10 @@ class InventoryProductService {
     final editor = _uid;
     final ref = _db.collection('inventory_items').doc(item.id);
     final adjustment = _db.collection('inventory_adjustments').doc();
+    final costRef = _db.collection('inventory_costs').doc(item.id);
     await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
+      final costSnap = await tx.get(costRef);
       if (!snap.exists) throw StateError('Product not found.');
       final current = InventoryItem.fromSnapshot(snap);
       if (current.archived) {
@@ -165,6 +190,20 @@ class InventoryProductService {
       final difference = input.quantity - current.stockQty;
       if (difference.abs() > 100000) {
         throw ArgumentError('Stock correction cannot exceed 100,000 per change.');
+      }
+      if (costSnap.exists) {
+        tx.update(costRef, {
+          'unitCostMinor': input.purchaseCostMinor,
+          'updatedBy': editor, 'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        // Legacy products may not yet have private cost documents.
+        tx.set(costRef, {
+          'sku': item.id, 'department': current.department,
+          'unitCostMinor': input.purchaseCostMinor, 'currency': 'PKR',
+          'createdBy': editor, 'createdAt': FieldValue.serverTimestamp(),
+          'updatedBy': editor, 'updatedAt': FieldValue.serverTimestamp(),
+        });
       }
       tx.update(ref, {
         ...input.metadata,

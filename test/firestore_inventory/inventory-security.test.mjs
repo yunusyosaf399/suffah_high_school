@@ -655,3 +655,93 @@ test('quick checkout cannot borrow or impersonate identified students and cannot
   assert.equal((await getDoc(doc(seller, 'inventory_items', 'BOOKFAST')))
     .data().stockQty, 10);
 });
+
+test('confidential unit purchase cost is visible only to owner and managers', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'inventory_costs', itemId), {
+      sku: itemId, department: 'canteen', unitCostMinor: 3200,
+      currency: 'PKR', createdBy: managerId, createdAt: Timestamp.now(),
+      updatedBy: managerId, updatedAt: Timestamp.now(),
+    });
+  });
+  const seller = db(sellerId);
+  const publicProduct = await assertSucceeds(
+    getDoc(doc(seller, 'inventory_items', itemId)));
+  assert.equal(publicProduct.data().unitCostMinor, undefined);
+  await assertFails(getDoc(doc(seller, 'inventory_costs', itemId)));
+  await assertFails(getDocs(collection(seller, 'inventory_costs')));
+  await assertFails(getDoc(doc(db(guestId), 'inventory_costs', itemId)));
+  const manager = db(managerId);
+  const privateCost = await assertSucceeds(
+    getDoc(doc(manager, 'inventory_costs', itemId)));
+  assert.equal(privateCost.data().unitCostMinor, 3200);
+  await assertFails(updateDoc(doc(seller, 'inventory_costs', itemId), {
+    unitCostMinor: 1,
+  }));
+});
+
+test('new canteen stock records private unit cost plus valued opening purchase atomically', async () => {
+  const manager = db(managerId);
+  const sku = 'CN-NEWVALUED01';
+  const product = doc(manager, 'inventory_items', sku);
+  const cost = doc(manager, 'inventory_costs', sku);
+  const opening = doc(manager, 'inventory_adjustments', 'open-valued-new');
+  const purchase = doc(manager, 'inventory_purchases', 'purchase-valued-new');
+  await assertSucceeds(runTransaction(manager, async tx => {
+    const existing = await tx.get(product);
+    assert.equal(existing.exists(), false);
+    const existingCost = await tx.get(cost);
+    assert.equal(existingCost.exists(), false);
+    tx.set(cost, {
+      sku, department: 'canteen', unitCostMinor: 4000, currency: 'PKR',
+      createdBy: managerId, createdAt: serverTimestamp(),
+      updatedBy: managerId, updatedAt: serverTimestamp(),
+    });
+    tx.set(product, {
+      ...seedItem(), sku, name: 'New juice',
+      priceMinor: 7000, stockQty: 20,
+      lastMovementId: opening.id, lastMovementType: 'opening',
+      createdBy: managerId, createdAt: serverTimestamp(),
+      updatedBy: managerId, updatedAt: serverTimestamp(),
+    });
+    tx.set(opening, {
+      adjustmentId: opening.id, itemId: sku, itemName: 'New juice',
+      delta: 20, stockBefore: 0, reason: 'opening',
+      notes: 'Opening quantity entered on new product',
+      recordedBy: managerId, recordedAt: serverTimestamp(),
+    });
+    tx.set(purchase, {
+      purchaseId: purchase.id, itemId: sku, itemName: 'New juice',
+      quantity: 20, stockBefore: 0, unitCostMinor: 4000,
+      totalCostMinor: 80000, supplier: 'Opening stock',
+      invoice: '', source: 'opening', currency: 'PKR',
+      recordedBy: managerId, purchasedAt: serverTimestamp(),
+      recordedAt: serverTimestamp(),
+    });
+  }));
+  assert.equal((await getDoc(product)).data().stockQty, 20);
+  assert.equal((await getDoc(cost)).data().unitCostMinor, 4000);
+  assert.equal((await getDoc(purchase)).data().totalCostMinor, 80000);
+  await assertFails(getDoc(doc(db(sellerId), 'inventory_purchases',
+    'purchase-valued-new')));
+  await assertFails(getDoc(doc(db(sellerId), 'inventory_costs', sku)));
+});
+
+test('manager can update cost without changing public selling price', async () => {
+  const manager = db(managerId);
+  const cost = doc(manager, 'inventory_costs', itemId);
+  await assertSucceeds(setDoc(cost, {
+    sku: itemId, department: 'canteen', unitCostMinor: 2500,
+    currency: 'PKR', createdBy: managerId, createdAt: serverTimestamp(),
+    updatedBy: managerId, updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(cost, {
+    unitCostMinor: 2750, updatedBy: managerId,
+    updatedAt: serverTimestamp(),
+  }));
+  assert.equal((await getDoc(cost)).data().unitCostMinor, 2750);
+  assert.equal((await getDoc(doc(manager, 'inventory_items', itemId)))
+    .data().priceMinor, 5000);
+  await assertFails(updateDoc(cost, {createdBy: sellerId}));
+  await assertFails(updateDoc(cost, {unitCostMinor: -1}));
+});
