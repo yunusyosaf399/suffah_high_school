@@ -11,6 +11,7 @@ class InventoryCheckoutPage extends StatefulWidget {
     required this.cart,
     this.service,
     this.canSyncStudents = false,
+    this.title = 'Canteen checkout',
   });
 
   final List<InventoryItem> items;
@@ -18,6 +19,7 @@ class InventoryCheckoutPage extends StatefulWidget {
   final InventoryCheckoutService? service;
   /// Only pass true for the school owner, never for seller accounts.
   final bool canSyncStudents;
+  final String title;
 
   @override
   State<InventoryCheckoutPage> createState() => _InventoryCheckoutPageState();
@@ -245,7 +247,7 @@ class _InventoryCheckoutPageState extends State<InventoryCheckoutPage> {
     final owed = _paymentStatus == 'borrowed';
     final mobile = MediaQuery.sizeOf(context).width < 420;
     return Scaffold(
-      appBar: AppBar(title: const Text('Canteen checkout')),
+      appBar: AppBar(title: Text(widget.title)),
       body: SafeArea(
         child: Column(children: [
           Expanded(
