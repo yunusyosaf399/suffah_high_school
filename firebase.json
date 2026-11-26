@@ -1,3 +1,4 @@
+
 {
   "firestore": {
     "rules": "firestore.rules",
@@ -17,6 +18,26 @@
     },
     "ui": {
       "enabled": false
+    }
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "suffah-high-school",
+          "appId": "1:982479145431:android:dc8dabb28930f283f9a392",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "suffah-high-school",
+          "configurations": {
+            "android": "1:982479145431:android:dc8dabb28930f283f9a392",
+            "windows": "1:982479145431:web:a90838d3ddc7e25bf9a392"
+          }
+        }
+      }
     }
   }
 }

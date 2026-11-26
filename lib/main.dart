@@ -6,25 +6,47 @@ import 'screens/owner_dashboard.dart';
 import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
 import 'screens/teacher_dashboard.dart';
+<<<<<<< Updated upstream
 import 'screens/inventory_sections_page.dart';
+=======
+import 'screens/inventory_sections_page.dart';
+import 'firebase_options.dart';
+
+>>>>>>> Stashed changes
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   try {
-    // The registered Android app reads its configuration from google-services.json.
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+
+    debugPrint('Firebase initialized successfully');
+
     runApp(const SchoolApp());
-  } catch (_) {
-    runApp(const MaterialApp(
-      home: Scaffold(
-        body: Center(child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text('Could not initialize Firebase. Check your connection and app configuration.'),
-        )),
+
+  } catch (error, stackTrace) {
+    debugPrint('Firebase initialization failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+
+    runApp(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: SelectableText(
+                'Firebase initialization failed:\n\n$error',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ),
       ),
-    ));
+    );
   }
 }
-
 class SchoolApp extends StatelessWidget {
   const SchoolApp({super.key});
 
