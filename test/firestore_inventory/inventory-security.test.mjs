@@ -755,7 +755,9 @@ test('examiner schedules assigned papers without access to private admissions or
     await setDoc(doc(admin,'users',teacher),{role:'teacher',active:true,staffId:'T1'});
     await setDoc(doc(admin,'staff','T1'),{active:true,roleType:'teacher'});
     await setDoc(doc(admin,'classes','C1'),{active:true});
-    await setDoc(doc(admin,'teacher_assignments','A1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
+    await setDoc(doc(admin,'classes','C1','subjects','math'),{active:true,name:'Math'});
+    await setDoc(doc(admin,'teacher_assignments','A1'),{active:true,staffId:'T1',classId:'C1',subject:'Math',subjectId:'math'});
+    await setDoc(doc(admin,'teacher_class_links','T1__C1'),{active:true,staffId:'T1',classId:'C1'});
     await setDoc(doc(admin,'class_rosters','C1','students','S1'),{active:true,classId:'C1',fullName:'Student'});
     await setDoc(doc(admin,'students','S1'),{fullName:'Student',guardianPhone:'private'});
   });
@@ -765,6 +767,8 @@ test('examiner schedules assigned papers without access to private admissions or
     startDate:'2026-12-01',endDate:'2026-12-10',examDate:'2026-12-02',
     paperType:'Theory',durationMinutes:60};
   await assertSucceeds(setDoc(doc(db(examiner),'examinations','E1'),fields));
+  await assertSucceeds(getDocs(query(collection(db(teacher),'examinations'),where('staffId','==','T1'),where('active','==',true))));
+  await assertSucceeds(getDocs(query(collection(db(teacher),'class_rosters','C1','students'),where('active','==',true))));
   await assertFails(setDoc(doc(db(examiner),'examinations','bad'),{...fields,staffId:'wrong'}));
   await assertFails(getDoc(doc(db(examiner),'students','S1')));
   await assertFails(getDoc(doc(db(examiner),'staff','T1')));
@@ -773,6 +777,7 @@ test('examiner schedules assigned papers without access to private admissions or
   await assertSucceeds(setDoc(doc(db(teacher),'examinations','test'),{...fields,kind:'test',category:'Monthly Test',createdBy:teacher}));
   const work={kind:'assignment',title:'Exercise',active:true,teacherUid:examiner,assignmentId:'A1',staffId:'T1',classId:'C1',subject:'Math'};
   await assertSucceeds(setDoc(doc(db(examiner),'classwork','W1'),work));
+  await assertSucceeds(getDocs(query(collection(db(teacher),'classwork'),where('staffId','==','T1'))));
   await assertFails(setDoc(doc(db(examiner),'classwork','H1'),{...work,kind:'homework'}));
   await assertSucceeds(setDoc(doc(db(teacher),'classwork','H2'),{...work,kind:'homework',teacherUid:teacher}));
   const mark = {examId:'E1',studentId:'S1',classId:'C1',teacherUid:teacher,score:80};
@@ -781,4 +786,27 @@ test('examiner schedules assigned papers without access to private admissions or
   await assertSucceeds(updateDoc(doc(db(teacher),'examinations','E1'),{resultStatus:'submitted',submittedBy:teacher,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()}));
   await assertFails(setDoc(doc(db(teacher),'examinations','E1','marks','S1'),{...mark,score:90}));
   await assertSucceeds(updateDoc(doc(db(examiner),'examinations','E1'),{resultStatus:'released'}));
+});
+
+test('examiner can publish a multi-paper schedule atomically', async () => {
+  const examiner='schedule-examiner';
+  await environment.withSecurityRulesDisabled(async context => {
+    const admin=context.firestore();
+    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    for(let i=0;i<15;i++) {
+      await setDoc(doc(admin,'teacher_assignments','multi-'+i),{active:true,staffId:'teacher-'+i,classId:'C1',subject:'Subject '+i});
+    }
+  });
+  const database=db(examiner);
+  const batch=writeBatch(database);
+  for(let i=0;i<15;i++) {
+    batch.set(doc(database,'examinations','paper-'+i),{
+      sessionId:'schedule-1',kind:'term',category:'Mid Term',title:'Subject '+i,
+      assignmentId:'multi-'+i,staffId:'teacher-'+i,classId:'C1',subject:'Subject '+i,
+      maxMarks:100,active:true,resultStatus:'draft',createdBy:examiner,
+      startDate:'2026-12-01',endDate:'2026-12-20',examDate:'2026-12-02',
+      paperType:'Theory',durationMinutes:60,
+    });
+  }
+  await assertSucceeds(batch.commit());
 });
