@@ -137,7 +137,7 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
   }
 
   Future<void> _save(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> roster, {bool submit = false},
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> roster, {bool submit = false}
   ) async {
     if (_saving || _locked) return;
     final user = FirebaseAuth.instance.currentUser;
