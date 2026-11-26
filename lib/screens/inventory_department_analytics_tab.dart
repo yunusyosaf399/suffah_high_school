@@ -115,7 +115,7 @@ class _InventoryDepartmentAnalyticsTabState
           const SizedBox(height: 12),
           Wrap(spacing: 10, runSpacing: 10, children: [
             SizedBox(width: 142, child: DropdownButtonFormField<int>(
-              key: const Key('inventory_analytics_year'),
+              key: ValueKey('inventory_analytics_year_$_year'),
               initialValue: _year,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Year'),
@@ -130,7 +130,7 @@ class _InventoryDepartmentAnalyticsTabState
             )),
             if (_period == InventoryReportPeriod.month)
               SizedBox(width: 166, child: DropdownButtonFormField<int>(
-                key: const Key('inventory_analytics_month'),
+                key: ValueKey('inventory_analytics_month_$_month'),
                 initialValue: _month,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Month'),
@@ -164,7 +164,7 @@ class _InventoryDepartmentAnalyticsTabState
                 ],
               );
             }
-            if (!snapshot.hasData) {
+            if (snapshot.connectionState == ConnectionState.waiting || !snapshot.hasData) {
               return const Padding(
                 padding: EdgeInsets.only(top: 30),
                 child: Center(child: CircularProgressIndicator()),
@@ -192,6 +192,8 @@ class _InventoryDepartmentAnalyticsTabState
                       Icons.receipt_long_outlined, cardWidth),
                   ]),
                   const SizedBox(height: 22),
+                  _salesBreakdown(data),
+                  const SizedBox(height: 22),
                   Text('Sales, purchases & gross profit trend',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800)),
@@ -209,7 +211,7 @@ class _InventoryDepartmentAnalyticsTabState
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: SizedBox(
-                          width: math.max(320, data.trend.length * 42.0 + 54),
+                          width: math.max(constraints.maxWidth - 24, data.trend.length * 20.0 + 66),
                           height: 248,
                           child: CustomPaint(
                             painter: _InventoryTrendPainter(
@@ -261,6 +263,124 @@ class _InventoryDepartmentAnalyticsTabState
           },
         ),
       ],
+    );
+  }
+
+  void _movePeriod(int delta) {
+    final next = _period == InventoryReportPeriod.month
+        ? DateTime(_year, _month + delta)
+        : DateTime(_year + delta, _month);
+    final now = DateTime.now();
+    if (next.year < 2019 || next.year > now.year) return;
+    setState(() {
+      _year = next.year;
+      _month = next.month;
+      _future = _load();
+    });
+  }
+
+  Widget _salesBreakdown(InventoryDepartmentAnalytics data) {
+    final colors = Theme.of(context).colorScheme;
+    const costColor = Color(0xFF5364E8);
+    const profitColor = Color(0xFF16A7A0);
+    final valid = data.completeCostCoverage && data.salesMinor > 0 &&
+        data.estimatedProfitMinor >= 0 &&
+        data.estimatedProfitMinor <= data.salesMinor;
+    final cost = data.salesMinor - data.estimatedProfitMinor;
+    final periodLabel = switch (_period) {
+      InventoryReportPeriod.month => '${monthNames[_month - 1]} $_year',
+      InventoryReportPeriod.year => '$_year',
+      InventoryReportPeriod.all => 'All time',
+    };
+    Widget entry(String label, String value, Color color) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(children: [
+        Icon(Icons.circle, size: 11, color: color),
+        const SizedBox(width: 8),
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+            Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+          ],
+        )),
+      ]),
+    );
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Sales breakdown', style: TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w800)),
+                  Text(periodLabel, style: TextStyle(color: colors.onSurfaceVariant)),
+                ],
+              )),
+              if (_period != InventoryReportPeriod.all) ...[
+                IconButton(tooltip: 'Previous period', onPressed: () => _movePeriod(-1),
+                  icon: const Icon(Icons.chevron_left)),
+                IconButton(tooltip: 'Next period', onPressed: () => _movePeriod(1),
+                  icon: const Icon(Icons.chevron_right)),
+              ],
+            ]),
+            const SizedBox(height: 14),
+            LayoutBuilder(builder: (context, constraints) {
+              final ring = SizedBox(
+                width: 174, height: 174,
+                child: Stack(alignment: Alignment.center, children: [
+                  Positioned.fill(child: CustomPaint(painter: _SalesRingPainter(
+                    fraction: valid ? cost / data.salesMinor : 0,
+                    valid: valid, costColor: costColor, profitColor: profitColor,
+                    trackColor: colors.surfaceContainerHighest,
+                  ))),
+                  SizedBox(width: 110, child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Sales value', style: TextStyle(
+                        fontSize: 11, color: colors.onSurfaceVariant)),
+                      FittedBox(fit: BoxFit.scaleDown, child: Text(
+                        inventoryRupees(data.salesMinor),
+                        style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800))),
+                    ],
+                  )),
+                ]),
+              );
+              final legend = Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  entry('Cost of items sold', data.completeCostCoverage
+                      ? inventoryRupees(cost) : 'Not available', costColor),
+                  entry('Estimated gross profit', data.completeCostCoverage
+                      ? inventoryRupees(data.estimatedProfitMinor) : 'Not available', profitColor),
+                  entry('Stock purchases', inventoryRupees(data.purchaseMinor),
+                    colors.onSurfaceVariant),
+                ],
+              );
+              return constraints.maxWidth >= 340
+                  ? Row(children: [Expanded(child: legend), const SizedBox(width: 12), ring])
+                  : Column(children: [ring, const SizedBox(height: 12), legend]);
+            }),
+            if (!valid)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(!data.completeCostCoverage
+                    ? 'Purchase costs are missing; breakdown unavailable.'
+                    : data.salesMinor <= 0 ? 'No sales recorded for this period.'
+                    : 'A loss is recorded; see the amounts above.',
+                  style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+              ),
+            const SizedBox(height: 8),
+            Text('Stock purchases are shown separately, not included in the ring.',
+              style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant)),
+          ],
+        ),
+      ),
     );
   }
 
@@ -371,4 +491,36 @@ class _InventoryTrendPainter extends CustomPainter {
       old.salesColor != salesColor ||
       old.purchasesColor != purchasesColor ||
       old.profitColor != profitColor;
+}
+
+class _SalesRingPainter extends CustomPainter {
+  const _SalesRingPainter({required this.fraction, required this.valid,
+    required this.costColor, required this.profitColor, required this.trackColor});
+  final double fraction;
+  final bool valid;
+  final Color costColor, profitColor, trackColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const thickness = 24.0;
+    final rect = Rect.fromCircle(center: size.center(Offset.zero),
+      radius: (size.shortestSide - thickness - 8) / 2);
+    final brush = Paint()..style = PaintingStyle.stroke..strokeWidth = thickness;
+    canvas.drawArc(rect, 0, 2 * math.pi, false, brush..color = trackColor);
+    if (!valid) return;
+    final angle = 2 * math.pi * fraction;
+    if (angle > 0) {
+      canvas.drawArc(rect, -math.pi / 2, angle, false, brush..color = costColor);
+    }
+    if (angle < 2 * math.pi) {
+      canvas.drawArc(rect, -math.pi / 2 + angle, 2 * math.pi - angle,
+        false, brush..color = profitColor);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SalesRingPainter oldDelegate) =>
+      oldDelegate.fraction != fraction || oldDelegate.valid != valid ||
+      oldDelegate.costColor != costColor || oldDelegate.profitColor != profitColor ||
+      oldDelegate.trackColor != trackColor;
 }
