@@ -7,7 +7,7 @@ import '../data/staff_repository.dart';
 
 class ExamCreationWizard extends StatefulWidget {
   const ExamCreationWizard({super.key, required this.role, required this.assignments,
-    this.teacherNames = const {}, this.classSubjects = const {}, this.classNames = const {}, this.initialKind = 'term', this.initialDateRange});
+    this.teacherNames = const {}, this.classSubjects = const {}, this.classNames = const {}, this.initialKind = 'term', this.initialDateRange, this.activeCycle});
   final String role;
   final List<TeacherAssignment> assignments;
   final Map<String, String> teacherNames;
@@ -15,26 +15,30 @@ class ExamCreationWizard extends StatefulWidget {
   final Map<String,String> classNames;
   final String initialKind;
   final DateTimeRange? initialDateRange;
+  final Map<String,dynamic>? activeCycle;
 
   @override
   State<ExamCreationWizard> createState() => _ExamCreationWizardState();
 }
 
 class _ExamCreationWizardState extends State<ExamCreationWizard> {
-  final _title = TextEditingController();
+  late final _title = TextEditingController(text: widget.activeCycle?['title']?.toString() ?? '');
   final _instructions = TextEditingController();
   final _marksDefault = TextEditingController(text:'100');
-  final _minutesDefault = TextEditingController(text:'60');
+  int _startMinute = 540;
+  int _endMinute = 600;
+  late int _academicYear = (widget.activeCycle?['academicYear'] as int?) ?? _start.year;
+  late final Map<String,String> _excluded = examStringMap(widget.activeCycle?['excludedDates']);
   final _notesDefault = TextEditingController();
   String _typeDefault = 'Theory';
-  bool _skipSunday = false;
+  late bool _skipSunday = widget.activeCycle?['skipSunday'] == true;
   String? _generationError;
   late String _kind = widget.initialKind;
-  String _term = 'First Term';
+  late String _term = (widget.activeCycle?['category'] as String?) ?? 'First Term';
   String _testType = 'Monthly Test';
   String? _classId;
-  late DateTime _start = DateUtils.dateOnly(widget.initialDateRange?.start ?? DateTime.now());
-  late DateTime _end = DateUtils.dateOnly(widget.initialDateRange?.end ?? _start);
+  late DateTime _start = DateUtils.dateOnly(widget.initialDateRange?.start ?? DateTime.tryParse(widget.activeCycle?['startDate']?.toString() ?? '') ?? schoolExamNow());
+  late DateTime _end = DateUtils.dateOnly(widget.initialDateRange?.end ?? DateTime.tryParse(widget.activeCycle?['endDate']?.toString() ?? '') ?? _start);
   final _papers = <ExamPaperDraft>[];
   int _step = 0;
   bool _saving = false;
@@ -45,7 +49,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
   @override
   void dispose() {
     _title.dispose(); _instructions.dispose(); _marksDefault.dispose();
-    _minutesDefault.dispose(); _notesDefault.dispose(); super.dispose();
+    _notesDefault.dispose(); super.dispose();
   }
 
   String _classLabel(String id) {
@@ -60,14 +64,14 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       showDatePicker(context: context, initialDate: initial,
         firstDate: first ?? DateTime(2000), lastDate: last ?? DateTime(2100));
 
-  List<DateTime> get _days => examCalendarDays(_start,_end,skipSunday:_skipSunday);
+  List<DateTime> get _days => examCalendarDays(_start,_end,skipSunday:_skipSunday,excludedDates:_excluded.keys.toSet());
   List<ClassSubject> get _catalog => (widget.classSubjects[_classId] ?? const <ClassSubject>[]).where((s)=>s.active).toList();
 
   String? _defaultError() {
     final marks=double.tryParse(_marksDefault.text);
-    final minutes=int.tryParse(_minutesDefault.text);
+    final minutes=_endMinute-_startMinute;
     if(marks==null || !marks.isFinite || marks<1 || marks>1000 ||
-       minutes==null || minutes<1 || minutes>600) return 'Check default marks (1–1000) and duration (1–600 minutes).';
+       minutes<1 || minutes>600) return 'Check default marks (1–1000) and duration (1–600 minutes).';
     return null;
   }
 
@@ -84,7 +88,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
           : generateClassExamSchedule(classId:_classId!,className:_classLabel(_classId!),
               subjects:_catalog,assignments:widget.assignments,days:_days,teacherNames:widget.teacherNames,
               type:_typeDefault,maxMarks:double.parse(_marksDefault.text),
-              durationMinutes:int.parse(_minutesDefault.text),instructions:_notesDefault.text);
+              durationMinutes:_endMinute-_startMinute,startMinute:_startMinute,instructions:_notesDefault.text);
         _papers..clear()..addAll(generated);
       } on ArgumentError catch(error) {
         _generationError=error.message.toString();
@@ -153,7 +157,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       assignmentOnly:_assignment,availableDays:days,initial:previous,
       initialDate:previous?.date ?? (free.isNotEmpty?free.first:days.first),
       defaultType:_typeDefault,defaultMarks:double.tryParse(_marksDefault.text)??100,
-      defaultMinutes:int.tryParse(_minutesDefault.text)??60,defaultNotes:_notesDefault.text));
+      defaultMinutes:_endMinute-_startMinute,defaultStartMinute:_startMinute,defaultNotes:_notesDefault.text));
     if(!mounted || paper==null) return;
     if(_formal) {
       if(_papers.asMap().entries.any((e)=>e.key!=index && e.value.assignment.subject==paper.assignment.subject && e.value.type==paper.type)) {
@@ -188,7 +192,9 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       } else {
         await repo.publishSchedule(role: widget.role, kind: _kind,
           category: _formal ? _term : _testType, title: _title.text,
-          start: _start, end: _end, papers: _papers);
+          start: _start, end: _end, papers: _papers, academicYear:_academicYear,
+          activeCycleId:widget.activeCycle?['id']?.toString(), plannedClassIds:widget.classNames.keys.toList(),
+          excludedDates:_excluded,skipSunday:_skipSunday);
       }
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
@@ -201,7 +207,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
   Widget _dateTile(String title, DateTime date, VoidCallback onTap) => ListTile(
     contentPadding: EdgeInsets.zero, title: Text(title),
     subtitle: Text(examDateKey(date)), trailing: const Icon(Icons.calendar_month),
-    onTap: onTap,
+    onTap: widget.activeCycle != null && _formal ? null : onTap,
   );
 
   Widget _details() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -215,7 +221,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
         if (canScheduleFormalExams(widget.role))
           const DropdownMenuItem(value: 'assignment', child: Text('Class Assignment')),
       ],
-      onChanged: (v) {
+      onChanged: widget.activeCycle!=null ? null : (v) {
         if (v != null) setState(() {
           _kind = v; _papers.clear(); _classId=null; _generationError=null;
           if (!_formal) _end = _start;
@@ -229,10 +235,10 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
         isExpanded: true, decoration: const InputDecoration(labelText: 'Category'),
         items: [for (final item in _formal ? examTerms : classTestTypes)
           DropdownMenuItem(value: item, child: Text(item))],
-        onChanged: (v) { if (v != null) setState(() { if (_formal) { _term = v; } else { _testType = v; } }); },
+        onChanged: widget.activeCycle!=null?null:(v) { if (v != null) setState(() { if (_formal) { _term = v; } else { _testType = v; } }); },
       ),
     const SizedBox(height: 14),
-    TextField(controller: _title, maxLength: 100,
+    TextField(controller: _title, readOnly:widget.activeCycle!=null, maxLength: 100,
       decoration: const InputDecoration(labelText: 'Title (optional automatic name)')),
     _dateTile(_assignment ? 'Due date' : 'Start date', _start, () async {
       final picked = await _pick(_start);
@@ -250,9 +256,15 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       if (picked != null && mounted) { setState(()=>_end=picked); _generate(preserve:true); }
     }),
     if(_formal) ...[
+      DropdownButtonFormField<int>(initialValue:_academicYear,isExpanded:true,
+        decoration:const InputDecoration(labelText:'Academic year (starting year)'),
+        items:[for(var y=2000;y<=2100;y++) DropdownMenuItem(value:y,child:Text('$y–${y+1}'))],
+        onChanged:widget.activeCycle!=null?null:(v) {if(v!=null)setState(()=>_academicYear=v);}),
+      const SizedBox(height:12),
       SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Exclude Sundays'),
         subtitle:Text('${_days.length} available examination days'),value:_skipSunday,
-        onChanged:(v) { setState(()=>_skipSunday=v); _generate(preserve:true); }),
+        onChanged:widget.activeCycle!=null?null:(v) { setState(()=>_skipSunday=v); _generate(preserve:true); }),
+      _holidayControls(),
       const SizedBox(height:12),
       Text('Default details for all subjects',style:Theme.of(context).textTheme.titleMedium),
       const SizedBox(height:8),
@@ -264,8 +276,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       TextField(controller:_marksDefault,keyboardType:TextInputType.number,
         decoration:const InputDecoration(labelText:'Default maximum marks')),
       const SizedBox(height:12),
-      TextField(controller:_minutesDefault,keyboardType:TextInputType.number,
-        decoration:const InputDecoration(labelText:'Default duration (minutes)')),
+      _timingControls(),
       const SizedBox(height:12),
       TextField(controller:_notesDefault,maxLines:2,maxLength:1000,
         decoration:const InputDecoration(labelText:'Common paper instructions')),
@@ -276,14 +287,70 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
           setState(() {
             for(var i=0;i<_papers.length;i++) {
               _papers[i]=_papers[i].copyWith(maxMarks:double.parse(_marksDefault.text),
-                durationMinutes:int.parse(_minutesDefault.text),instructions:_notesDefault.text);
+                durationMinutes:_endMinute-_startMinute,startMinute:_startMinute,instructions:_notesDefault.text);
             }
             _error=null;
           });
-        },child:const Text('Apply marks, duration and instructions to all')),
+        },child:const Text('Apply marks, timing and instructions to all')),
     ],
     if (_assignment) TextField(controller: _instructions, maxLines: 4, maxLength: 1000,
       decoration: const InputDecoration(labelText: 'Assignment instructions')),
+  ]);
+
+  Future<void> _chooseTime(bool start) async {
+    final current=start?_startMinute:_endMinute;
+    final picked=await showTimePicker(context:context,initialTime:TimeOfDay(hour:current~/60,minute:current%60));
+    if(picked==null || !mounted)return;
+    final minute=picked.hour*60+picked.minute;
+    setState(() {
+      if(start) {
+        final length=_endMinute-_startMinute;
+        _startMinute=minute;
+        _endMinute=(minute+length).clamp(0,1439);
+      } else {_endMinute=minute;}
+    });
+  }
+
+  Widget _timingControls()=>Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+    ListTile(contentPadding:EdgeInsets.zero,title:const Text('Paper start time (PKT)'),
+      subtitle:Text(examClock(_startMinute)),trailing:const Icon(Icons.schedule),onTap:()=>_chooseTime(true)),
+    ListTile(contentPadding:EdgeInsets.zero,title:const Text('Paper end time (PKT)'),
+      subtitle:Text('${examClock(_endMinute)} • ${_endMinute-_startMinute} minutes'),
+      trailing:const Icon(Icons.schedule),onTap:()=>_chooseTime(false)),
+    if(_papers.isNotEmpty) OutlinedButton.icon(
+      onPressed:() {
+        final error=_defaultError();
+        if(error!=null){setState(()=>_error=error);return;}
+        setState(() {
+          for(var i=0;i<_papers.length;i++) {
+            _papers[i]=_papers[i].copyWith(startMinute:_startMinute,durationMinutes:_endMinute-_startMinute);
+          }
+          _error=null;
+        });
+      },icon:const Icon(Icons.schedule),label:const Text('Apply timing to all subjects')),
+  ]);
+
+  Widget _holidayControls()=>Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+    for(final entry in _excluded.entries)
+      ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.event_busy),
+        title:Text(entry.key),subtitle:Text(entry.value),
+        trailing:widget.activeCycle!=null?null:IconButton(tooltip:'Remove holiday',
+          onPressed:(){setState(()=>_excluded.remove(entry.key));_generate(preserve:true);},icon:const Icon(Icons.close))),
+    if(widget.activeCycle==null) OutlinedButton.icon(onPressed:() async {
+      final date=await _pick(_start,first:_start,last:_end);
+      if(date==null || !mounted)return;
+      final controller=TextEditingController();
+      final reason=await showDialog<String>(context:context,builder:(context)=>AlertDialog(
+        title:const Text('School holiday / closure'),
+        content:TextField(controller:controller,maxLength:200,
+          decoration:const InputDecoration(labelText:'Reason (Eid, Iqbal Day, etc.)')),
+        actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+          FilledButton(onPressed:()=>Navigator.pop(context,controller.text.trim()),child:const Text('Add'))]));
+      controller.dispose();
+      if(reason==null || reason.isEmpty || !mounted)return;
+      setState(()=>_excluded[examDateKey(date)]=reason);
+      _generate(preserve:true);
+    },icon:const Icon(Icons.event_busy),label:const Text('Exclude holiday / school closure')),
   ]);
 
   Widget _paperCards()=>Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
@@ -291,7 +358,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       leading:_formal?CircleAvatar(child:Text('${i+1}')):null,
       title:Text(_papers[i].assignment.subject),
       subtitle:Text('${_papers[i].assignment.active ? widget.teacherNames[_papers[i].assignment.staffId] ?? _papers[i].assignment.staffId : 'No assigned teacher'}'
-        '${_assignment?'':'\n${examDateKey(_papers[i].date)} • ${_papers[i].type} • ${_papers[i].maxMarks} marks • ${_papers[i].durationMinutes} min'}'),
+        '${_assignment?'':'\n${examDateKey(_papers[i].date)} • ${_papers[i].type} • ${_papers[i].maxMarks} marks • ${_papers[i].durationMinutes} min • ${examClock(_papers[i].startMinute)}–${examClock(_papers[i].endMinute)} PKT'}'),
       onTap:_saving || (_formal && _generationError!=null)?null:()=>_addPaper(index:i),
       trailing:Row(mainAxisSize:MainAxisSize.min,children:[
         IconButton(tooltip:'Edit paper',onPressed:_saving || (_formal && _generationError!=null)?null:()=>_addPaper(index:i),
@@ -320,6 +387,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
     final classes=(_formal && widget.classNames.isNotEmpty?widget.classNames.keys.toList():
       widget.assignments.where((a)=>a.active).map((a)=>a.classId).toSet().toList())
       ..sort((a,b)=>_classLabel(a).compareTo(_classLabel(b)));
+    if(widget.activeCycle!=null) classes.removeWhere((id)=>!examStrings(widget.activeCycle!['plannedClassIds']).contains(id) || examStrings(widget.activeCycle!['classIds']).contains(id));
     final unresolved=_papers.where((p)=>!p.assignment.active).map((p)=>p.assignment.subject).toList();
     return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
       DropdownButtonFormField<String>(initialValue:_classId,isExpanded:true,
@@ -399,7 +467,7 @@ class _PaperEditor extends StatefulWidget {
   const _PaperEditor({required this.assignments, required this.teacherNames,
     required this.start, required this.end, required this.assignmentOnly,
     required this.availableDays, required this.initialDate, this.initial,
-    required this.defaultType, required this.defaultMarks, required this.defaultMinutes, required this.defaultNotes});
+    required this.defaultType, required this.defaultMarks, required this.defaultMinutes, required this.defaultStartMinute, required this.defaultNotes});
   final List<TeacherAssignment> assignments;
   final Map<String, String> teacherNames;
   final DateTime start, end;
@@ -409,7 +477,7 @@ class _PaperEditor extends StatefulWidget {
   final ExamPaperDraft? initial;
   final String defaultType, defaultNotes;
   final double defaultMarks;
-  final int defaultMinutes;
+  final int defaultMinutes, defaultStartMinute;
 
   @override
   State<_PaperEditor> createState() => _PaperEditorState();
@@ -423,24 +491,36 @@ class _PaperEditorState extends State<_PaperEditor> {
     ?widget.initialDate:widget.availableDays.first;
   late String _type=widget.initial?.type??widget.defaultType;
   late final _marks=TextEditingController(text:(widget.initial?.maxMarks??widget.defaultMarks).toString());
-  late final _duration=TextEditingController(text:(widget.initial?.durationMinutes??widget.defaultMinutes).toString());
+  late int _paperStart=widget.initial?.startMinute??widget.defaultStartMinute;
+  late int _paperEnd=_paperStart+(widget.initial?.durationMinutes??widget.defaultMinutes);
   late final _notes=TextEditingController(text:widget.initial?.instructions??widget.defaultNotes);
   String? _error;
 
   @override
-  void dispose() { _marks.dispose(); _duration.dispose(); _notes.dispose(); super.dispose(); }
+  void dispose() { _marks.dispose(); _notes.dispose(); super.dispose(); }
 
   void _save() {
     final options = widget.assignments.where((a) => a.subject == _subject && a.id == _assignmentId);
     final marks = double.tryParse(_marks.text);
-    final minutes = int.tryParse(_duration.text);
+    final minutes = _paperEnd-_paperStart;
     if (options.isEmpty || marks == null || !marks.isFinite || marks <= 0 || marks > 1000 ||
-        minutes == null || minutes < 1 || minutes > 600) {
+        minutes < 1 || minutes > 600) {
       setState(() => _error = 'Select a teacher and enter valid marks and duration.');
       return;
     }
     Navigator.pop(context, ExamPaperDraft(assignment: options.first, date: _date,
-      type: _type, maxMarks: marks, durationMinutes: minutes, instructions: _notes.text));
+      type: _type, maxMarks: marks, durationMinutes: minutes, startMinute:_paperStart,instructions: _notes.text));
+  }
+
+  Future<void> _pickTime(bool start) async {
+    final current=start?_paperStart:_paperEnd;
+    final picked=await showTimePicker(context:context,initialTime:TimeOfDay(hour:current~/60,minute:current%60));
+    if(picked==null || !mounted)return;
+    final minute=picked.hour*60+picked.minute;
+    setState(() {
+      if(start){final length=_paperEnd-_paperStart;_paperStart=minute;_paperEnd=(minute+length).clamp(0,1439);}
+      else {_paperEnd=minute;}
+    });
   }
 
   @override
@@ -477,8 +557,11 @@ class _PaperEditorState extends State<_PaperEditor> {
           TextField(controller: _marks, keyboardType: TextInputType.number,
             decoration: const InputDecoration(labelText: 'Maximum marks')),
           const SizedBox(height: 12),
-          TextField(controller: _duration, keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Duration (minutes)')),
+          ListTile(contentPadding:EdgeInsets.zero,title:const Text('Paper start time (PKT)'),
+            subtitle:Text(examClock(_paperStart)),trailing:const Icon(Icons.schedule),onTap:()=>_pickTime(true)),
+          ListTile(contentPadding:EdgeInsets.zero,title:const Text('Paper end time (PKT)'),
+            subtitle:Text('${examClock(_paperEnd)} • ${_paperEnd-_paperStart} minutes'),
+            trailing:const Icon(Icons.schedule),onTap:()=>_pickTime(false)),
           const SizedBox(height: 12),
           TextField(controller: _notes, maxLines: 3, maxLength: 1000,
             decoration: const InputDecoration(labelText: 'Room, syllabus or instructions')),
