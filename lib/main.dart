@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'screens/owner_dashboard.dart';
+import 'screens/examinations_page.dart';
 import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
 import 'screens/teacher_dashboard.dart';
@@ -127,6 +128,9 @@ class AuthGate extends StatelessWidget {
                 ? (record['displayName'] as String).trim() : 'School User';
             if (role == 'owner' || role == 'principal') {
               return OwnerDashboard(displayName: name, role: role);
+            }
+            if (role == 'examiner') {
+              return const ExaminationsPage(role: 'examiner');
             }
             if (role == 'teacher') {
               final staffId = (record['staffId'] as String?) ?? '';

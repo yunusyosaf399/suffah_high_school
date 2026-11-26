@@ -6,7 +6,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   doc, setDoc, getDoc, getDocs, collection, updateDoc, runTransaction,
-  query, where, serverTimestamp, Timestamp, writeBatch,
+  query, where, serverTimestamp, Timestamp, writeBatch, arrayUnion,
 } from 'firebase/firestore';
 
 const ownerId = 'tQt6vca2zuagZipvknBwcmSRcrc2';
@@ -744,4 +744,145 @@ test('manager can update cost without changing public selling price', async () =
     .data().priceMinor, 5000);
   await assertFails(updateDoc(cost, {createdBy: sellerId}));
   await assertFails(updateDoc(cost, {unitCostMinor: -1}));
+});
+
+
+function termPaper({examiner,cycleId='2026_first',category='First Term',classId='C1',staffId='T1',assignmentId='A1',subject='Math',date='2026-01-02'}) {
+  return {cycleId,sessionId:'session',kind:'term',category,title:subject,assignmentId,staffId,classId,subject,
+    maxMarks:100,active:true,resultStatus:'draft',createdBy:examiner,
+    startDate:'2026-01-01',endDate:'2026-01-30',examDate:date,
+    paperType:'Theory',durationMinutes:60,startMinute:540,endMinute:600,
+    endAt:Timestamp.fromDate(new Date('2026-01-02T05:00:00Z')),
+    expectedStudentIds:['S1','S2'],rosterSnapshot:{S1:{fullName:'Student 1',rollNo:'1'},S2:{fullName:'Student 2',rollNo:'2'}},
+    markedStudentIds:[]};
+}
+function termRecord(examiner,ids,slots,{year=2026,category='First Term',planned=['C1'],classId='C1'}={}) {
+  return {academicYear:year,category,title:category,status:'active',startDate:'2026-01-01',endDate:'2026-01-30',
+    excludedDates:{},skipSunday:false,plannedClassIds:planned,classIds:[classId],paperIds:ids,
+    releasedPaperIds:[],slots,lastClassId:classId,createdBy:examiner,
+    createdAt:serverTimestamp(),updatedAt:serverTimestamp()};
+}
+async function publishTerm(database,examiner,id,papers,{category='First Term',planned=['C1']}={}) {
+  const batch=writeBatch(database);
+  const ids=Object.keys(papers);
+  const classId=papers[ids[0]].classId;
+  const slots=Object.fromEntries(ids.map(p=>[classId+'__'+papers[p].examDate,p]));
+  batch.set(doc(database,'exam_term_control','current'),{cycleId:id,updatedAt:serverTimestamp()});
+  batch.set(doc(database,'exam_term_cycles',id),termRecord(examiner,ids,slots,{category,planned,classId}));
+  for(const [key,data] of Object.entries(papers)) batch.set(doc(database,'examinations',key),data);
+  return batch.commit();
+}
+async function recordExamMark(database,teacher,examId,studentId,score) {
+  const batch=writeBatch(database);
+  batch.set(doc(database,'examinations',examId,'marks',studentId),{examId,studentId,classId:'C1',teacherUid:teacher,score});
+  const paper=doc(database,'examinations',examId);
+  // Use arrayUnion as the real app does.
+  batch.update(paper,{markedStudentIds:arrayUnion(studentId),lastMarkedStudentId:studentId,updatedAt:serverTimestamp()});
+  return batch.commit();
+}
+async function releaseExam(database,cycleId,examId) {
+  const batch=writeBatch(database);
+  batch.update(doc(database,'examinations',examId),{resultStatus:'released',updatedAt:serverTimestamp()});
+  batch.update(doc(database,'exam_term_cycles',cycleId),{releasedPaperIds:arrayUnion(examId),lastPaperId:examId,updatedAt:serverTimestamp()});
+  return batch.commit();
+}
+async function closeExam(database,id,uid) {
+  return updateDoc(doc(database,'exam_term_cycles',id),{status:'closed',closedBy:uid,closedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+}
+test('annual exam locks, complete marks, release and closure are enforced', async () => {
+  const examiner='examiner-uid',teacher='exam-teacher-uid';
+  await environment.withSecurityRulesDisabled(async context => {
+    const admin=context.firestore();
+    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    await setDoc(doc(admin,'users',teacher),{role:'teacher',active:true,staffId:'T1'});
+    await setDoc(doc(admin,'staff','T1'),{active:true,roleType:'teacher'});
+    await setDoc(doc(admin,'classes','C1'),{active:true});
+    await setDoc(doc(admin,'classes','C1','subjects','math'),{active:true,name:'Math'});
+    await setDoc(doc(admin,'teacher_assignments','A1'),{active:true,staffId:'T1',classId:'C1',subject:'Math',subjectId:'math'});
+    await setDoc(doc(admin,'teacher_class_links','T1__C1'),{active:true,staffId:'T1',classId:'C1'});
+    for(const id of ['S1','S2','S3']) await setDoc(doc(admin,'class_rosters','C1','students',id),{active:true,classId:'C1',fullName:id});
+    await setDoc(doc(admin,'students','S1'),{fullName:'Student',guardianPhone:'private'});
+  });
+  const manager=db(examiner), tutor=db(teacher), fields=termPaper({examiner});
+  await assertFails(setDoc(doc(manager,'examinations','direct'),fields));
+  await assertSucceeds(publishTerm(manager,examiner,'2026_first',{E1:fields}));
+  const middle=termPaper({examiner,cycleId:'2026_mid',category:'Mid Term'});
+  await assertFails(publishTerm(manager,examiner,'2026_mid',{E2:middle},{category:'Mid Term'}));
+  await assertFails(closeExam(manager,'2026_first',examiner));
+  await assertFails(updateDoc(doc(manager,'exam_term_cycles','2026_first'),{releasedPaperIds:['E1'],lastPaperId:'E1',updatedAt:serverTimestamp()}));
+  await assertSucceeds(getDocs(query(collection(tutor,'examinations'),where('staffId','==','T1'),where('active','==',true))));
+  await assertFails(getDoc(doc(manager,'students','S1')));
+  await assertFails(getDoc(doc(manager,'staff','T1')));
+  await assertFails(getDoc(doc(manager,'inventory_purchases','sample-purchase')));
+  await assertFails(setDoc(doc(tutor,'examinations','formal'),{...fields,createdBy:teacher}));
+  const classTest={...fields,kind:'test',category:'Monthly Test',createdBy:teacher};
+  delete classTest.cycleId;
+  await assertSucceeds(setDoc(doc(tutor,'examinations','test'),classTest));
+  const work={kind:'assignment',title:'Exercise',active:true,teacherUid:examiner,assignmentId:'A1',staffId:'T1',classId:'C1',subject:'Math'};
+  await assertSucceeds(setDoc(doc(manager,'classwork','W1'),work));
+  await assertFails(setDoc(doc(manager,'classwork','H1'),{...work,kind:'homework'}));
+  await assertSucceeds(setDoc(doc(tutor,'classwork','H2'),{...work,kind:'homework',teacherUid:teacher}));
+  const submission={resultStatus:'submitted',submittedBy:teacher,submittedAt:serverTimestamp(),updatedAt:serverTimestamp()};
+  await assertFails(updateDoc(doc(tutor,'examinations','E1'),submission));
+  await assertFails(recordExamMark(tutor,teacher,'E1','S3',80));
+  await assertSucceeds(recordExamMark(tutor,teacher,'E1','S1',80));
+  await assertFails(updateDoc(doc(tutor,'examinations','E1'),{markedStudentIds:['S1','S2'],lastMarkedStudentId:'S2',updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(doc(tutor,'examinations','E1'),submission));
+  await assertSucceeds(recordExamMark(tutor,teacher,'E1','S2',70));
+  await assertSucceeds(updateDoc(doc(tutor,'examinations','E1'),submission));
+  await assertFails(recordExamMark(tutor,teacher,'E1','S1',90));
+  await assertFails(updateDoc(doc(manager,'examinations','E1'),{resultStatus:'released',updatedAt:serverTimestamp()}));
+  await assertSucceeds(releaseExam(manager,'2026_first','E1'));
+  await assertSucceeds(closeExam(manager,'2026_first',examiner));
+  await assertFails(updateDoc(doc(manager,'examinations','E1'),{resultStatus:'draft',updatedAt:serverTimestamp()}));
+  await assertSucceeds(publishTerm(manager,examiner,'2026_mid',{E2:middle},{category:'Mid Term'}));
+  await assertFails(publishTerm(manager,examiner,'2026_first',{duplicate:fields}));
+});
+
+test('term supports 15 distinct papers in one class and appends a second class', async () => {
+  const examiner='schedule-examiner';
+  await environment.withSecurityRulesDisabled(async context => {
+    const admin=context.firestore();
+    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    for(let i=0;i<16;i++) {
+      await setDoc(doc(admin,'teacher_assignments','multi-'+i),{active:true,staffId:'teacher-'+i,classId:i===15?'C2':'C1',subject:'Subject '+i});
+    }
+  });
+  const database=db(examiner), papers={};
+  for(let i=0;i<15;i++) papers['paper-'+i]=termPaper({examiner,cycleId:'2026_mid',category:'Mid Term',
+    staffId:'teacher-'+i,assignmentId:'multi-'+i,subject:'Subject '+i,date:'2026-01-'+String(i+1).padStart(2,'0')});
+  await assertSucceeds(publishTerm(database,examiner,'2026_mid',papers,{category:'Mid Term',planned:['C1','C2']}));
+  const second=termPaper({examiner,cycleId:'2026_mid',category:'Mid Term',classId:'C2',staffId:'teacher-15',
+    assignmentId:'multi-15',subject:'Subject 15',date:'2026-01-02'});
+  const batch=writeBatch(database);
+  batch.set(doc(database,'examinations','second'),second);
+  batch.update(doc(database,'exam_term_cycles','2026_mid'),{classIds:arrayUnion('C2'),paperIds:arrayUnion('second'),
+    'slots.C2__2026-01-02':'second',lastClassId:'C2',updatedAt:serverTimestamp()});
+  await assertSucceeds(batch.commit());
+  await assertFails(closeExam(database,'2026_mid',examiner));
+});
+
+test('holiday exclusion and paper reschedule preserve slots and audit reason', async () => {
+  const examiner='holiday-examiner';
+  await environment.withSecurityRulesDisabled(async context=>{
+    const admin=context.firestore();
+    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    await setDoc(doc(admin,'teacher_assignments','A1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
+    await setDoc(doc(admin,'teacher_assignments','A2'),{active:true,staffId:'T2',classId:'C1',subject:'English'});
+  });
+  const database=db(examiner);
+  await assertSucceeds(publishTerm(database,examiner,'2026_first',{
+    E1:termPaper({examiner}),E2:termPaper({examiner,staffId:'T2',assignmentId:'A2',subject:'English',date:'2026-01-03'})}));
+  const cycle=doc(database,'exam_term_cycles','2026_first'),paper=doc(database,'examinations','E1');
+  await assertSucceeds(updateDoc(cycle,{excludedDates:{'2090-01-04':'School closure'},updatedAt:serverTimestamp()}));
+  async function move(date,slots) {
+    const batch=writeBatch(database);
+    batch.update(paper,{examDate:date,endDate:date,startMinute:600,endMinute:660,durationMinutes:60,
+      endAt:Timestamp.fromDate(new Date('2090-01-06T06:00:00Z')),rescheduleReason:'School closure',
+      rescheduleHistory:[{previousDate:'2026-01-02',newDate:date,reason:'School closure'}],updatedAt:serverTimestamp()});
+    batch.update(cycle,{slots,endDate:date,lastPaperId:'E1',updatedAt:serverTimestamp()});
+    return batch.commit();
+  }
+  await assertFails(move('2090-01-04',{'C1__2090-01-04':'E1','C1__2026-01-03':'E2'}));
+  await assertSucceeds(move('2090-01-06',{'C1__2090-01-06':'E1','C1__2026-01-03':'E2'}));
 });

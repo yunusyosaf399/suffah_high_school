@@ -7,6 +7,7 @@ import 'students_page.dart';
 import 'attendance_page.dart';
 import 'staff_page.dart';
 import 'examinations_page.dart';
+import 'exam_term_overview.dart';
 import 'global_search_page.dart';
 import 'users_page.dart';
 import 'finance_page.dart';
@@ -271,6 +272,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                         FinanceDashboardPreview(
                           key: ValueKey(_financeRevision),
                         ),
+                    if (widget.summaryLoader == null) ...[
+                      const SizedBox(height: 16),
+                      ExamTermOverview(onOpen:()=>_openModule(4)),
+                    ],
                     const SizedBox(height: 27),
                     Row(
                       children: [
