@@ -12,6 +12,7 @@ import 'users_page.dart';
 import 'finance_page.dart';
 import 'finance_analytics_tab.dart';
 import 'inventory_page.dart';
+import 'student_documents_page.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({
@@ -52,6 +53,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Users', Icons.manage_accounts_outlined, 'Staff and parent sign-ins', true),
     _DashboardModule('Canteen Sales', Icons.fastfood_outlined, 'Quick selling, stock & receipts', true),
     _DashboardModule('Stationery & Books', Icons.menu_book_outlined, 'Products, customer sales & credit', true),
+    _DashboardModule('Documents', Icons.folder_copy_outlined, 'Student folders & certificates', true),
   ];
 
   void _refresh() {
@@ -121,6 +123,12 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           department: index == 9 ? 'canteen' : 'stationery',
         )),
       );
+      return;
+    }
+    if (index == 11 && (widget.role == 'owner' || widget.role == 'principal')) {
+      await Navigator.of(context).push<void>(MaterialPageRoute(
+        builder: (_) => StudentDocumentsPage(role: widget.role),
+      ));
       return;
     }
     if (!mounted) return;

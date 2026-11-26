@@ -15,6 +15,7 @@ dependencies:
   cloud_firestore: ^6.8.0
   firebase_messaging: ^16.5.0
   http: ^1.5.0
+  pdfrx: 2.2.24
   file_picker: ^10.3.10
   flutter_image_compress: ^2.5.1
 
