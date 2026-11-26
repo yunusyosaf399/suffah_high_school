@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../data/school_errors.dart';
+import '../data/examination_repository.dart';
 import '../data/staff_repository.dart';
 import 'exam_creation_wizard.dart';
 
@@ -63,7 +64,7 @@ class TeacherExaminationsPage extends StatelessWidget {
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                   subtitle: Text(
                     '${data['className'] ?? data['classId']} • ${data['subject']}\n'
-                    'Date: ${data['examDate'] ?? 'Not set'} • Max: ${data['maxMarks']} • ${data['resultStatus'] ?? 'draft'}',
+                    'Date: ${data['examDate'] ?? 'Not set'} • ${examTiming(data)}\nMax: ${data['maxMarks']} • ${data['resultStatus'] ?? 'draft'}',
                     style: const TextStyle(fontSize: 11)),
                   isThreeLine: true,
                   trailing: const Icon(Icons.chevron_right),
@@ -96,7 +97,8 @@ class TeacherExamMarksPage extends StatefulWidget {
 class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
   final _db = FirebaseFirestore.instance;
   final _controllers = <String, TextEditingController>{};
-  late Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _rosterFuture;
+  late Future<List<_ExamStudent>> _rosterFuture;
+  bool get _managed => widget.exam['cycleId'] is String;
   bool _saving = false;
   String? _error;
   late bool _locked = widget.readOnly || (widget.exam['resultStatus'] ?? 'draft') != 'draft';
@@ -110,22 +112,34 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
     _rosterFuture = _loadRoster();
   }
 
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadRoster() async {
-    final roster = await _db.collection('class_rosters').doc(_classId)
-        .collection('students').where('active', isEqualTo: true)
-        .limit(1000).get(const GetOptions(source: Source.server));
-    final marks = await _db.collection('examinations').doc(widget.examId)
-        .collection('marks').get(const GetOptions(source: Source.server));
-    if (!mounted) return roster.docs;
-    for (final mark in marks.docs) {
-      final score = mark.data()['score'];
-      _controllers[mark.id] = TextEditingController(
-        text: score is num ? score.toString() : '');
+  Future<List<_ExamStudent>> _loadRoster() async {
+    final students=<_ExamStudent>[];
+    if(_managed) {
+      final snapshot=widget.exam['rosterSnapshot'] as Map;
+      for(final id in examStrings(widget.exam['expectedStudentIds'])) {
+        final data=snapshot[id] as Map;
+        students.add(_ExamStudent(id,(data['fullName']??'Student').toString(),(data['rollNo']??'').toString()));
+      }
+    } else {
+      final roster=await _db.collection('class_rosters').doc(_classId)
+        .collection('students').where('active',isEqualTo:true)
+        .limit(1000).get(const GetOptions(source:Source.server));
+      for(final doc in roster.docs) {
+        final data=doc.data();
+        students.add(_ExamStudent(doc.id,(data['fullName']??'Student').toString(),(data['rollNo']??'').toString()));
+      }
     }
-    for (final student in roster.docs) {
-      _controllers.putIfAbsent(student.id, () => TextEditingController());
+    final marks=await _db.collection('examinations').doc(widget.examId)
+      .collection('marks').get(const GetOptions(source:Source.server));
+    if(!mounted)return students;
+    for(final mark in marks.docs) {
+      final score=mark.data()['score'];
+      _controllers[mark.id]=TextEditingController(text:score is num?score.toString():'');
     }
-    return roster.docs;
+    for(final student in students) {
+      _controllers.putIfAbsent(student.id,()=>TextEditingController());
+    }
+    return students;
   }
 
   @override
@@ -137,13 +151,16 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
   }
 
   Future<void> _save(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> roster, {bool submit = false}
+    List<_ExamStudent> roster, {bool submit = false}
   ) async {
     if (_saving || _locked) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       setState(() => _error = 'Sign in again to save examination marks.');
       return;
+    }
+    if(submit && _managed && (widget.exam['endAt'] as Timestamp).toDate().isAfter(DateTime.now())) {
+      setState(()=>_error='The paper has not ended yet. Save draft marks only.'); return;
     }
     final scores = <String,double>{};
     for (final student in roster) {
@@ -164,6 +181,19 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
     setState(() { _saving = true; _error = null; });
     try {
       final ref = _db.collection('examinations').doc(widget.examId);
+      if(_managed) {
+        // Each mark and its completion ledger entry must commit together.
+        for(final entry in scores.entries) {
+          final batch=_db.batch();
+          batch.set(ref.collection('marks').doc(entry.key),{
+            'examId':widget.examId,'studentId':entry.key,'classId':_classId,
+            'score':entry.value,'teacherUid':user.uid,'updatedAt':FieldValue.serverTimestamp(),
+          },SetOptions(merge:true));
+          batch.update(ref,{'markedStudentIds':FieldValue.arrayUnion([entry.key]),
+            'lastMarkedStudentId':entry.key,'updatedAt':FieldValue.serverTimestamp()});
+          await batch.commit();
+        }
+      } else {
       // Keep rule-dependent document lookups below Firestore batch limits.
       var batch = _db.batch();
       var count = 0;
@@ -176,6 +206,7 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
         if (++count == 2) { await batch.commit(); batch = _db.batch(); count = 0; }
       }
       if (count > 0) await batch.commit();
+      }
       if (submit) {
         await ref.update({'resultStatus': 'submitted', 'submittedBy': user.uid,
           'submittedAt': FieldValue.serverTimestamp(), 'updatedAt': FieldValue.serverTimestamp()});
@@ -197,7 +228,7 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
     appBar: AppBar(title: Text(
       (widget.exam['title'] as String?) ?? 'Examination marks',
       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
-    body: FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+    body: FutureBuilder<List<_ExamStudent>>(
       future: _rosterFuture,
       builder: (context, snapshot) {
         if (snapshot.hasError) return _ExamMessage(
@@ -221,13 +252,13 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
             padding: const EdgeInsets.all(14),
             itemCount: roster.length,
             itemBuilder: (context, index) {
-              final data = roster[index].data();
+              final student = roster[index];
               return Card(
                 margin: const EdgeInsets.only(bottom: 7),
                 child: ListTile(
-                  title: Text((data['fullName'] as String?) ?? 'Student',
+                  title: Text(student.name,
                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                  subtitle: Text('Roll no: ${data['rollNo'] ?? '—'}',
+                  subtitle: Text('Roll no: ${student.rollNo.isEmpty ? '—' : student.rollNo}',
                     style: const TextStyle(fontSize: 10)),
                   trailing: SizedBox(
                     width: 88,
@@ -282,4 +313,9 @@ class _ExamMessage extends StatelessWidget {
       ]),
     ),
   );
+}
+
+class _ExamStudent {
+  const _ExamStudent(this.id,this.name,this.rollNo);
+  final String id,name,rollNo;
 }
