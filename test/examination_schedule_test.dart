@@ -1,4 +1,6 @@
 import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:suffah_high_school/screens/exam_creation_wizard.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suffah_high_school/data/class_subject_repository.dart';
 import 'package:suffah_high_school/data/examination_repository.dart';
@@ -53,6 +55,50 @@ void main() {
     const other=TeacherAssignment(id:'b',staffId:'u',classId:'c',subject:'English',active:true);
     expect(check([ExamPaperDraft(assignment:assignment,date:start),
       ExamPaperDraft(assignment:other,date:start)]),contains('one paper'));
+  });
+
+  testWidgets('selecting a class generates all subjects and preview supports editing and shuffle', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900,1200));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    const subjects=[
+      ClassSubject(id:'math',classId:'c',name:'Math',active:true),
+      ClassSubject(id:'english',classId:'c',name:'English',active:true),
+      ClassSubject(id:'science',classId:'c',name:'Science',active:true),
+    ];
+    const teachers=[
+      TeacherAssignment(id:'a',staffId:'t',classId:'c',subject:'Math',subjectId:'math',active:true),
+      TeacherAssignment(id:'b',staffId:'u',classId:'c',subject:'English',subjectId:'english',active:true),
+      TeacherAssignment(id:'d',staffId:'v',classId:'c',subject:'Science',subjectId:'science',active:true),
+    ];
+    await tester.pumpWidget(MaterialApp(home:ExamCreationWizard(role:'owner',
+      assignments:teachers,classSubjects:{'c':subjects},classNames:{'c':'Class 5-A'},
+      initialDateRange:DateTimeRange(start:start,end:end))));
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Class 5-A').last);
+    await tester.pumpAndSettle();
+    expect(find.text('3 active subjects • 10 available days • 3 papers'),findsOneWidget);
+    expect(find.byTooltip('Edit paper'),findsNWidgets(3));
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('3 papers • Review and edit before publishing'),findsOneWidget);
+    await tester.tap(find.widgetWithText(ListTile,'English'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first,'80');
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('80.0 marks'),findsOneWidget);
+    List<String> order()=>tester.widgetList<ListTile>(find.byType(ListTile))
+      .map((tile)=>tile.title).whereType<Text>().map((text)=>text.data??'').toList();
+    final before=order();
+    await tester.tap(find.text('Shuffle subjects'));
+    await tester.pumpAndSettle();
+    expect(order(),isNot(before));
+    expect(find.textContaining('80.0 marks'),findsOneWidget);
+    expect(find.byTooltip('Edit paper'),findsNWidgets(3));
+    expect(tester.takeException(),isNull);
   });
 
   test('formal exams are restricted to exam administrators', () {
