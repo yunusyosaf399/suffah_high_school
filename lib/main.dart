@@ -6,13 +6,9 @@ import 'screens/owner_dashboard.dart';
 import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
 import 'screens/teacher_dashboard.dart';
-<<<<<<< Updated upstream
-import 'screens/inventory_sections_page.dart';
-=======
 import 'screens/inventory_sections_page.dart';
 import 'firebase_options.dart';
 
->>>>>>> Stashed changes
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
