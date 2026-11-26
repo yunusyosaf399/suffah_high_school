@@ -47,15 +47,14 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/staff/$(staffId)).data.roleType == 'teacher';
     }
 
-    function isExaminer() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'examiner';
+    function canManageExams() {
+      return isOwner() || (request.auth != null
+        && activeExamAdministrator());
     }
 
-    function canManageExams() {
-      return canManageAdmissions() || isExaminer();
+    function activeExamAdministrator() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return user.active == true && user.role in ['principal','examiner'];
     }
 
     function examAssignmentMatches(d) {
@@ -630,9 +629,7 @@ service cloud.firestore {
         && (canManageExams()
           || (request.resource.data.kind == 'test'
             && request.resource.data.createdBy == request.auth.uid
-            && activeTeacherAssignment(request.resource.data.assignmentId,
-              request.resource.data.staffId, request.resource.data.classId,
-              request.resource.data.subject)))
+            && examTeacherAuthorized(request.resource.data)))
         && (
           !('sessionId' in request.resource.data)
           || (request.resource.data.kind in ['term','test']
