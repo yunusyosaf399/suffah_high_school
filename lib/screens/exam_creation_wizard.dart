@@ -7,13 +7,14 @@ import '../data/staff_repository.dart';
 
 class ExamCreationWizard extends StatefulWidget {
   const ExamCreationWizard({super.key, required this.role, required this.assignments,
-    this.teacherNames = const {}, this.classSubjects = const {}, this.classNames = const {}, this.initialKind = 'term'});
+    this.teacherNames = const {}, this.classSubjects = const {}, this.classNames = const {}, this.initialKind = 'term', this.initialDateRange});
   final String role;
   final List<TeacherAssignment> assignments;
   final Map<String, String> teacherNames;
   final Map<String, List<ClassSubject>> classSubjects;
   final Map<String,String> classNames;
   final String initialKind;
+  final DateTimeRange? initialDateRange;
 
   @override
   State<ExamCreationWizard> createState() => _ExamCreationWizardState();
@@ -32,8 +33,8 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
   String _term = 'First Term';
   String _testType = 'Monthly Test';
   String? _classId;
-  DateTime _start = DateUtils.dateOnly(DateTime.now());
-  DateTime _end = DateUtils.dateOnly(DateTime.now());
+  late DateTime _start = DateUtils.dateOnly(widget.initialDateRange?.start ?? DateTime.now());
+  late DateTime _end = DateUtils.dateOnly(widget.initialDateRange?.end ?? _start);
   final _papers = <ExamPaperDraft>[];
   int _step = 0;
   bool _saving = false;
