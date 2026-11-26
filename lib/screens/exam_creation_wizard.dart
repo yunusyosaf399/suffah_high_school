@@ -370,7 +370,39 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
     )),
   ]);
 
+  Future<void> _bulkTiming() async {
+    var start=_startMinute,end=_endMinute;
+    final result=await showDialog<(int,int)>(context:context,builder:(context)=>StatefulBuilder(
+      builder:(context,update)=>AlertDialog(
+        title:const Text('Apply timing to all subjects'),
+        content:Column(mainAxisSize:MainAxisSize.min,children:[
+          ListTile(title:const Text('Start time (PKT)'),subtitle:Text(examClock(start)),
+            trailing:const Icon(Icons.schedule),onTap:() async {
+              final t=await showTimePicker(context:context,initialTime:TimeOfDay(hour:start~/60,minute:start%60));
+              if(t!=null && context.mounted)update(()=>start=t.hour*60+t.minute);
+            }),
+          ListTile(title:const Text('End time (PKT)'),subtitle:Text(examClock(end)),
+            trailing:const Icon(Icons.schedule),onTap:() async {
+              final t=await showTimePicker(context:context,initialTime:TimeOfDay(hour:end~/60,minute:end%60));
+              if(t!=null && context.mounted)update(()=>end=t.hour*60+t.minute);
+            }),
+          const Text('This replaces all individual paper timings. Dates, marks and teachers stay unchanged.'),
+        ]),actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+          FilledButton(onPressed:end<=start || end-start>600?null:()=>Navigator.pop(context,(start,end)),
+            child:const Text('Apply to all'))])));
+    if(result==null || !mounted)return;
+    setState((){
+      _startMinute=result.$1;_endMinute=result.$2;
+      for(var i=0;i<_papers.length;i++) {
+        _papers[i]=_papers[i].copyWith(startMinute:_startMinute,durationMinutes:_endMinute-_startMinute);
+      }
+      _error=null;
+    });
+  }
+
   Widget _scheduleActions()=>Wrap(spacing:8,runSpacing:8,children:[
+    OutlinedButton.icon(onPressed:_saving || _papers.isEmpty || _generationError!=null?null:_bulkTiming,
+      icon:const Icon(Icons.schedule),label:const Text('Apply timing to all subjects')),
     OutlinedButton.icon(onPressed:_saving || _papers.length<2 || _generationError!=null?null:_shuffle,
       icon:const Icon(Icons.shuffle),label:const Text('Shuffle subjects')),
     OutlinedButton.icon(onPressed:_saving || _classId==null?null:() async {

@@ -101,6 +101,39 @@ void main() {
     expect(tester.takeException(),isNull);
   });
 
+  test('school holidays are excluded from automatic date generation', () {
+    final days=examCalendarDays(start,end,skipSunday:true,excludedDates:{'2026-12-03','2026-12-05'});
+    expect(days.map(examDateKey),isNot(contains('2026-12-03')));
+    expect(days.map(examDateKey),isNot(contains('2026-12-05')));
+    expect(days.every((d)=>d.weekday!=DateTime.sunday),isTrue);
+    expect(examDateSlots(days,3).map(examDateKey).toSet().length,3);
+  });
+
+  test('paper time validation and shuffle preserve timings', () {
+    final paper=ExamPaperDraft(assignment:assignment,date:start,startMinute:600,durationMinutes:120);
+    expect(paper.endMinute,720);
+    expect(examClock(paper.startMinute),'10:00');
+    expect(examInstant(start,paper.startMinute),DateTime.utc(2026,12,1,5));
+    expect(check([paper]),isNull);
+    expect(check([paper.copyWith(startMinute:1430)]),isNotNull);
+    final moved=paper.copyWith(date:end);
+    expect(moved.startMinute,600);
+    expect(moved.durationMinutes,120);
+  });
+
+  test('term closure requires all planned classes and every paper released', () {
+    final cycle=<String,dynamic>{'status':'active','plannedClassIds':['C1','C2'],
+      'classIds':['C1'],'paperIds':['P1','P2'],'releasedPaperIds':['P1']};
+    expect(termReadyToClose(cycle),isFalse);
+    cycle['classIds']=['C1','C2'];
+    expect(termReadyToClose(cycle),isFalse);
+    cycle['releasedPaperIds']=['P1','P2'];
+    expect(termReadyToClose(cycle),isTrue);
+    cycle['status']='closed';
+    expect(termReadyToClose(cycle),isFalse);
+    expect(termCycleId(2026,'First Term'),'2026_first');
+  });
+
   test('formal exams are restricted to exam administrators', () {
     expect(canScheduleFormalExams('examiner'),isTrue);
     expect(canScheduleFormalExams('teacher'),isFalse);

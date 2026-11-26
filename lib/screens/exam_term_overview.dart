@@ -53,7 +53,16 @@ class _CycleCardState extends State<_CycleCard> {
     stream:_cycle,builder:(context,snapshot) {
       if(snapshot.hasError)return Text(schoolErrorMessage(snapshot.error!));
       final cycle=snapshot.data?.data();
-      if(cycle==null || cycle['status']!='active')return const SizedBox.shrink();
+      if(cycle==null)return const SizedBox.shrink();
+      if(cycle['status']=='closed') {
+        return Card(margin:const EdgeInsets.symmetric(horizontal:12,vertical:6),child:ListTile(
+          leading:const Icon(Icons.check_circle_outline),
+          title:Text('${cycle['category']} • Fully closed'),
+          subtitle:Text('Academic year ${cycle['academicYear']}–${(cycle['academicYear'] as int)+1} • All results declared\nNo active examination. A new term may be created.'),
+          trailing:widget.config.onOpen==null?null:IconButton(tooltip:'Open examinations',
+            icon:const Icon(Icons.chevron_right),onPressed:widget.config.onOpen)));
+      }
+      if(cycle['status']!='active')return const SizedBox.shrink();
       return StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(
         stream:_papers,builder:(context,paperSnapshot) {
           if(paperSnapshot.hasError)return Text(schoolErrorMessage(paperSnapshot.error!));

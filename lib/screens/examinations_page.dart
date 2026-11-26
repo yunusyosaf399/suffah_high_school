@@ -124,15 +124,42 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
   }
 
   Future<void> _holiday(String id) async {
-    final cycle=await _repo.loadActiveTerm();
-    if(!mounted || cycle==null || cycle['id']!=id)return;
-    final now=schoolExamNow();
-    final today=DateTime(now.year,now.month,now.day);
-    final day=await showDatePicker(context:context,initialDate:today,firstDate:today,lastDate:DateTime(2100));
-    if(day==null || !mounted)return;
-    final reason=await showDialog<String>(context:context,builder:(_)=>const _ReasonDialog(title:'School holiday / closure',label:'Reason (Eid, disaster, public holiday, etc.)'));
-    if(reason==null)return;
     try {
+      final cycle=await _repo.loadActiveTerm();
+      if(!mounted || cycle==null || cycle['id']!=id)return;
+      final off=examStringMap(cycle['excludedDates']);
+      final entries=off.entries.toList()..sort((a,b)=>a.key.compareTo(b.key));
+      final choice=await showDialog<String>(context:context,builder:(context)=>AlertDialog(
+        title:const Text('School holidays & closures'),
+        content:SizedBox(width:480,child:SingleChildScrollView(child:Column(
+          mainAxisSize:MainAxisSize.min,children:[
+            if(entries.isEmpty) const Text('No excluded dates.'),
+            for(final entry in entries) ListTile(
+              title:Text(entry.key),subtitle:Text(entry.value),
+              trailing:IconButton(tooltip:'Remove closure',icon:const Icon(Icons.delete_outline),
+                onPressed:()=>Navigator.pop(context,entry.key))),
+          ]))),
+        actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+          FilledButton(onPressed:()=>Navigator.pop(context,'add'),child:const Text('Add closure'))]));
+      if(choice==null || !mounted)return;
+      if(choice!='add') {
+        final confirmed=await showDialog<bool>(context:context,builder:(context)=>AlertDialog(
+          title:const Text('Remove excluded date?'),
+          content:Text('$choice will become available again. Previously rescheduled papers stay on their new dates.'),
+          actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),
+            FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Remove'))]));
+        if(confirmed==true) {
+          await _repo.removeSchoolClosure(id,choice);
+          _message('Closure removed.');
+        }
+        return;
+      }
+      final now=schoolExamNow();
+      final today=DateTime(now.year,now.month,now.day);
+      final day=await showDatePicker(context:context,initialDate:today,firstDate:today,lastDate:DateTime(2100));
+      if(day==null || !mounted)return;
+      final reason=await showDialog<String>(context:context,builder:(_)=>const _ReasonDialog(title:'School holiday / closure',label:'Reason (Eid, disaster, public holiday, etc.)'));
+      if(reason==null)return;
       await _repo.markSchoolClosure(id,examDateKey(day),reason);
       _message('Closure saved. Reschedule any affected papers using their menu.');
     } catch(error){_message(schoolErrorMessage(error));}
