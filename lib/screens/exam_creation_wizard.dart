@@ -537,7 +537,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
           cells:[
             DataCell(Text(examDateKey(paper.date))),
             DataCell(Text(_classLabel(paper.assignment.classId))),
-            DataCell(Text(paper.assignment.subject)),
+            DataCell(Text(paper.assignment.subject),onTap:_saving||_partial?null:()=>_addPaper(index:_papers.indexOf(paper))),
             DataCell(Text(paper.type)),
             DataCell(Text(examClock(paper.startMinute))),
             DataCell(Text(examClock(paper.endMinute))),

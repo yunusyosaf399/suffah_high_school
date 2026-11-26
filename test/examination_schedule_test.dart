@@ -89,6 +89,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DataTable),findsOneWidget);
     expect(find.text('2 classes • 4 papers'),findsOneWidget);
+    await tester.tap(find.text('English'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first,'80');
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    expect(find.text('80.0'),findsOneWidget);
     final before=tester.widget<DataTable>(find.byType(DataTable)).rows.map((r)=>
       (r.cells[2].child as Text).data).toList();
     await tester.tap(find.text('Shuffle subjects'));
@@ -97,6 +103,7 @@ void main() {
       (r.cells[2].child as Text).data).toList();
     expect(after,isNot(before));
     expect(after.where((s)=>s=='Math').length,2);
+    expect(find.text('80.0'),findsOneWidget);
     expect(find.byTooltip('Edit paper'),findsNWidgets(4));
     expect(tester.takeException(),isNull);
   });
