@@ -173,7 +173,7 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
           'score': entry.value, 'teacherUid': user.uid,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        if (++count == 8) { await batch.commit(); batch = _db.batch(); count = 0; }
+        if (++count == 2) { await batch.commit(); batch = _db.batch(); count = 0; }
       }
       if (count > 0) await batch.commit();
       if (submit) {
