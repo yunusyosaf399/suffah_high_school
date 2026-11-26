@@ -143,16 +143,39 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/attendance_days/$(dayId)).data.date == request.resource.data.date;
     }
 
+    // Fetch each security document once. Marks rules must stay within
+    // Firestore's per-operation document-access budget.
+    function examTeacherAuthorized(d) {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      let staff = get(/databases/$(database)/documents/staff/$(d.staffId)).data;
+      let assignment = get(/databases/$(database)/documents/teacher_assignments/$(d.assignmentId)).data;
+      let schoolClass = get(/databases/$(database)/documents/classes/$(d.classId)).data;
+      return user.active == true && user.role == 'teacher' && user.staffId == d.staffId
+        && staff.active == true && staff.roleType == 'teacher'
+        && assignment.active == true && assignment.staffId == d.staffId
+        && assignment.classId == d.classId && assignment.subject == d.subject
+        && schoolClass.active == true
+        && (assignment.get('subjectId', '') == ''
+          || validClassSubject(d.classId, assignment.subjectId, d.subject));
+    }
+
     function canMarkExam(examId) {
-      return exists(/databases/$(database)/documents/examinations/$(examId))
-        && get(/databases/$(database)/documents/examinations/$(examId)).data.active == true
-        && isLinkedTeacher(get(/databases/$(database)/documents/examinations/$(examId)).data.staffId)
-        && activeTeacherAssignment(
-          get(/databases/$(database)/documents/examinations/$(examId)).data.assignmentId,
-          get(/databases/$(database)/documents/examinations/$(examId)).data.staffId,
-          get(/databases/$(database)/documents/examinations/$(examId)).data.classId,
-          get(/databases/$(database)/documents/examinations/$(examId)).data.subject
-        );
+      let exam = get(/databases/$(database)/documents/examinations/$(examId)).data;
+      return request.auth != null && exam.active == true
+        && examTeacherAuthorized(exam);
+    }
+
+    function validExamMark(examId, studentId) {
+      let exam = get(/databases/$(database)/documents/examinations/$(examId)).data;
+      let roster = get(/databases/$(database)/documents/class_rosters/$(exam.classId)/students/$(studentId)).data;
+      let mark = request.resource.data;
+      return request.auth != null && exam.active == true
+        && exam.get('resultStatus','draft') == 'draft'
+        && examTeacherAuthorized(exam)
+        && mark.examId == examId && mark.studentId == studentId
+        && mark.teacherUid == request.auth.uid && mark.classId == exam.classId
+        && mark.score is number && mark.score >= 0 && mark.score <= exam.maxMarks
+        && roster.active == true;
     }
 
     // Generated obligations have no cash effect. Every paid balance must be
@@ -638,7 +661,8 @@ service cloud.firestore {
             || (resource.data.get('resultStatus','draft') == 'submitted'
               && request.resource.data.resultStatus == 'released'))
         ) || (
-          canMarkExam(examId)
+          request.auth != null && resource.data.active == true
+          && examTeacherAuthorized(resource.data)
           && resource.data.get('resultStatus','draft') == 'draft'
           && request.resource.data.resultStatus == 'submitted'
           && request.resource.data.diff(resource.data).affectedKeys()
@@ -651,19 +675,7 @@ service cloud.firestore {
 
       match /marks/{studentId} {
         allow get, list: if canManageExams() || canMarkExam(examId);
-        allow create, update: if canMarkExam(examId)
-          && get(/databases/$(database)/documents/examinations/$(examId)).data.get('resultStatus','draft') == 'draft'
-          && request.resource.data.examId == examId
-          && request.resource.data.studentId == studentId
-          && request.resource.data.teacherUid == request.auth.uid
-          && request.resource.data.classId
-            == get(/databases/$(database)/documents/examinations/$(examId)).data.classId
-          && request.resource.data.score is number
-          && request.resource.data.score >= 0
-          && request.resource.data.score
-            <= get(/databases/$(database)/documents/examinations/$(examId)).data.maxMarks
-          && exists(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId))
-          && get(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId)).data.active == true;
+        allow create, update: if validExamMark(examId, studentId);
         allow delete: if false;
       }
     }
