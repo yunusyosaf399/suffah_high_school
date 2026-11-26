@@ -174,7 +174,8 @@ service cloud.firestore {
         && mark.examId == examId && mark.studentId == studentId
         && mark.teacherUid == request.auth.uid && mark.classId == exam.classId
         && mark.score is number && mark.score >= 0 && mark.score <= exam.maxMarks
-        && roster.active == true;
+        && (exam.get('cycleId','') == '' ? roster.active == true
+          : (studentId in exam.expectedStudentIds && studentId in getAfter(paperPath(examId)).data.markedStudentIds));
     }
 
     // Generated obligations have no cash effect. Every paid balance must be
@@ -611,6 +612,168 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    function termCyclePath(id) {
+      return /databases/$(database)/documents/exam_term_cycles/$(id);
+    }
+    function termControlPath() {
+      return /databases/$(database)/documents/exam_term_control/current;
+    }
+    function paperPath(id) {
+      return /databases/$(database)/documents/examinations/$(id);
+    }
+    function validPaperTimes(d) {
+      return d.startMinute is int && d.endMinute is int
+        && d.startMinute >= 0 && d.endMinute < 1440 && d.endMinute > d.startMinute
+        && d.durationMinutes == d.endMinute - d.startMinute
+        && d.durationMinutes <= 600 && d.endAt is timestamp;
+    }
+    function termIdMatches(id,d) {
+      return d.academicYear is int && d.academicYear >= 2000 && d.academicYear <= 2100
+        && ((d.category == 'First Term' && id == string(d.academicYear) + '_first')
+          || (d.category == 'Mid Term' && id == string(d.academicYear) + '_mid')
+          || (d.category == 'Final Term' && id == string(d.academicYear) + '_final'));
+    }
+    function validTermStart(id,d) {
+      return termIdMatches(id,d) && d.status == 'active'
+        && d.createdBy == request.auth.uid && d.createdAt == request.time
+        && d.updatedAt == request.time && d.title is string
+        && d.startDate is string && d.endDate is string && d.startDate <= d.endDate
+        && d.excludedDates is map && d.skipSunday is bool
+        && d.plannedClassIds is list && d.plannedClassIds.size() > 0
+        && d.classIds is list && d.classIds.size() == 1
+        && d.classIds[0] == d.lastClassId && d.lastClassId in d.plannedClassIds
+        && d.paperIds is list && d.paperIds.size() >= 1 && d.paperIds.size() <= 15
+        && d.paperIds.toSet().size() == d.paperIds.size()
+        && d.releasedPaperIds == [] && d.slots is map
+        && d.slots.size() == d.paperIds.size()
+        && getAfter(termControlPath()).data.cycleId == id;
+    }
+    function termControlChange() {
+      let id = request.resource.data.cycleId;
+      return canManageExams() && request.resource.data.keys().hasOnly(['cycleId','updatedAt'])
+        && id is string && request.resource.data.updatedAt == request.time
+        && !exists(termCyclePath(id))
+        && getAfter(termCyclePath(id)).data.status == 'active';
+    }
+    match /exam_term_control/{key} {
+      allow read: if canManageExams();
+      allow create: if key == 'current' && termControlChange();
+      allow update: if key == 'current' && termControlChange()
+        && get(termCyclePath(resource.data.cycleId)).data.status == 'closed';
+      allow delete: if false;
+    }
+    function appendTermClass(old,d) {
+      return d.diff(old).affectedKeys().hasOnly(['classIds','paperIds','slots','lastClassId','updatedAt'])
+        && d.classIds.toSet() == old.classIds.toSet().union([d.lastClassId].toSet())
+        && d.classIds.size() == old.classIds.size()+1
+        && d.lastClassId in old.plannedClassIds && !(d.lastClassId in old.classIds)
+        && d.paperIds.hasAll(old.paperIds) && d.paperIds.toSet().size() == d.paperIds.size()
+        && d.paperIds.size() > old.paperIds.size() && d.paperIds.size() <= old.paperIds.size()+15
+        && d.slots.diff(old.slots).removedKeys().size() == 0
+        && d.slots.diff(old.slots).changedKeys().size() == 0
+        && d.slots.size() - old.slots.size() == d.paperIds.size() - old.paperIds.size();
+    }
+    function termResultChange(id,old,d) {
+      let paperId=d.lastPaperId;
+      let before=get(paperPath(paperId)).data;
+      let after=getAfter(paperPath(paperId)).data;
+      return d.diff(old).affectedKeys().hasOnly(['releasedPaperIds','lastPaperId','updatedAt'])
+        && paperId in old.paperIds && before.cycleId == id && after.cycleId == id
+        && before.resultStatus != after.resultStatus
+        && ((after.resultStatus == 'released' && before.resultStatus == 'submitted'
+            && d.releasedPaperIds.toSet() == old.releasedPaperIds.toSet().union([paperId].toSet()))
+          || (after.resultStatus == 'draft' && before.resultStatus in ['submitted','released']
+            && d.releasedPaperIds.toSet() == old.releasedPaperIds.toSet().difference([paperId].toSet())))
+        && d.releasedPaperIds.toSet().size() == d.releasedPaperIds.size();
+    }
+    function termReschedule(id,old,d) {
+      let paperId=d.lastPaperId;
+      let before=get(paperPath(paperId)).data;
+      let after=getAfter(paperPath(paperId)).data;
+      let from=before.classId+'__'+before.examDate;
+      let to=after.classId+'__'+after.examDate;
+      return d.diff(old).affectedKeys().hasOnly(['slots','endDate','lastPaperId','updatedAt'])
+        && paperId in old.paperIds && before.cycleId == id && after.cycleId == id
+        && before.resultStatus == 'draft' && after.resultStatus == 'draft'
+        && old.slots[from] == paperId && d.slots[to] == paperId
+        && (from == to || (!(to in old.slots) && !(from in d.slots)))
+        && d.slots.size() == old.slots.size()
+        && d.slots.diff(old.slots).affectedKeys().hasOnly([from,to])
+        && d.endDate == (after.examDate > old.endDate ? after.examDate : old.endDate);
+    }
+    function termCanClose(old,d) {
+      return d.diff(old).affectedKeys().hasOnly(['status','closedBy','closedAt','updatedAt'])
+        && d.status == 'closed' && d.closedBy == request.auth.uid && d.closedAt == request.time
+        && old.paperIds.size() > 0 && old.plannedClassIds.size() > 0
+        && old.classIds.toSet() == old.plannedClassIds.toSet()
+        && old.releasedPaperIds.toSet() == old.paperIds.toSet();
+    }
+    match /exam_term_cycles/{id} {
+      allow read: if canManageExams();
+      allow create: if canManageExams() && validTermStart(id,request.resource.data);
+      allow update: if canManageExams() && resource.data.status == 'active'
+        && request.resource.data.updatedAt == request.time
+        && (appendTermClass(resource.data,request.resource.data)
+          || termCanClose(resource.data,request.resource.data)
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['excludedDates','updatedAt'])
+            && request.resource.data.excludedDates is map)
+          || termResultChange(id,resource.data,request.resource.data)
+          || termReschedule(id,resource.data,request.resource.data));
+      allow delete: if false;
+    }
+    function validManagedPaper(examId,d) {
+      let cycle=getAfter(termCyclePath(d.cycleId)).data;
+      return d.kind == 'term' && cycle.status == 'active' && cycle.category == d.category
+        && d.classId == cycle.lastClassId && d.classId in cycle.classIds
+        && examId in cycle.paperIds && cycle.slots[d.classId+'__'+d.examDate] == examId
+        && d.examDate >= cycle.startDate && d.examDate <= cycle.endDate
+        && !(d.examDate in cycle.excludedDates)
+        && d.expectedStudentIds is list && d.expectedStudentIds.size() > 0
+        && d.expectedStudentIds.size() <= 1000
+        && d.expectedStudentIds.toSet().size() == d.expectedStudentIds.size()
+        && d.rosterSnapshot is map && d.rosterSnapshot.keys().toSet() == d.expectedStudentIds.toSet()
+        && d.markedStudentIds == [] && validPaperTimes(d);
+    }
+    function managedPaperStatus(examId,old,d) {
+      let cycle=getAfter(termCyclePath(old.cycleId)).data;
+      return cycle.status == 'active' && examId in cycle.paperIds
+        && d.diff(old).affectedKeys().hasOnly(['resultStatus','updatedAt'])
+        && ((d.resultStatus == 'released' && old.resultStatus == 'submitted'
+          && old.expectedStudentIds.toSet() == old.markedStudentIds.toSet()
+          && request.time >= old.endAt && !(old.examDate in cycle.excludedDates)
+          && examId in cycle.releasedPaperIds)
+        || (d.resultStatus == 'draft' && old.resultStatus in ['submitted','released']
+          && !(examId in cycle.releasedPaperIds)));
+    }
+    function managedPaperReschedule(examId,old,d) {
+      let cycle=getAfter(termCyclePath(old.cycleId)).data;
+      return cycle.status == 'active' && old.resultStatus == 'draft' && old.markedStudentIds.size() == 0
+        && d.diff(old).affectedKeys().hasOnly(['examDate','startMinute','endMinute','durationMinutes',
+          'endAt','endDate','rescheduleReason','rescheduleHistory','updatedAt'])
+        && validPaperTimes(d) && d.endAt > request.time
+        && d.examDate >= cycle.startDate && d.examDate <= cycle.endDate
+        && !(d.examDate in cycle.excludedDates)
+        && cycle.slots[d.classId+'__'+d.examDate] == examId
+        && d.endDate == cycle.endDate
+        && d.rescheduleReason is string && d.rescheduleReason.size() > 0 && d.rescheduleReason.size() <= 200
+        && d.rescheduleHistory is list
+        && d.rescheduleHistory.size() == old.get('rescheduleHistory',[]).size()+1
+        && d.rescheduleHistory.hasAll(old.get('rescheduleHistory',[]));
+    }
+    function managedMarkedStudent(examId,old,d) {
+      let studentId=d.lastMarkedStudentId;
+      let mark=getAfter(/databases/$(database)/documents/examinations/$(examId)/marks/$(studentId)).data;
+      return old.resultStatus == 'draft' && old.active == true
+        && examTeacherAuthorized(old)
+        && d.diff(old).affectedKeys().hasOnly(['markedStudentIds','lastMarkedStudentId','updatedAt'])
+        && studentId in old.expectedStudentIds
+        && d.markedStudentIds.toSet() == old.markedStudentIds.toSet().union([studentId].toSet())
+        && d.markedStudentIds.toSet().size() == d.markedStudentIds.size()
+        && mark.examId == examId && mark.studentId == studentId
+        && mark.classId == old.classId && mark.teacherUid == request.auth.uid
+        && mark.score is number && mark.score >= 0 && mark.score <= old.maxMarks;
+    }
+
     match /examinations/{examId} {
       allow get, list: if canManageExams()
         || (resource.data.active == true && isLinkedTeacher(resource.data.staffId));
@@ -626,6 +789,7 @@ service cloud.firestore {
         && request.resource.data.active == true
         && request.resource.data.get('resultStatus', 'draft') == 'draft'
         && examAssignmentMatches(request.resource.data)
+        && (request.resource.data.get('kind','term') == 'test' || validManagedPaper(examId,request.resource.data))
         && (canManageExams()
           || (request.resource.data.kind == 'test'
             && request.resource.data.createdBy == request.auth.uid
@@ -648,8 +812,11 @@ service cloud.firestore {
               || (request.resource.data.kind == 'test' &&
                 request.resource.data.category in ['Monthly Test','Weekly Test','Unit Test','Quiz','Other Test'])))
         );
-      allow update: if (
-          canManageExams()
+      allow update: if (resource.data.get('cycleId','') != '' && request.auth != null
+          && ((canManageExams() && (managedPaperStatus(examId,resource.data,request.resource.data)
+            || managedPaperReschedule(examId,resource.data,request.resource.data)))
+            || managedMarkedStudent(examId,resource.data,request.resource.data))) || (
+          resource.data.get('cycleId','') == '' && canManageExams()
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['active','resultStatus','updatedAt'])
           && request.resource.data.active is bool
@@ -661,6 +828,8 @@ service cloud.firestore {
           request.auth != null && resource.data.active == true
           && examTeacherAuthorized(resource.data)
           && resource.data.get('resultStatus','draft') == 'draft'
+          && (resource.data.get('cycleId','') == '' || (resource.data.expectedStudentIds.toSet() == resource.data.markedStudentIds.toSet()
+            && request.time >= resource.data.endAt))
           && request.resource.data.resultStatus == 'submitted'
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['resultStatus','submittedBy','submittedAt','updatedAt'])
