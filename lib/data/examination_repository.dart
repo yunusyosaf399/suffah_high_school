@@ -1,7 +1,9 @@
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'staff_repository.dart';
+import 'class_subject_repository.dart';
 
 const examTerms = ['First Term', 'Mid Term', 'Final Term'];
 const classTestTypes = ['Monthly Test', 'Weekly Test', 'Unit Test', 'Quiz', 'Other Test'];
@@ -23,7 +25,79 @@ class ExamPaperDraft {
   final double maxMarks;
   final int durationMinutes;
   final String instructions;
+
+  ExamPaperDraft copyWith({DateTime? date, double? maxMarks, int? durationMinutes,
+    String? instructions}) => ExamPaperDraft(assignment: assignment,
+    date: date ?? this.date, type: type, maxMarks: maxMarks ?? this.maxMarks,
+    durationMinutes: durationMinutes ?? this.durationMinutes,
+    instructions: instructions ?? this.instructions);
 }
+
+List<DateTime> examCalendarDays(DateTime start, DateTime end, {bool skipSunday = false}) {
+  final last = DateTime(end.year,end.month,end.day);
+  return [
+    for (var day = DateTime(start.year,start.month,start.day);
+      !day.isAfter(last); day = DateTime(day.year,day.month,day.day+1))
+      if (!skipSunday || day.weekday != DateTime.sunday) day,
+  ];
+}
+
+List<DateTime> examDateSlots(List<DateTime> days, int count) {
+  if (count == 0) return [];
+  if (days.length < count) throw ArgumentError('Choose at least $count available examination days.');
+  if (count == 1) return [days.first];
+  return [for (var i=0; i<count; i++) days[(i*(days.length-1)/(count-1)).floor()]];
+}
+
+List<ExamPaperDraft> generateClassExamSchedule({
+  required String classId, required String className,
+  required List<ClassSubject> subjects, required List<TeacherAssignment> assignments,
+  required List<DateTime> days, Map<String,String> teacherNames = const {},
+  String type = 'Theory', double maxMarks = 100, int durationMinutes = 60,
+  String instructions = '',
+}) {
+  final catalog = subjects.where((s)=>s.active && s.classId == classId).toList()
+    ..sort((a,b)=>a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  if (catalog.isEmpty) throw ArgumentError('This class has no active subjects.');
+  if (catalog.length > 15) throw ArgumentError('A schedule supports up to 15 papers.');
+  final slots = examDateSlots(days,catalog.length);
+  return [
+    for (var i=0; i<catalog.length; i++)
+      ExamPaperDraft(assignment: _defaultTeacher(catalog[i],className,assignments,teacherNames),
+        date:slots[i],type:type,maxMarks:maxMarks,durationMinutes:durationMinutes,instructions:instructions),
+  ];
+}
+
+TeacherAssignment _defaultTeacher(ClassSubject subject, String className,
+    List<TeacherAssignment> assignments, Map<String,String> names) {
+  final eligible = assignments.where((a)=>a.active && a.classId == subject.classId &&
+    a.id.isNotEmpty && a.staffId.isNotEmpty && a.subject == subject.name &&
+    (a.subjectId.isEmpty || a.subjectId == subject.id)).toList()
+    ..sort((a,b) {
+      final compare = (names[a.staffId] ?? a.staffId).compareTo(names[b.staffId] ?? b.staffId);
+      return compare != 0 ? compare : a.id.compareTo(b.id);
+    });
+  return eligible.isNotEmpty ? eligible.first : TeacherAssignment(
+    id:'',staffId:'',classId:subject.classId,className:className,
+    subject:subject.name,subjectId:subject.id,active:false);
+}
+
+List<ExamPaperDraft> redistributeExamPapers(List<ExamPaperDraft> papers,List<DateTime> days) {
+  final sorted = [...papers]..sort((a,b)=>a.date.compareTo(b.date));
+  final slots = examDateSlots(days,sorted.length);
+  return [for(var i=0;i<sorted.length;i++) sorted[i].copyWith(date:slots[i])];
+}
+
+List<ExamPaperDraft> shuffleExamPapers(List<ExamPaperDraft> papers,{Random? random}) {
+  final sorted = [...papers]..sort((a,b)=>a.date.compareTo(b.date));
+  if(sorted.length<2) return sorted;
+  final shuffled = [...sorted]..shuffle(random);
+  if (List.generate(sorted.length,(i)=>identical(sorted[i],shuffled[i])).every((v)=>v)) {
+    shuffled.add(shuffled.removeAt(0));
+  }
+  return [for(var i=0;i<sorted.length;i++) shuffled[i].copyWith(date:sorted[i].date)];
+}
+
 
 String? validateExamSchedule({
   required String kind, required String category, required String title,
@@ -38,10 +112,13 @@ String? validateExamSchedule({
   if (papers.isEmpty || papers.length > 15) return 'Add 1–15 papers per schedule.';
   if (kind == 'test' && papers.length != 1) return 'A class test has one subject paper.';
   final seen = <String>{};
+  final dates = <String>{};
   for (final paper in papers) {
     final a = paper.assignment;
-    if (!a.active || a.classId != papers.first.assignment.classId) return 'Choose active assignments for one class.';
+    if (!a.active || a.id.isEmpty || a.staffId.isEmpty) return 'Assign a teacher to ${a.subject} before publishing.';
+    if (a.classId != papers.first.assignment.classId) return 'Choose active assignments for one class.';
     if (paper.date.isBefore(start) || paper.date.isAfter(end)) return 'Every paper date must be inside the exam date range.';
+    if (kind == 'term' && !dates.add(examDateKey(paper.date))) return 'Only one paper per class per day is allowed.';
     if (!paperTypes.contains(paper.type) || !paper.maxMarks.isFinite ||
         paper.maxMarks <= 0 || paper.maxMarks > 1000 ||
         paper.durationMinutes < 1 || paper.durationMinutes > 600) {
