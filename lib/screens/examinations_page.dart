@@ -54,18 +54,24 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
         final staff = await StaffRepository().watchStaff().first.timeout(const Duration(seconds: 20));
         for (final person in staff) { if (person.isTeacher && person.active) names[person.id] = person.fullName; }
       }
-      final active = assignments.where((a) => a.active).toList();
-      if (active.isEmpty) { _message('Assign teachers to class subjects first.'); return; }
+      final classDocs = await _db.collection('classes').get(const GetOptions(source: Source.server));
+      final classes = classDocs.docs.map(SchoolClass.fromSnapshot).where((c)=>c.active).toList();
+      final classNames = {for(final c in classes) c.id:c.label};
+      final inactiveTeachers = nameDocs.docs.where((d)=>d.data()['active']==false).map((d)=>d.id).toSet();
+      final active = assignments.where((a)=>a.active && classNames.containsKey(a.classId)
+        && !inactiveTeachers.contains(a.staffId)).toList();
+      if(classes.isEmpty) { _message('Create an active class first.'); return; }
       final catalog = <String,List<ClassSubject>>{};
-      for (final id in active.map((a) => a.classId).toSet()) {
-        final docs = await _db.collection('classes').doc(id).collection('subjects').get();
-        catalog[id] = docs.docs.map(ClassSubject.fromSnapshot).where((s) => s.active).toList();
-      }
+      await Future.wait(classes.map((c) async {
+        final docs = await _db.collection('classes').doc(c.id).collection('subjects')
+          .get(const GetOptions(source: Source.server));
+        catalog[c.id] = docs.docs.map(ClassSubject.fromSnapshot).where((s)=>s.active).toList();
+      }));
       if (!mounted) return;
       setState(() => _busy = false);
       final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
         builder: (_) => ExamCreationWizard(role: widget.role, assignments: active,
-          teacherNames: names, classSubjects: catalog,
+          teacherNames: names, classSubjects: catalog, classNames: classNames,
           initialKind: _filter == 'assignment' ? 'assignment' : _filter == 'test' ? 'test' : 'term')));
       if (saved == true) _message('Assessment published.');
     } catch (error) { _message(schoolErrorMessage(error)); }
