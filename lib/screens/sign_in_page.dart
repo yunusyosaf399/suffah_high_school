@@ -88,14 +88,20 @@ class _SignInPageState extends State<SignInPage> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Align(
-                            alignment: Alignment.centerLeft,
+                            alignment: Alignment.center,
                             child: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: scheme.primaryContainer,
+                                color: Colors.white,
                                 borderRadius: BorderRadius.circular(15),
                               ),
-                              child: Icon(Icons.school_rounded, color: scheme.onPrimaryContainer, size: 29),
+                              child: Image.asset(
+                                'assets/icon/app_icon.png',
+                                width: 112,
+                                height: 112,
+                                fit: BoxFit.contain,
+                                semanticLabel: 'Suffah High School logo',
+                              ),
                             ),
                           ),
                           const SizedBox(height: 22),
