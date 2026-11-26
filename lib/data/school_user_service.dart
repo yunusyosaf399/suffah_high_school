@@ -6,6 +6,7 @@ const schoolOwnerUid = 'tQt6vca2zuagZipvknBwcmSRcrc2';
 
 const schoolRoles = <String, String>{
   'principal': 'Principal',
+  'examiner': 'Examiner',
   'accountant': 'Accountant',
   'teacher': 'Teacher',
   'clerk': 'Office staff',

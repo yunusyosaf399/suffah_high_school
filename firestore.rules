@@ -47,10 +47,36 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/staff/$(staffId)).data.roleType == 'teacher';
     }
 
+    function isExaminer() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'examiner';
+    }
+
+    function canManageExams() {
+      return canManageAdmissions() || isExaminer();
+    }
+
+    function examAssignmentMatches(d) {
+      let a = get(/databases/$(database)/documents/teacher_assignments/$(d.assignmentId)).data;
+      return a.active == true && a.staffId == d.staffId
+        && a.classId == d.classId && a.subject == d.subject;
+    }
+
+    match /exam_teacher_directory/{staffId} {
+      allow read: if canManageExams();
+      allow create, update: if canManageAdmissions()
+        && request.resource.data.keys().hasOnly(['name', 'active'])
+        && request.resource.data.name is string
+        && request.resource.data.active is bool;
+      allow delete: if false;
+    }
+
     function allowedNewRole() {
       return request.resource.data.role in
         ['principal', 'accountant', 'teacher', 'clerk', 'parent',
-         'canteen_seller', 'inventory_manager'];
+         'canteen_seller', 'inventory_manager', 'examiner'];
     }
 
     function hasTeacherClassAccess(classId) {
@@ -289,13 +315,14 @@ service cloud.firestore {
     }
 
     match /classes/{classId} {
-      allow read, create, update: if canManageAdmissions();
+      allow read: if canManageExams();
+      allow create, update: if canManageAdmissions();
       allow delete: if false;
     }
 
     // Owner-managed subject catalog, distinct for each class and section.
     match /classes/{classId}/subjects/{subjectId} {
-      allow get, list: if canManageAdmissions();
+      allow get, list: if canManageExams();
       allow create: if canManageAdmissions()
         && exists(/databases/$(database)/documents/classes/$(classId))
         && get(/databases/$(database)/documents/classes/$(classId)).data.active == true
@@ -460,7 +487,7 @@ service cloud.firestore {
 
     // One teacher-to-class-and-subject assignment per stable document ID.
     match /teacher_assignments/{assignmentId} {
-      allow read: if canManageAdmissions() || isLinkedTeacher(resource.data.staffId);
+      allow read: if canManageExams() || isLinkedTeacher(resource.data.staffId);
       allow create: if canManageAdmissions()
         && request.resource.data.staffId is string
         && request.resource.data.classId is string
@@ -525,7 +552,7 @@ service cloud.firestore {
     // Safe roster projection: names and roll numbers only, never guardian,
     // contact, address or health details from the student record.
     match /class_rosters/{classId}/students/{studentId} {
-      allow get, list: if canManageAdmissions()
+      allow get, list: if canManageExams()
         || (resource.data.active == true
           && (hasTeacherClassAccess(classId) || canMarkClassAttendance(classId)));
       allow create, update: if canManageAdmissions()
@@ -540,44 +567,32 @@ service cloud.firestore {
     // Teacher-created assignments and homework are scoped to an active
     // teacher/class/subject assignment and the authenticated linked teacher.
     match /classwork/{workId} {
-      allow get, list: if canManageAdmissions()
-        || (isLinkedTeacher(resource.data.staffId)
-          && resource.data.teacherUid == request.auth.uid);
+      allow get, list: if canManageExams() || isLinkedTeacher(resource.data.staffId);
       allow create: if request.auth != null
         && request.resource.data.teacherUid == request.auth.uid
-        && isLinkedTeacher(request.resource.data.staffId)
-        && request.resource.data.kind in ['assignment', 'homework']
         && request.resource.data.title is string
         && request.resource.data.active == true
-        && activeTeacherAssignment(
-          request.resource.data.assignmentId,
-          request.resource.data.staffId,
-          request.resource.data.classId,
-          request.resource.data.subject
+        && (
+          (canManageExams() && request.resource.data.kind == 'assignment'
+            && examAssignmentMatches(request.resource.data))
+          || (request.resource.data.kind in ['assignment', 'homework']
+            && isLinkedTeacher(request.resource.data.staffId)
+            && activeTeacherAssignment(request.resource.data.assignmentId,
+              request.resource.data.staffId, request.resource.data.classId,
+              request.resource.data.subject))
         );
-      allow update: if canManageAdmissions()
-        || (isLinkedTeacher(resource.data.staffId)
-          && resource.data.teacherUid == request.auth.uid
-          && request.resource.data.teacherUid == resource.data.teacherUid
-          && request.resource.data.staffId == resource.data.staffId
-          && request.resource.data.assignmentId == resource.data.assignmentId
-          && request.resource.data.classId == resource.data.classId
-          && request.resource.data.subject == resource.data.subject);
+      allow update: if (canManageExams()
+          || (isLinkedTeacher(resource.data.staffId)
+            && resource.data.teacherUid == request.auth.uid))
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['title', 'instructions', 'dueDate', 'active', 'updatedAt']);
       allow delete: if false;
     }
 
-    // School administrators publish exams; assigned teachers can view their
-    // own exam and enter marks only for students in their safe class roster.
     match /examinations/{examId} {
-      // The list query is constrained by staffId and active. Exam creation
-      // already verifies the exact active class/subject assignment, while
-      // marks writes re-check that assignment through canMarkExam().
-      // Keeping the list rule staff-scoped lets Firestore prove the query is
-      // safe instead of treating security rules as client-side filters.
-      allow get, list: if canManageAdmissions()
-        || (resource.data.active == true
-          && isLinkedTeacher(resource.data.staffId));
-      allow create: if canManageAdmissions()
+      allow get, list: if canManageExams()
+        || (resource.data.active == true && isLinkedTeacher(resource.data.staffId));
+      allow create: if request.auth != null
         && request.resource.data.assignmentId is string
         && request.resource.data.staffId is string
         && request.resource.data.classId is string
@@ -585,37 +600,70 @@ service cloud.firestore {
         && request.resource.data.title is string
         && request.resource.data.maxMarks is number
         && request.resource.data.maxMarks > 0
-        && exists(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId))
-        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.active == true
-        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.staffId == request.resource.data.staffId
-        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.classId == request.resource.data.classId
-        && get(/databases/$(database)/documents/teacher_assignments/$(request.resource.data.assignmentId)).data.subject == request.resource.data.subject;
-      allow update: if canManageAdmissions()
-        && request.resource.data.assignmentId == resource.data.assignmentId
-        && request.resource.data.staffId == resource.data.staffId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.subject == resource.data.subject
-        && request.resource.data.maxMarks is number
-        && request.resource.data.maxMarks > 0;
+        && request.resource.data.maxMarks <= 1000
+        && request.resource.data.active == true
+        && request.resource.data.get('resultStatus', 'draft') == 'draft'
+        && examAssignmentMatches(request.resource.data)
+        && (canManageExams()
+          || (request.resource.data.kind == 'test'
+            && request.resource.data.createdBy == request.auth.uid
+            && activeTeacherAssignment(request.resource.data.assignmentId,
+              request.resource.data.staffId, request.resource.data.classId,
+              request.resource.data.subject)))
+        && (
+          !('sessionId' in request.resource.data)
+          || (request.resource.data.kind in ['term','test']
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.startDate is string
+            && request.resource.data.endDate is string
+            && request.resource.data.examDate is string
+            && request.resource.data.startDate <= request.resource.data.examDate
+            && request.resource.data.examDate <= request.resource.data.endDate
+            && request.resource.data.paperType in ['Theory', 'Practical / Lab', 'Oral']
+            && request.resource.data.durationMinutes is int
+            && request.resource.data.durationMinutes >= 1
+            && request.resource.data.durationMinutes <= 600
+            && ((request.resource.data.kind == 'term' &&
+                request.resource.data.category in ['First Term','Mid Term','Final Term'])
+              || (request.resource.data.kind == 'test' &&
+                request.resource.data.category in ['Monthly Test','Weekly Test','Unit Test','Quiz','Other Test'])))
+        );
+      allow update: if (
+          canManageExams()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['active','resultStatus','updatedAt'])
+          && request.resource.data.active is bool
+          && (request.resource.data.get('resultStatus','draft') == resource.data.get('resultStatus','draft')
+            || request.resource.data.get('resultStatus','draft') == 'draft'
+            || (resource.data.get('resultStatus','draft') == 'submitted'
+              && request.resource.data.resultStatus == 'released'))
+        ) || (
+          canMarkExam(examId)
+          && resource.data.get('resultStatus','draft') == 'draft'
+          && request.resource.data.resultStatus == 'submitted'
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['resultStatus','submittedBy','submittedAt','updatedAt'])
+          && request.resource.data.submittedBy == request.auth.uid
+          && request.resource.data.submittedAt == request.time
+          && request.resource.data.updatedAt == request.time
+        );
       allow delete: if false;
 
       match /marks/{studentId} {
-        allow get, list: if canManageAdmissions() || canMarkExam(examId);
-        allow create, update: if canManageAdmissions()
-          || (
-            canMarkExam(examId)
-            && request.resource.data.examId == examId
-            && request.resource.data.studentId == studentId
-            && request.resource.data.teacherUid == request.auth.uid
-            && request.resource.data.classId
-              == get(/databases/$(database)/documents/examinations/$(examId)).data.classId
-            && request.resource.data.score is number
-            && request.resource.data.score >= 0
-            && request.resource.data.score
-              <= get(/databases/$(database)/documents/examinations/$(examId)).data.maxMarks
-            && exists(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId))
-            && get(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId)).data.active == true
-          );
+        allow get, list: if canManageExams() || canMarkExam(examId);
+        allow create, update: if canMarkExam(examId)
+          && get(/databases/$(database)/documents/examinations/$(examId)).data.get('resultStatus','draft') == 'draft'
+          && request.resource.data.examId == examId
+          && request.resource.data.studentId == studentId
+          && request.resource.data.teacherUid == request.auth.uid
+          && request.resource.data.classId
+            == get(/databases/$(database)/documents/examinations/$(examId)).data.classId
+          && request.resource.data.score is number
+          && request.resource.data.score >= 0
+          && request.resource.data.score
+            <= get(/databases/$(database)/documents/examinations/$(examId)).data.maxMarks
+          && exists(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId))
+          && get(/databases/$(database)/documents/class_rosters/$(get(/databases/$(database)/documents/examinations/$(examId)).data.classId)/students/$(studentId)).data.active == true;
         allow delete: if false;
       }
     }

@@ -118,6 +118,9 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                     _module('Examinations & marks', 'View exams and enter marks',
                       Icons.fact_check_outlined,
                       () => _open(TeacherExaminationsPage(staffId: widget.staffId))),
+                    _module('Class tests', 'Create monthly and class assessments',
+                      Icons.quiz_outlined,
+                      () => _open(TeacherExaminationsPage(staffId: widget.staffId, testsOnly: true))),
                     _module('Assignments', 'Create class assignments',
                       Icons.assignment_outlined,
                       () => _open(TeacherClassworkPage(
@@ -220,7 +223,6 @@ class _TeacherClassworkPageState extends State<TeacherClassworkPage> {
     if (user == null) return const Scaffold(body: Center(child: Text('Sign in again.')));
     final query = _db.collection('classwork')
         .where('staffId', isEqualTo: widget.staffId)
-        .where('teacherUid', isEqualTo: user.uid)
         .limit(100);
     return Scaffold(
       appBar: AppBar(title: Text(_title,

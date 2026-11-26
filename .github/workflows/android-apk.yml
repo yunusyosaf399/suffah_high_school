@@ -2,7 +2,7 @@ name: Android APK — Suffah High School
 
 on:
   push:
-    branches: [main, feature/student-documents-library, feature/cloudflare-r2-student-files, feature/canteen-stationery-inventory, fix/inventory-stock-add-product, feature/inventory-catalog-direct-stock, feature/canteen-cart-credit-analytics, fix/inventory-blank-sell-stock-tabs, fix/inventory-infinite-button-constraints, fix/inventory-student-directory-sync, feature/separate-canteen-fast-checkout, feature/inventory-private-purchase-cost-analytics]
+    branches: [main, feature/examination-centre, feature/student-documents-library, feature/cloudflare-r2-student-files, feature/canteen-stationery-inventory, fix/inventory-stock-add-product, feature/inventory-catalog-direct-stock, feature/canteen-cart-credit-analytics, fix/inventory-blank-sell-stock-tabs, fix/inventory-infinite-button-constraints, fix/inventory-student-directory-sync, feature/separate-canteen-fast-checkout, feature/inventory-private-purchase-cost-analytics]
     paths:
       - "lib/**"
       - "assets/**"
