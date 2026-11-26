@@ -191,7 +191,7 @@ class ExaminationRepository {
     if (user == null) throw StateError('Sign in again.');
     final exams = db.collection('examinations');
     final sessionId = exams.doc().id;
-    final refs = [for(final p in papers) exams.doc()];
+    final refs = List.generate(papers.length, (_) => exams.doc());
     Map<String,dynamic> fields(ExamPaperDraft paper) {
       final a=paper.assignment;
       return {
@@ -330,12 +330,29 @@ class ExaminationRepository {
 
   Future<void> markSchoolClosure(String id,String date,String reason) async {
     if(reason.trim().isEmpty || reason.length>200) throw ArgumentError('Enter a reason (up to 200 characters).');
+    final affected=await db.collection('examinations').where('cycleId',isEqualTo:id)
+      .get(const GetOptions(source:Source.server));
+    if(affected.docs.any((doc) { final p=doc.data(); return p['examDate']==date &&
+      (p['resultStatus']!='draft' || examStrings(p['markedStudentIds']).isNotEmpty); })) {
+      throw StateError('A paper on this date already has recorded marks or released results. Choose another closure date.');
+    }
     await db.runTransaction((tx) async {
       final ref=terms.doc(id);
       final cycle=(await tx.get(ref)).data();
       if(cycle==null || cycle['status']!='active') throw StateError('The examination is closed.');
       final off=examStringMap(cycle['excludedDates']);
       off[date]=reason.trim();
+      tx.update(ref,{'excludedDates':off,'updatedAt':FieldValue.serverTimestamp()});
+    });
+  }
+
+  Future<void> removeSchoolClosure(String id,String date) async {
+    await db.runTransaction((tx) async {
+      final ref=terms.doc(id);
+      final cycle=(await tx.get(ref)).data();
+      if(cycle==null || cycle['status']!='active') throw StateError('The examination is closed.');
+      final off=examStringMap(cycle['excludedDates']);
+      off.remove(date);
       tx.update(ref,{'excludedDates':off,'updatedAt':FieldValue.serverTimestamp()});
     });
   }
