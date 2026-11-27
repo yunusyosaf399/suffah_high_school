@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'owner_analytics.dart';
+import 'owner_overview.dart';
 import 'package:flutter/material.dart';
 
 import '../data/school_repository.dart';
@@ -24,6 +25,7 @@ class OwnerDashboard extends StatefulWidget {
     this.role = 'owner',
     this.summaryLoader,
     this.financePreview,
+    this.moduleBuilder,
   });
 
   final String displayName;
@@ -31,6 +33,7 @@ class OwnerDashboard extends StatefulWidget {
   // Optional sources make navigation and scrolling testable without Firebase.
   final Future<SchoolSummary> Function()? summaryLoader;
   final Widget? financePreview;
+  final Widget Function(int index)? moduleBuilder;
 
   @override
   State<OwnerDashboard> createState() => _OwnerDashboardState();
@@ -43,6 +46,18 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       (_repository ??= SchoolRepository()).loadSummary();
   late Future<SchoolSummary> _summary = _loadSummary();
   int _financeRevision = 0;
+  final _navigator = GlobalKey<NavigatorState>();
+  final _scaffold = GlobalKey<ScaffoldState>();
+  int _selected = -1;
+  int _navigationRevision = 0;
+  final _dashboardChanges = ChangeNotifier();
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _dashboardChanges.notifyListeners();
+  }
+  @override
+  void dispose(){_dashboardChanges.dispose();super.dispose();}
   bool _pinned = true;
   bool _slideshow = false;
   bool _savingPreferences = false;
@@ -111,39 +126,85 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     }
   }
 
+  void _home() {
+    _navigationRevision++;
+    _navigator.currentState?.popUntil((route) => route.isFirst);
+    if (_selected != -1) {
+      setState(() => _selected = -1);
+      _refresh();
+    }
+  }
+
+  void _search() {
+    _showPage(-2, const GlobalSearchPage());
+  }
+
+  void _settings() {
+    _showPage(-3, _DashboardSettings(
+      pinned: _pinned, slideshow: _slideshow,
+      owner: widget.role == 'owner',
+      onPinned: (v) => _setPreferences(pinned: v),
+      onSlideshow: (v) => _setPreferences(slideshow: v),
+    ));
+  }
+
   Widget _navigation(List<_DashboardModule> modules, {required bool expanded, bool drawer = false}) {
+    Widget tile(int index, String title, IconData icon, VoidCallback action) {
+      final selected = _selected == index;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 7),
+        child: Tooltip(message: title, child: Material(
+          color: selected ? dashboardPurple : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(9),
+            onTap: () {
+              if (drawer) _scaffold.currentState?.closeDrawer();
+              action();
+            },
+            child: SizedBox(height: 43, child: Row(
+              mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
+              children: [
+                if (expanded) const SizedBox(width: 12),
+                Icon(icon, size: 21, color: selected ? Colors.white : const Color(0xFF545363)),
+                if (expanded) ...[
+                  const SizedBox(width: 13),
+                  Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? Colors.white : const Color(0xFF292537)))),
+                ],
+              ],
+            )),
+          ),
+        )),
+      );
+    }
     return Material(
-      color: const Color(0xFFFAF8FD),
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
-        children: [
-          if (expanded) const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text('WORKSPACE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF68647D))),
-          ),
-          ListTile(
-            selected: true,
-            selectedColor: dashboardPurple,
-            selectedTileColor: const Color(0xFFEDE5F8),
-            leading: const Icon(Icons.dashboard_outlined),
-            title: expanded ? const Text('Dashboard') : null,
-            onTap: drawer ? () => Navigator.of(context).pop() : null,
-          ),
-          for (final module in modules)
-            Tooltip(
-              message: module.title,
-              child: ListTile(
-                dense: true,
-                leading: Icon(module.icon, color: dashboardPurple),
-                title: expanded ? Text(module.title, maxLines: 1, overflow: TextOverflow.ellipsis) : null,
-                onTap: () {
-                  if (drawer) Navigator.of(context).pop();
-                  _openModule(_modules.indexOf(module));
-                },
-              ),
-            ),
-        ],
-      ),
+      color: const Color(0xFFFCFBFE),
+      child: Column(children: [
+        Padding(padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 10),
+          child: expanded ? Row(children: [
+            Image.asset('assets/icon/app_icon.png',width:38,height:38,fit:BoxFit.contain),
+            const SizedBox(width:8),
+            const Expanded(child: Text('Suffah\nHigh School', style:TextStyle(fontSize:16,fontWeight:FontWeight.w800))),
+            if(!drawer) IconButton(tooltip:'Collapse navigation',onPressed:_savingPreferences?null:()=>_setPreferences(pinned:false),
+              icon:const Icon(Icons.keyboard_double_arrow_left,color:dashboardPurple)),
+          ]) : Column(children:[
+            Image.asset('assets/icon/app_icon.png',width:35,height:35,fit:BoxFit.contain),
+            IconButton(tooltip:'Pin expanded navigation',onPressed:_savingPreferences?null:()=>_setPreferences(pinned:true),
+              icon:const Icon(Icons.keyboard_double_arrow_right,color:dashboardPurple)),
+          ])),
+        Expanded(child: ListView(padding: const EdgeInsets.only(bottom:8),children:[
+          tile(-2,'Search...',Icons.search,_search),
+          const SizedBox(height:10),
+          tile(-1,'Dashboard',Icons.dashboard_outlined,_home),
+          for(final module in modules)
+            tile(_modules.indexOf(module),module.title,module.icon,()=>_openModule(_modules.indexOf(module))),
+          tile(-3,'Settings',Icons.settings_outlined,_settings),
+        ])),
+        const Divider(indent:12,endIndent:12),
+        Padding(padding:const EdgeInsets.only(bottom:12),child:tile(-4,'Logout',Icons.logout_rounded,()=>FirebaseAuth.instance.signOut())),
+      ]),
     );
   }
 
@@ -169,237 +230,98 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     });
   }
 
+  Future<void> _showPage(int index, Widget page) async {
+    final nav = _navigator.currentState;
+    if(nav == null)return;
+    final revision = ++_navigationRevision;
+    nav.popUntil((route)=>route.isFirst);
+    setState(()=>_selected=index);
+    await nav.push<void>(MaterialPageRoute(builder:(_)=>page));
+    if(!mounted || revision!=_navigationRevision)return;
+    setState(()=>_selected=-1);
+    _refresh();
+  }
+
   Future<void> _openModule(int index) async {
-    await _navigateModule(index);
-    if (mounted && _modules[index].available) _refresh();
+    final module = _modules[index];
+    if(!module.available) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('${module.title} is planned for a future version.')));
+      return;
+    }
+    final page = widget.moduleBuilder?.call(index) ?? switch(index) {
+      0 => StudentsPage(role:widget.role),
+      1 => const ClassesPage(),
+      2 => AttendancePage(role:widget.role),
+      3 => FinancePage(role:widget.role),
+      4 => ExaminationsPage(role:widget.role),
+      5 => StaffPage(role:widget.role),
+      8 when widget.role=='owner' => UsersPage(role:widget.role),
+      9 when widget.role=='owner' => InventoryPage(role:widget.role,department:'canteen'),
+      10 when widget.role=='owner' => InventoryPage(role:widget.role,department:'stationery'),
+      11 => StudentDocumentsPage(role:widget.role),
+      _ => const SizedBox.shrink(),
+    };
+    await _showPage(index,page);
   }
 
-  Future<void> _navigateModule(int index) async {
-    if (index == 0 || index == 1) {
-      await Navigator.push<void>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => index == 0
-              ? StudentsPage(role: widget.role)
-              : const ClassesPage(),
-        ),
-      );
-      return;
-    }
-    if (index == 2) {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => AttendancePage(role: widget.role),
-        ),
-      );
-      return;
-    }
-    if (index == 3) {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(builder: (_) => FinancePage(role: widget.role)),
-      );
-      return;
-    }
-    if (index == 4) {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => ExaminationsPage(role: widget.role),
-        ),
-      );
-      return;
-    }
-    if (index == 5) {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => StaffPage(role: widget.role),
-        ),
-      );
-      return;
-    }
-    if (index == 8 && widget.role == 'owner') {
-      await Navigator.push<void>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => UsersPage(role: widget.role),
-        ),
-      );
-      return;
-    }
-    if ((index == 9 || index == 10) && widget.role == 'owner') {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(builder: (_) => InventoryPage(
-          role: widget.role,
-          department: index == 9 ? 'canteen' : 'stationery',
-        )),
-      );
-      return;
-    }
-    if (index == 11 && (widget.role == 'owner' || widget.role == 'principal')) {
-      await Navigator.of(context).push<void>(MaterialPageRoute(
-        builder: (_) => StudentDocumentsPage(role: widget.role),
-      ));
-      return;
-    }
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${_modules[index].title} is planned for the next app versions.')),
-    );
-  }
+  List<_DashboardModule> get _shownModules => [for(final i in [0,1,2,3,4,5,9,10,11,8,6,7])
+    if(widget.role=='owner'||![8,9,10].contains(i)) _modules[i]];
 
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final shownModules = widget.role == 'owner'
-        ? _modules
-        : _modules.where((module) => module.title != 'Users' &&
-            module.title != 'Canteen Sales' &&
-            module.title != 'Stationery & Books').toList();
-
-    final desktop = MediaQuery.sizeOf(context).width >= 900;
+  Widget _dashboard() {
     return Scaffold(
-      drawer: desktop ? null : Drawer(child: SafeArea(child: _navigation(shownModules, expanded: true, drawer: true))),
-      appBar: AppBar(
-        leading: desktop ? IconButton(
-          tooltip: _pinned ? 'Collapse navigation' : 'Pin expanded navigation',
-          onPressed: _savingPreferences ? null : () => _setPreferences(pinned: !_pinned),
-          icon: Icon(_pinned ? Icons.menu_open : Icons.menu),
-        ) : null,
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.school_rounded, size: 23),
-            SizedBox(width: 9),
-            Flexible(
-              child: Text('Suffah High School',
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            ),
-          ],
-        ),
-        actions: [
-          if (widget.role == 'owner') IconButton(
-            tooltip: _slideshow ? 'Stop dashboard slideshow' : 'Start 10-second dashboard slideshow',
-            onPressed: _savingPreferences ? null : () => _setPreferences(slideshow: !_slideshow),
-            icon: Icon(_slideshow ? Icons.pause_circle_outline : Icons.slideshow_outlined, color: dashboardPurple),
-          ),
-          IconButton(
-            tooltip: 'Refresh school overview',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh_rounded, size: 22),
-          ),
-          IconButton(
-            tooltip: 'Sign out',
-            onPressed: () => FirebaseAuth.instance.signOut(),
-            icon: const Icon(Icons.logout_rounded, size: 21),
-          ),
-          const SizedBox(width: 7),
-        ],
-      ),
-      body: SafeArea(
-        child: LayoutBuilder(builder: (context, limits) {
-          final navWidth = desktop ? (_pinned ? 224.0 : 76.0) : 0.0;
-          final width = limits.maxWidth - navWidth;
-          final gridColumns = width >= 1060 ? 4 : width >= 640 ? 3 : 2;
-          final maxWidth = width >= 1150 ? 1100.0 : width;
-          return Row(children: [
-            if (desktop) SizedBox(width: navWidth, child: _navigation(shownModules, expanded: _pinned)),
-            Expanded(child: Center(
-            child: SizedBox(
-              width: maxWidth,
-              child: RefreshIndicator(
-                onRefresh: () async {
-                  final next = _loadSummary();
-                  setState(() { _summary = next; _financeRevision++; });
-                  try { await next; } catch (_) { /* Retry through refresh. */ }
-                },
-                child: ListView(
-                  key: const Key('owner_dashboard_scroll'),
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(17, 18, 17, 32),
-                  children: [
-                    Text('School overview',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 3),
-                    Text('Welcome back, ${widget.displayName}.',
-                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-                    const SizedBox(height: 17),
-                    GlobalSearchEntry(
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) => const GlobalSearchPage(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 17),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: dashboardPurple,
-                        borderRadius: BorderRadius.circular(19),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Manage your school',
-                                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Colors.white)),
-                                const SizedBox(height: 8),
-                                Text('Manage admissions, attendance, finance, staff and examinations.',
-                                  style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.88))),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Icon(Icons.auto_stories_rounded, color: Colors.white.withValues(alpha: 0.85), size: 46),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 23),
-                    Text('At a glance', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 12),
-                    FutureBuilder<SchoolSummary>(
-                      future: _summary,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) return const DashboardSkeleton(full: true);
-                        final message = 'Tap refresh to retry';
-                        final items = [
-                          _Stat('Student records', snapshot.hasData ? '${snapshot.data!.students}' : '—',
-                            Icons.groups_2_outlined),
-                          _Stat('Class sections', snapshot.hasData ? '${snapshot.data!.classes}' : '—',
-                            Icons.school_outlined),
-                        ];
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                for (var i = 0; i < items.length; i++) ...[
-                                  if (i > 0) const SizedBox(width: 10),
-                                  Expanded(
-                                    child: _StatisticCard(item: items[i]),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            if (!snapshot.hasData) ...[
-                              const SizedBox(height: 7),
-                              Text(message, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
-                            ],
-                          ],
-                        );
-                      },
-                    ),
-                    if (widget.summaryLoader == null) ...[
-                      const SizedBox(height: 16),
-                      ExamTermOverview(onOpen:()=>_openModule(4)),
-                    ],
-                    const SizedBox(height: 18),
-                    widget.financePreview ?? (widget.role == 'owner'
-                        ? OwnerAnalytics(key: ValueKey(_financeRevision), slideshow: _slideshow)
-                        : FinanceDashboardPreview(key: ValueKey(_financeRevision))),
-
+      backgroundColor: const Color(0xFFF6F4FB),
+      body: LayoutBuilder(builder:(context,limits){
+        final width=limits.maxWidth;
+        final maxWidth=width;
+        final gridColumns=width>=1060?4:width>=640?3:2;
+        final scheme=Theme.of(context).colorScheme;
+        final shownModules=_shownModules;
+        return RefreshIndicator(onRefresh:()async{
+          _refresh();
+          try{await _summary;}catch(_){}
+        },child:ListView(
+          key:const Key('owner_dashboard_scroll'),
+          physics:const AlwaysScrollableScrollPhysics(),
+          padding:const EdgeInsets.fromLTRB(17,18,17,32),
+          children:[
+            Row(children:[
+              const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                Text('Dashboard',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
+                Text('School overview and analytics',style:TextStyle(color:Color(0xFF68647D))),
+              ])),
+              if(widget.role=='owner') ...[
+                if(width>620)const Text('Slideshow'),
+                Tooltip(message:_slideshow?'Stop dashboard slideshow':'Start 10-second dashboard slideshow',
+                  child:Switch(value:_slideshow,onChanged:_savingPreferences?null:(v)=>_setPreferences(slideshow:v))),
+              ],
+              IconButton(tooltip:'Refresh school overview',onPressed:_refresh,icon:const Icon(Icons.refresh_rounded)),
+              if(width>620) ...[
+                const CircleAvatar(backgroundColor:Color(0xFFEDE5F8),foregroundColor:dashboardPurple,child:Icon(Icons.person)),
+                const SizedBox(width:7),
+                ConstrainedBox(constraints:const BoxConstraints(maxWidth:110),child:Text(widget.displayName,maxLines:1,overflow:TextOverflow.ellipsis)),
+              ],
+            ]),
+            const SizedBox(height:18),
+            if(_realOwner && widget.financePreview==null)
+              OwnerOverview(key:ValueKey(_financeRevision),summary:_summary,slideshow:_slideshow,
+                onOpenExams:()=>_openModule(4),examCard:ExamTermOverview(onOpen:()=>_openModule(4),dashboard:true))
+            else ...[
+              const Text('School overview',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
+              const SizedBox(height:12),
+              FutureBuilder<SchoolSummary>(future:_summary,builder:(context,snapshot){
+                if(snapshot.connectionState==ConnectionState.waiting)return const DashboardSkeleton(full:true);
+                if(snapshot.hasError)return const Text('Tap refresh to retry');
+                return Row(children:[
+                  Expanded(child:_StatisticCard(item:_Stat('Student records','${snapshot.data?.students??"—"}',Icons.groups_outlined))),
+                  const SizedBox(width:10),
+                  Expanded(child:_StatisticCard(item:_Stat('Class sections','${snapshot.data?.classes??"—"}',Icons.school_outlined))),
+                ]);
+              }),
+              const SizedBox(height:18),
+              widget.financePreview??FinanceDashboardPreview(key:ValueKey(_financeRevision)),
+              if(widget.summaryLoader==null)ExamTermOverview(onOpen:()=>_openModule(4),dashboard:true),
+            ],
+            if(widget.summaryLoader!=null || widget.role!='owner') ...[
                     const SizedBox(height: 27),
                     Row(
                       children: [
@@ -468,22 +390,69 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 22),
-                    Text('Suffah High School • Preview v0.7',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
-                  ],
-                ),
-              ),
-            ),
+
+            ],
+          ],
+        ));
+      }),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final desktop=MediaQuery.sizeOf(context).width>=900;
+    return Scaffold(
+      key:_scaffold,
+      appBar:desktop?null:AppBar(title:const Text('Suffah High School')),
+      drawer:desktop?null:Drawer(child:SafeArea(child:_navigation(_shownModules,expanded:true,drawer:true))),
+      body:SafeArea(child:Row(children:[
+        if(desktop) ...[
+          AnimatedContainer(key:const Key('persistent_school_sidebar'),
+            duration:MediaQuery.disableAnimationsOf(context)?Duration.zero:const Duration(milliseconds:180),
+            width:_pinned?235:72,
+            child:LayoutBuilder(builder:(context,c)=>_navigation(_shownModules,expanded:c.maxWidth>=205))),
+          const VerticalDivider(width:1,thickness:1,color:Color(0xFFE4DFF0)),
+        ],
+        Expanded(child:NavigatorPopHandler<void>(
+          onPopWithResult:(_)=>_navigator.currentState?.maybePop(),
+          child:Navigator(key:_navigator,onGenerateRoute:(_)=>MaterialPageRoute<void>(
+            settings:const RouteSettings(name:'/dashboard'),
+            builder:(_)=>_DashboardBody(builder:_dashboard),
           )),
-          ]);
-        }),
-      ),
+        )),
+      ])),
     );
   }
 }
 
+// The root route is retained by the nested navigator; rebuild it when
+// shell preferences or refreshed data change without resetting the stack.
+class _DashboardBody extends StatelessWidget {
+  const _DashboardBody({required this.builder});
+  final Widget Function() builder;
+  @override
+  Widget build(BuildContext context){
+    final state=context.findAncestorStateOfType<_OwnerDashboardState>()!;
+    return AnimatedBuilder(animation:state._dashboardChanges,builder:(_,__)=>builder());
+  }
+}
+
+class _DashboardSettings extends StatefulWidget {
+  const _DashboardSettings({required this.pinned,required this.slideshow,required this.owner,
+    required this.onPinned,required this.onSlideshow});
+  final bool pinned,slideshow,owner;
+  final ValueChanged<bool> onPinned,onSlideshow;
+  @override State<_DashboardSettings> createState()=>_DashboardSettingsState();
+}
+class _DashboardSettingsState extends State<_DashboardSettings>{
+  late bool pinned=widget.pinned, slideshow=widget.slideshow;
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Dashboard settings')),
+    body:ListView(padding:const EdgeInsets.all(16),children:[
+      SwitchListTile(title:const Text('Expanded desktop sidebar'),value:pinned,onChanged:(v){setState(()=>pinned=v);widget.onPinned(v);}),
+      if(widget.owner)SwitchListTile(title:const Text('Dashboard slideshow'),subtitle:const Text('Rotate analytics every 10 seconds'),
+        value:slideshow,onChanged:(v){setState(()=>slideshow=v);widget.onSlideshow(v);}),
+    ]));
+}
 class _DashboardModule {
   const _DashboardModule(this.title, this.icon, this.subtitle, this.available);
   final String title;
