@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'screens/owner_dashboard.dart';
+import 'screens/owner_analytics.dart';
 import 'screens/examinations_page.dart';
 import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
@@ -50,16 +51,16 @@ class SchoolApp extends StatelessWidget {
   // Shared with layout regression tests: tests must use the actual school
   // theme, rather than MaterialApp's unconstrained default button style.
   static ThemeData buildTheme() {
-    const seed = Color(0xFF176B56);
+    const seed = Color(0xFF7138D0);
     final color = ColorScheme.fromSeed(seedColor: seed);
     return ThemeData(
         useMaterial3: true,
         colorScheme: color,
-        scaffoldBackgroundColor: const Color(0xFFF7F9F8),
-        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF7F9F8), elevation: 0),
+        scaffoldBackgroundColor: const Color(0xFFF6F4FB),
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF6F4FB), elevation: 0),
         cardTheme: CardThemeData(
           color: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFE7EDEA))),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFE5DFF1))),
         ),
         inputDecorationTheme: InputDecorationTheme(
           isDense: true,
@@ -102,7 +103,7 @@ class AuthGate extends StatelessWidget {
         if (auth.connectionState == ConnectionState.waiting) {
           return const _StatusPage(message: 'Checking your session…');
         }
-        if (auth.hasError) return const _StatusPage(message: 'Unable to check your session.');
+        if (auth.hasError) return const _AccessPage(message: 'Unable to check your session.');
         final user = auth.data;
         if (user == null) return const SignInPage();
 
@@ -161,11 +162,19 @@ class _StatusPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      const CircularProgressIndicator(),
-      const SizedBox(height: 18),
-      Text(message, style: const TextStyle(fontSize: 12)),
-    ])),
+    appBar: AppBar(title: const Text('Suffah High School')),
+    body: SafeArea(child: Center(child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 1000),
+      child: ListView(padding: const EdgeInsets.all(18), children: [
+        Text(message, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 16),
+        const DashboardSkeleton(full: true),
+        const SizedBox(height: 16),
+        const DashboardSkeleton(),
+        const SizedBox(height: 16),
+        const DashboardSkeleton(),
+      ]),
+    ))),
   );
 }
 

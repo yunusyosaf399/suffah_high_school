@@ -57,48 +57,69 @@ void main() {
       ExamPaperDraft(assignment:other,date:start)]),contains('one paper'));
   });
 
-  testWidgets('selecting a class generates all subjects and preview supports editing and shuffle', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(900,1200));
+  testWidgets('select multiple classes and edit and shuffle the combined timetable', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1500,1200));
     addTearDown(()=>tester.binding.setSurfaceSize(null));
-    const subjects=[
+    const c1=[
       ClassSubject(id:'math',classId:'c',name:'Math',active:true),
       ClassSubject(id:'english',classId:'c',name:'English',active:true),
-      ClassSubject(id:'science',classId:'c',name:'Science',active:true),
+    ];
+    const c2=[
+      ClassSubject(id:'math2',classId:'d',name:'Math',active:true),
+      ClassSubject(id:'science',classId:'d',name:'Science',active:true),
     ];
     const teachers=[
       TeacherAssignment(id:'a',staffId:'t',classId:'c',subject:'Math',subjectId:'math',active:true),
       TeacherAssignment(id:'b',staffId:'u',classId:'c',subject:'English',subjectId:'english',active:true),
-      TeacherAssignment(id:'d',staffId:'v',classId:'c',subject:'Science',subjectId:'science',active:true),
+      TeacherAssignment(id:'d',staffId:'v',classId:'d',subject:'Science',subjectId:'science',active:true),
+      TeacherAssignment(id:'e',staffId:'w',classId:'d',subject:'Math',subjectId:'math2',active:true),
     ];
     await tester.pumpWidget(MaterialApp(home:ExamCreationWizard(role:'owner',
-      assignments:teachers,classSubjects:{'c':subjects},classNames:{'c':'Class 5-A'},
+      assignments:teachers,classSubjects:{'c':c1,'d':c2},classNames:{'c':'Class 5-A','d':'Class 6-A'},
       initialDateRange:DateTimeRange(start:start,end:end))));
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.tap(find.byKey(const ValueKey('exam_class_c')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Class 5-A').last);
+    expect(find.text('1 of 2 classes selected'),findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('exam_class_d')));
     await tester.pumpAndSettle();
-    expect(find.text('3 active subjects • 10 available days • 3 papers'),findsOneWidget);
-    expect(find.byTooltip('Edit paper'),findsNWidgets(3));
+    expect(find.text('4 generated papers • 10 available examination days'),findsOneWidget);
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    expect(find.text('3 papers • Review and edit before publishing'),findsOneWidget);
-    await tester.tap(find.widgetWithText(ListTile,'English'));
+    expect(find.byType(DataTable),findsOneWidget);
+    expect(find.text('2 classes • 4 papers'),findsOneWidget);
+    await tester.tap(find.text('English'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first,'80');
     await tester.tap(find.text('Save changes'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('80.0 marks'),findsOneWidget);
-    List<String> order()=>tester.widgetList<ListTile>(find.byType(ListTile))
-      .map((tile)=>tile.title).whereType<Text>().map((text)=>text.data??'').toList();
-    final before=order();
+    expect(find.text('80.0'),findsOneWidget);
+    final before=tester.widget<DataTable>(find.byType(DataTable)).rows.map((r)=>
+      (r.cells[2].child as Text).data).toList();
     await tester.tap(find.text('Shuffle subjects'));
     await tester.pumpAndSettle();
-    expect(order(),isNot(before));
-    expect(find.textContaining('80.0 marks'),findsOneWidget);
-    expect(find.byTooltip('Edit paper'),findsNWidgets(3));
+    final after=tester.widget<DataTable>(find.byType(DataTable)).rows.map((r)=>
+      (r.cells[2].child as Text).data).toList();
+    expect(after,isNot(before));
+    expect(after.where((s)=>s=='Math').length,2);
+    expect(find.text('80.0'),findsOneWidget);
+    expect(find.byTooltip('Edit paper'),findsNWidgets(4));
     expect(tester.takeException(),isNull);
+  });
+
+  test('multi-class shuffle preserves each class calendar and subject details', () {
+    const other=TeacherAssignment(id:'b',staffId:'u',classId:'d',subject:'Math',active:true);
+    const second=TeacherAssignment(id:'c',staffId:'v',classId:'c',subject:'English',active:true);
+    final papers=[ExamPaperDraft(assignment:assignment,date:start,maxMarks:75),
+      ExamPaperDraft(assignment:second,date:end),
+      ExamPaperDraft(assignment:other,date:start,startMinute:600)];
+    final result=groupExamPapersByClass(shuffleClassSchedules(papers,random:Random(1)));
+    expect(result.keys.toSet(),{'c','d'});
+    expect(result['c']!.first.assignment.subject,'English');
+    expect(result['c']!.last.maxMarks,75);
+    expect(result['d']!.single.date,start);
+    expect(result['d']!.single.startMinute,600);
   });
 
   test('school holidays are excluded from automatic date generation', () {

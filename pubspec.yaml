@@ -29,6 +29,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon/app_icon.png
+    - assets/screens/login/desktop.png
+    - assets/screens/login/mobile.png
 
 # Add the school icon at the path below and run:
 #   flutter pub get

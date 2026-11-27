@@ -37,6 +37,10 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
   late String _term = (widget.activeCycle?['category'] as String?) ?? 'First Term';
   String _testType = 'Monthly Test';
   String? _classId;
+  final _selectedClasses=<String>{};
+  final _publishedClasses=<String>{};
+  String? _publishingCycleId;
+  bool get _partial => _publishedClasses.isNotEmpty;
   late DateTime _start = DateUtils.dateOnly(widget.initialDateRange?.start ?? DateTime.tryParse(widget.activeCycle?['startDate']?.toString() ?? '') ?? schoolExamNow());
   late DateTime _end = DateUtils.dateOnly(widget.initialDateRange?.end ?? DateTime.tryParse(widget.activeCycle?['endDate']?.toString() ?? '') ?? _start);
   final _papers = <ExamPaperDraft>[];
@@ -65,7 +69,13 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
         firstDate: first ?? DateTime(2000), lastDate: last ?? DateTime(2100));
 
   List<DateTime> get _days => examCalendarDays(_start,_end,skipSunday:_skipSunday,excludedDates:_excluded.keys.toSet());
-  List<ClassSubject> get _catalog => (widget.classSubjects[_classId] ?? const <ClassSubject>[]).where((s)=>s.active).toList();
+  List<ClassSubject> _catalogFor(String? id) => (widget.classSubjects[id] ?? const <ClassSubject>[]).where((s)=>s.active).toList();
+  List<String> get _formalClasses {
+    final ids=(widget.classNames.isNotEmpty?widget.classNames.keys:widget.classSubjects.keys).toList();
+    if(widget.activeCycle!=null) ids.removeWhere((id)=>!examStrings(widget.activeCycle!['plannedClassIds']).contains(id) || examStrings(widget.activeCycle!['classIds']).contains(id));
+    return ids..sort((a,b)=>_classLabel(a).compareTo(_classLabel(b)));
+  }
+  String _teacherLabel(ExamPaperDraft paper)=>paper.assignment.active?widget.teacherNames[paper.assignment.staffId]??paper.assignment.staffId:'No assigned teacher';
 
   String? _defaultError() {
     final marks=double.tryParse(_marksDefault.text);
@@ -76,19 +86,27 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
   }
 
   void _generate({bool preserve = false}) {
-    if (!_formal || _classId==null) return;
+    if (!_formal || _partial) return;
     setState(() {
-      _generationError=null;
-      _error=null;
+      _generationError=null; _error=null;
       try {
         final invalid=_defaultError();
         if(invalid!=null) throw ArgumentError(invalid);
-        final generated=preserve && _papers.isNotEmpty
-          ? redistributeExamPapers(_papers,_days)
-          : generateClassExamSchedule(classId:_classId!,className:_classLabel(_classId!),
-              subjects:_catalog,assignments:widget.assignments,days:_days,teacherNames:widget.teacherNames,
-              type:_typeDefault,maxMarks:double.parse(_marksDefault.text),
-              durationMinutes:_endMinute-_startMinute,startMinute:_startMinute,instructions:_notesDefault.text);
+        final old=groupExamPapersByClass(_papers);
+        final generated=<ExamPaperDraft>[];
+        for(final id in _formalClasses.where(_selectedClasses.contains)) {
+          try {
+            final previous=old[id];
+            generated.addAll(preserve && previous!=null && previous.isNotEmpty
+              ? redistributeExamPapers(previous,_days)
+              : generateClassExamSchedule(classId:id,className:_classLabel(id),
+                  subjects:_catalogFor(id),assignments:widget.assignments,days:_days,teacherNames:widget.teacherNames,
+                  type:_typeDefault,maxMarks:double.parse(_marksDefault.text),
+                  durationMinutes:_endMinute-_startMinute,startMinute:_startMinute,instructions:_notesDefault.text));
+          } on ArgumentError catch(error) {
+            throw ArgumentError('${_classLabel(id)}: ${error.message}');
+          }
+        }
         _papers..clear()..addAll(generated);
       } on ArgumentError catch(error) {
         _generationError=error.message.toString();
@@ -96,10 +114,18 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
     });
   }
 
-  void _shuffle() {
-    if(_saving || _generationError!=null || _papers.length<2) return;
+  void _toggleClass(String id,bool selected) {
     setState(() {
-      final result=shuffleExamPapers(_papers);
+      if(selected) {_selectedClasses.add(id);}else{_selectedClasses.remove(id);}
+      _papers.removeWhere((p)=>!_selectedClasses.contains(p.assignment.classId));
+    });
+    _generate(preserve:true);
+  }
+
+  void _shuffle() {
+    if(_saving || _partial || _generationError!=null || _papers.length<2) return;
+    setState(() {
+      final result=shuffleClassSchedules(_papers);
       _papers..clear()..addAll(result);
       _error=null;
     });
@@ -107,18 +133,26 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
 
   String? _scheduleError() {
     if(_formal && _generationError!=null) return _generationError;
-    if(_papers.isEmpty) return 'Choose a class and schedule its subjects.';
+    if(_papers.isEmpty) return 'Choose at least one class and schedule its subjects.';
     if(!_formal && _papers.length!=1) return 'Choose one subject.';
     if(_assignment) return _title.text.trim().isEmpty ? 'Enter an assignment title.' : null;
     if(_formal) {
-      final scheduled=_papers.map((p)=>p.assignment.subject).toSet();
-      final missing=_catalog.where((s)=>!scheduled.contains(s.name)).toList();
-      if(missing.isNotEmpty) return 'Missing subjects: ${missing.map((s)=>s.name).join(', ')}';
+      final groups=groupExamPapersByClass(_papers);
+      if(_selectedClasses.isEmpty || !groups.keys.toSet().containsAll(_selectedClasses) ||
+        !_selectedClasses.containsAll(groups.keys)) return 'Generate papers for every selected class.';
       final days=_days.map(examDateKey).toSet();
-      if(_papers.any((p)=>!days.contains(examDateKey(p.date)))) return 'Every paper must use an available examination day.';
+      for(final id in _selectedClasses) {
+        final group=groups[id]!;
+        final scheduled=group.map((p)=>p.assignment.subject).toSet();
+        final missing=_catalogFor(id).where((s)=>!scheduled.contains(s.name)).toList();
+        if(missing.isNotEmpty) return '${_classLabel(id)}: Missing subjects: ${missing.map((s)=>s.name).join(', ')}';
+        if(group.any((p)=>!days.contains(examDateKey(p.date)))) return '${_classLabel(id)}: Every paper must use an available examination day.';
+        final error=validateExamSchedule(kind:_kind,category:_term,title:_title.text,start:_start,end:_end,papers:group);
+        if(error!=null) return '${_classLabel(id)}: $error';
+      }
+      return null;
     }
-    return validateExamSchedule(kind:_kind,category:_formal?_term:_testType,
-      title:_title.text,start:_start,end:_end,papers:_papers);
+    return validateExamSchedule(kind:_kind,category:_testType,title:_title.text,start:_start,end:_end,papers:_papers);
   }
 
   void _next() {
@@ -135,18 +169,20 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
     setState(() { _error = error; if (error == null) _step++; });
   }
 
-  Future<void> _addPaper({int? index}) async {
-    if (_classId == null || _saving) return;
+  Future<void> _addPaper({int? index,String? classId}) async {
+    if (_saving || _partial) return;
     final previous=index==null?null:_papers[index];
-    final options=widget.assignments.where((a)=>a.active && a.classId==_classId &&
+    final target=previous?.assignment.classId ?? classId ?? _classId;
+    if(target==null)return;
+    final options=widget.assignments.where((a)=>a.active && a.classId==target &&
       (previous==null || a.subject==previous.assignment.subject) &&
-      (!_formal || _catalog.any((c)=>c.name==a.subject && (a.subjectId.isEmpty || a.subjectId==c.id)))).toList();
+      (!_formal || _catalogFor(target).any((c)=>c.name==a.subject && (a.subjectId.isEmpty || a.subjectId==c.id)))).toList();
     if(options.isEmpty) {
       setState(()=>_error='Assign an active subject teacher in Staff first.');
       return;
     }
     final days=_formal?_days:[_start];
-    final used=_papers.map((p)=>examDateKey(p.date)).toSet();
+    final used=_papers.where((p)=>p.assignment.classId==target).map((p)=>examDateKey(p.date)).toSet();
     final free=days.where((d)=>!used.contains(examDateKey(d))).toList();
     if(days.isEmpty || (_formal && previous==null && free.isEmpty)) {
       setState(()=>_error='Extend the date range to make room for another paper.');
@@ -160,10 +196,10 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       defaultMinutes:_endMinute-_startMinute,defaultStartMinute:_startMinute,defaultNotes:_notesDefault.text));
     if(!mounted || paper==null) return;
     if(_formal) {
-      if(_papers.asMap().entries.any((e)=>e.key!=index && e.value.assignment.subject==paper.assignment.subject && e.value.type==paper.type)) {
+      if(_papers.asMap().entries.any((e)=>e.key!=index && e.value.assignment.classId==target && e.value.assignment.subject==paper.assignment.subject && e.value.type==paper.type)) {
         setState(()=>_error='This subject already has a ${paper.type} paper.'); return;
       }
-      final occupied=_papers.indexWhere((p)=>examDateKey(p.date)==examDateKey(paper.date));
+      final occupied=_papers.indexWhere((p)=>p.assignment.classId==target && examDateKey(p.date)==examDateKey(paper.date));
       if(index==null && occupied>=0) {
         setState(()=>_error='That day already has a paper. Choose a free date.'); return;
       }
@@ -189,6 +225,14 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       if (_assignment) {
         await repo.createAssignment(assignment: _papers.single.assignment,
           title: _title.text, instructions: _instructions.text, dueDate: _start);
+      } else if (_formal) {
+        final plan=widget.activeCycle==null?_selectedClasses.toList():examStrings(widget.activeCycle!['plannedClassIds']);
+        await repo.publishClassSchedules(role:widget.role,category:_term,title:_title.text,
+          start:_start,end:_end,academicYear:_academicYear,
+          papers:_papers.where((p)=>!_publishedClasses.contains(p.assignment.classId)).toList(),
+          plannedClassIds:plan,excludedDates:_excluded,skipSunday:_skipSunday,
+          activeCycleId:_publishingCycleId??widget.activeCycle?['id']?.toString(),
+          onClassPublished:(id){if(mounted)setState((){_publishedClasses.add(id);_publishingCycleId=termCycleId(_academicYear,_term);});});
       } else {
         await repo.publishSchedule(role: widget.role, kind: _kind,
           category: _formal ? _term : _testType, title: _title.text,
@@ -198,7 +242,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       }
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) setState(() => _error = schoolErrorMessage(error));
+      if (mounted) setState(() => _error = _partial ? '${_publishedClasses.length} of ${_selectedClasses.length} selected classes published. ${schoolErrorMessage(error)} Retry remaining classes, or reopen the active examination to resume.' : schoolErrorMessage(error));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -223,7 +267,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       ],
       onChanged: widget.activeCycle!=null ? null : (v) {
         if (v != null) setState(() {
-          _kind = v; _papers.clear(); _classId=null; _generationError=null;
+          _kind = v; _papers.clear(); _selectedClasses.clear(); _classId=null; _generationError=null;
           if (!_formal) _end = _start;
         });
       },
@@ -363,7 +407,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
       trailing:Row(mainAxisSize:MainAxisSize.min,children:[
         IconButton(tooltip:'Edit paper',onPressed:_saving || (_formal && _generationError!=null)?null:()=>_addPaper(index:i),
           icon:const Icon(Icons.edit_outlined)),
-        if(_formal && _papers.where((p)=>p.assignment.subject==_papers[i].assignment.subject).length>1)
+        if(_formal && _papers.where((p)=>p.assignment.classId==_papers[i].assignment.classId && p.assignment.subject==_papers[i].assignment.subject).length>1)
           IconButton(tooltip:'Remove additional paper',onPressed:_saving?null:()=>setState(()=>_papers.removeAt(i)),
             icon:const Icon(Icons.delete_outline)),
       ]),
@@ -401,11 +445,11 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
   }
 
   Widget _scheduleActions()=>Wrap(spacing:8,runSpacing:8,children:[
-    OutlinedButton.icon(onPressed:_saving || _papers.isEmpty || _generationError!=null?null:_bulkTiming,
+    OutlinedButton.icon(onPressed:_saving || _partial || _papers.isEmpty || _generationError!=null?null:_bulkTiming,
       icon:const Icon(Icons.schedule),label:const Text('Apply timing to all subjects')),
-    OutlinedButton.icon(onPressed:_saving || _papers.length<2 || _generationError!=null?null:_shuffle,
+    OutlinedButton.icon(onPressed:_saving || _partial || !groupExamPapersByClass(_papers).values.any((p)=>p.length>1) || _generationError!=null?null:_shuffle,
       icon:const Icon(Icons.shuffle),label:const Text('Shuffle subjects')),
-    OutlinedButton.icon(onPressed:_saving || _classId==null?null:() async {
+    OutlinedButton.icon(onPressed:_saving || _partial || _selectedClasses.isEmpty?null:() async {
       final confirmed=await showDialog<bool>(context:context,builder:(context)=>AlertDialog(
         title:const Text('Regenerate date sheet?'),
         content:const Text('This replaces manual edits and extra papers with the default subject schedule.'),
@@ -416,60 +460,131 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
   ]);
 
   Widget _schedule() {
-    final classes=(_formal && widget.classNames.isNotEmpty?widget.classNames.keys.toList():
-      widget.assignments.where((a)=>a.active).map((a)=>a.classId).toSet().toList())
-      ..sort((a,b)=>_classLabel(a).compareTo(_classLabel(b)));
-    if(widget.activeCycle!=null) classes.removeWhere((id)=>!examStrings(widget.activeCycle!['plannedClassIds']).contains(id) || examStrings(widget.activeCycle!['classIds']).contains(id));
-    final unresolved=_papers.where((p)=>!p.assignment.active).map((p)=>p.assignment.subject).toList();
+    if(!_formal) {
+      final classes=widget.assignments.where((a)=>a.active).map((a)=>a.classId).toSet().toList()
+        ..sort((a,b)=>_classLabel(a).compareTo(_classLabel(b)));
+      return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+        DropdownButtonFormField<String>(initialValue:_classId,isExpanded:true,
+          decoration:const InputDecoration(labelText:'Class & section'),
+          items:[for(final id in classes) DropdownMenuItem(value:id,child:Text(_classLabel(id)))],
+          onChanged:(v)=>setState((){_classId=v;_papers.clear();_error=null;})),
+        _paperCards(),
+        OutlinedButton.icon(onPressed:_classId==null?null:()=>_addPaper(),
+          icon:const Icon(Icons.add),label:const Text('Choose subject & teacher')),
+      ]);
+    }
+    final classes=_formalClasses;
+    final selected=_selectedClasses.length;
     return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-      DropdownButtonFormField<String>(initialValue:_classId,isExpanded:true,
-        decoration:const InputDecoration(labelText:'Class & section'),
-        items:[for(final id in classes) DropdownMenuItem(value:id,child:Text(_classLabel(id),overflow:TextOverflow.ellipsis))],
-        onChanged:(v) {
-          setState(() { _classId=v; _papers.clear(); _generationError=null; _error=null; });
-          if(_formal) _generate();
-        }),
-      const SizedBox(height:12),
-      if(_formal && _classId!=null) ...[
-        Text('${_catalog.length} active subjects • ${_days.length} available days • ${_papers.length} papers',
-          style:Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height:6),
-        const Text('All active subjects are scheduled automatically. Tap a paper to edit it. Choosing an occupied date swaps the two papers.'),
-        if(_generationError!=null) Text(_generationError!,style:TextStyle(color:Theme.of(context).colorScheme.error)),
-        if(unresolved.isNotEmpty) Text('Missing assigned teacher: ${unresolved.join(', ')}. Assign teachers in Staff, then reopen the wizard.',
+      Text('Select participating classes',style:Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height:6),
+      const Text('Select any classes for this examination. Each selected class gets its own subjects and date sheet under the same term.'),
+      Row(children:[
+        Expanded(child:Text('$selected of ${classes.length} classes selected')),
+        TextButton(onPressed:classes.isEmpty?null:(){
+          setState((){
+            if(_selectedClasses.length==classes.length){_selectedClasses.clear();_papers.clear();}
+            else{_selectedClasses.addAll(classes);}
+          });
+          _generate(preserve:true);
+        },child:Text(selected==classes.length?'Clear selection':'Select all')),
+      ]),
+      for(final id in classes)
+        Card(child:CheckboxListTile(
+          key:ValueKey('exam_class_$id'),
+          value:_selectedClasses.contains(id),
+          title:Text(_classLabel(id),style:const TextStyle(fontWeight:FontWeight.w600)),
+          subtitle:Text(_catalogFor(id).isEmpty?'No active subjects — configure this class first':
+            '${_catalogFor(id).length} subjects: ${_catalogFor(id).map((s)=>s.name).join(', ')}'),
+          controlAffinity:ListTileControlAffinity.leading,
+          onChanged:(v)=>_toggleClass(id,v==true),
+        )),
+      if(classes.isEmpty) const Text('No eligible classes are available.'),
+      const SizedBox(height:10),
+      Text('${_papers.length} generated papers • ${_days.length} available examination days',
+        style:Theme.of(context).textTheme.titleMedium),
+      if(_generationError!=null) Text(_generationError!,style:TextStyle(color:Theme.of(context).colorScheme.error)),
+      for(final p in _papers.where((p)=>!p.assignment.active))
+        Text('${_classLabel(p.assignment.classId)}: ${p.assignment.subject} has no assigned teacher.',
           style:TextStyle(color:Theme.of(context).colorScheme.error)),
-        const SizedBox(height:10),
-        _scheduleActions(),
-      ],
-      _paperCards(),
-      const SizedBox(height:12),
-      OutlinedButton.icon(onPressed:_classId==null || _papers.length>=15 ||
-        (_formal && (_papers.isEmpty || _generationError!=null))?null:()=>_addPaper(),
-        icon:const Icon(Icons.add),label:Text(_formal?'Add extra theory / lab paper':'Choose subject & teacher')),
+      if(_papers.any((p)=>!p.assignment.active))
+        const Text('Assign missing subject teachers in Staff, then reopen the wizard.'),
+      if(_selectedClasses.isNotEmpty) _scheduleActions(),
+    ]);
+  }
+
+  Widget _reviewTable() {
+    final groups=groupExamPapersByClass(_papers);
+    final ordered=[..._papers]..sort((a,b){
+      final date=a.date.compareTo(b.date);
+      if(date!=0)return date;
+      final time=a.startMinute.compareTo(b.startMinute);
+      return time!=0?time:_classLabel(a.assignment.classId).compareTo(_classLabel(b.assignment.classId));
+    });
+    return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+      const Text('All dates and times are in PKT. Scroll horizontally to see every column.'),
+      const SizedBox(height:8),
+      Card(child:SingleChildScrollView(scrollDirection:Axis.horizontal,child:DataTable(
+        columnSpacing:20,
+        columns:const [
+          DataColumn(label:Text('Date')),DataColumn(label:Text('Class')),
+          DataColumn(label:Text('Subject')),DataColumn(label:Text('Type')),
+          DataColumn(label:Text('Start')),DataColumn(label:Text('End')),
+          DataColumn(label:Text('Marks'),numeric:true),DataColumn(label:Text('Teacher')),
+          DataColumn(label:Text('Actions')),
+        ],
+        rows:[for(final paper in ordered) DataRow(
+          cells:[
+            DataCell(Text(examDateKey(paper.date))),
+            DataCell(Text(_classLabel(paper.assignment.classId))),
+            DataCell(Text(paper.assignment.subject),onTap:_saving||_partial?null:()=>_addPaper(index:_papers.indexOf(paper))),
+            DataCell(Text(paper.type)),
+            DataCell(Text(examClock(paper.startMinute))),
+            DataCell(Text(examClock(paper.endMinute))),
+            DataCell(Text(paper.maxMarks.toString())),
+            DataCell(Text(_teacherLabel(paper))),
+            DataCell(Row(mainAxisSize:MainAxisSize.min,children:[
+              IconButton(tooltip:'Edit paper',onPressed:_saving||_partial?null:()=>_addPaper(index:_papers.indexOf(paper)),
+                icon:const Icon(Icons.edit_outlined)),
+              if(groups[paper.assignment.classId]!.where((p)=>p.assignment.subject==paper.assignment.subject).length>1)
+                IconButton(tooltip:'Remove additional paper',onPressed:_saving||_partial?null:()=>setState(()=>_papers.remove(paper)),
+                  icon:const Icon(Icons.delete_outline)),
+              if(_publishedClasses.contains(paper.assignment.classId)) const Icon(Icons.check_circle_outline),
+            ])),
+          ],
+        )],
+      ))),
+      if(!_partial) Wrap(spacing:8,runSpacing:8,children:[
+        for(final entry in groups.entries) OutlinedButton.icon(
+          onPressed:_saving||entry.value.length>=15?null:()=>_addPaper(classId:entry.key),
+          icon:const Icon(Icons.add),label:Text('Extra paper: ${_classLabel(entry.key)}')),
+      ]),
     ]);
   }
 
   Widget _review()=>Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
     Text(_title.text,style:Theme.of(context).textTheme.titleLarge),
     Text('${examDateKey(_start)}${_formal?' – ${examDateKey(_end)}':''}'),
-    Text(_classLabel(_classId!)),
+    if(!_formal) Text(_classLabel(_classId!)),
     const SizedBox(height:12),
     if(_formal) ...[
-      Text('${_papers.length} papers • Review and edit before publishing'),
+      Text('${_selectedClasses.length} classes • ${_papers.length} papers'),
+      const Text('Review and edit the combined timetable before publishing. Shuffle rearranges papers within each class.'),
+      if(_partial) Text('${_publishedClasses.length}/${_selectedClasses.length} classes published. Retry remaining classes without recreating the term.'),
       const SizedBox(height:8),
       _scheduleActions(),
-    ],
-    _paperCards(),
+      _reviewTable(),
+    ] else _paperCards(),
     if(_assignment) Text(_instructions.text),
     const SizedBox(height:12),
-    const Text('Publishing makes the activity available to its assigned subject teacher.'),
+    const Text('Publishing makes the activities available to their assigned subject teachers.'),
   ]);
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Create assessment')),
     body: SafeArea(child: Center(child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 760),
+      constraints: BoxConstraints(maxWidth: _step==2 && _formal?1400:760),
       child: Column(children: [
         Padding(padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -484,11 +599,11 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
             child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
         ])),
         Padding(padding: const EdgeInsets.all(16), child: Row(children: [
-          if (_step > 0) Expanded(child: OutlinedButton(onPressed: _saving ? null : () => setState(() { _step--; _error = null; }),
+          if (_step > 0) Expanded(child: OutlinedButton(onPressed: _saving || _partial ? null : () => setState(() { _step--; _error = null; }),
             child: const Text('Back'))),
           if (_step > 0) const SizedBox(width: 12),
           Expanded(child: FilledButton(onPressed: _saving ? null : _step == 2 ? _publish : _next,
-            child: Text(_saving ? 'Publishing…' : _step == 2 ? 'Publish' : 'Next'))),
+            child: Text(_saving ? 'Publishing…' : _step == 2 ? (_partial?'Retry remaining classes':'Publish') : 'Next'))),
         ])),
       ]),
     ))),

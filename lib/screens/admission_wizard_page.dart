@@ -14,7 +14,7 @@ typedef AdmissionSaveOverride = Future<void> Function(
   bool complete,
 );
 
-/// A six-tab admission wizard with horizontal page swipes and Cloud Firestore
+/// A seven-tab admission wizard with horizontal page swipes and Cloud Firestore
 /// drafts. Inputs are owned by the page, not individual tabs, so swipes never
 /// discard entered values.
 class AdmissionWizardPage extends StatefulWidget {
@@ -45,6 +45,16 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     'Health',
     'Documents',
     'Review',
+  ];
+
+  static const _accent = Color(0xFF7138D0);
+  static const _background = Color(0xFFF6F4FB);
+  static const _tint = Color(0xFFF1EBFC);
+  static const _stepIcons = [
+    Icons.person_outline_rounded, Icons.contact_phone_outlined,
+    Icons.family_restroom_outlined, Icons.school_outlined,
+    Icons.health_and_safety_outlined, Icons.folder_open_outlined,
+    Icons.fact_check_outlined,
   ];
 
   static const _fields = [
@@ -399,7 +409,7 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
 
   Widget _photoThumbnail() {
     if (_photoPath.isEmpty) {
-      return const CircleAvatar(radius: 33, child: Icon(Icons.person_outline, size: 31));
+      return const CircleAvatar(radius: 37, backgroundColor: _tint, foregroundColor: _accent, child: Icon(Icons.person_outline, size: 35));
     }
     if (_localPhotoPreview != null) {
       return CircleAvatar(radius: 33,
@@ -420,8 +430,11 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   }
 
   Widget _photoPanel() => Card(
+    margin: EdgeInsets.zero,
+    color: _tint,
+    elevation: 0,
     child: Padding(
-      padding: const EdgeInsets.all(13),
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -665,11 +678,11 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(text, style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w800, fontSize: 21,
           )),
           if (hint != null) ...[
             const SizedBox(height: 5),
-            Text(hint, style: TextStyle(fontSize: 11, color: color.onSurfaceVariant)),
+            Text(hint, style: TextStyle(fontSize: 12, color: color.onSurfaceVariant)),
           ],
         ],
       ),
@@ -754,16 +767,46 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
     ),
   );
 
+  // The existing input widgets and controllers remain the source of truth.
+  // Only their arrangement changes with the available workspace width.
+  Widget _fieldGrid(List<Widget> fields, {int columns = 2}) =>
+    LayoutBuilder(builder: (context, limits) {
+      final count = limits.maxWidth >= 840 ? columns :
+          limits.maxWidth >= 500 ? 2 : 1;
+      final width = (limits.maxWidth - (count - 1) * 16) / count;
+      return Wrap(spacing: 16, runSpacing: 3, children: [
+        for (final field in fields) SizedBox(width: width, child: field),
+      ]);
+    });
+
+  Widget _sectionTitle(String text) => Padding(
+    padding: const EdgeInsets.only(top: 9, bottom: 15),
+    child: Row(children: [
+      Container(width: 4, height: 18,
+        decoration: BoxDecoration(color: _accent, borderRadius: BorderRadius.circular(3))),
+      const SizedBox(width: 9),
+      Expanded(child: Text(text, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+    ]),
+  );
+
   Widget _pane(String section, List<Widget> children) => ListView(
     key: PageStorageKey<String>('admission_$section'),
-    padding: const EdgeInsets.fromLTRB(16, 18, 16, 34),
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
     children: [
       Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 710),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children,
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: Card(
+            margin: EdgeInsets.zero, elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18),
+              side: const BorderSide(color: Color(0xFFE5DFF1))),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              ),
+            ),
           ),
         ),
       ),
@@ -772,24 +815,47 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
 
   Widget _studentPane() => _pane('student', [
     _heading('Student personal details',
-      hint: 'Names should match official identification. Middle name is optional.'),
-    _photoPanel(),
-    OutlinedButton.icon(
-      onPressed: _busy || _uploading ? null : () => _tabs.animateTo(5),
-      icon: const Icon(Icons.upload_file_outlined),
-      label: const Text('Upload certificates & documents'),
-    ),
-    const SizedBox(height: 12),
-    _field('student', 'firstName', 'First name', required: true),
-    _field('student', 'middleName', 'Middle name (optional)'),
-    _field('student', 'lastName', 'Last name', required: true),
-    _date('student', 'dateOfBirth', 'Date of birth *', birth: true),
-    _choice('student', 'gender', 'Gender',
-      ['Not specified', 'Male', 'Female', 'Other']),
-    _field('student', 'nationality', 'Nationality'),
-    _choice('student', 'idType', 'ID document type',
-      ['Not specified', 'National ID', 'B-Form', 'Iqama', 'Passport', 'Other']),
-    _field('student', 'idNumber', 'Student ID / passport number', maxLength: 40),
+      hint: 'Names should match official identification. Fields marked * are required.'),
+    const Divider(height: 24),
+    LayoutBuilder(builder: (context, limits) {
+      final photo = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _photoPanel(),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: _busy || _uploading ? null : () => _tabs.animateTo(5),
+          icon: const Icon(Icons.upload_file_outlined, size: 18),
+          label: const Text('Upload certificates & documents', textAlign: TextAlign.center),
+        ),
+      ]);
+      final details = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _sectionTitle('Personal information'),
+        _fieldGrid([
+          _field('student', 'firstName', 'First name', required: true),
+          _field('student', 'middleName', 'Middle name (optional)'),
+          _field('student', 'lastName', 'Last name', required: true),
+          _date('student', 'dateOfBirth', 'Date of birth *', birth: true),
+          _choice('student', 'gender', 'Gender',
+            ['Not specified', 'Male', 'Female', 'Other']),
+          _field('student', 'nationality', 'Nationality'),
+        ]),
+        const Divider(height: 24),
+        _sectionTitle('Identification'),
+        _fieldGrid([
+          _choice('student', 'idType', 'ID document type',
+            ['Not specified', 'National ID', 'B-Form', 'Iqama', 'Passport', 'Other']),
+          _field('student', 'idNumber', 'Student ID / passport number', maxLength: 40),
+        ]),
+      ]);
+      if (limits.maxWidth >= 800) {
+        return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: details), const SizedBox(width: 24),
+          SizedBox(width: 250, child: photo),
+        ]);
+      }
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        photo, const SizedBox(height: 18), details,
+      ]);
+    }),
     const SizedBox(height: 4),
     const Text('Photo and certificates can also be managed in the Documents tab.',
       style: TextStyle(fontSize: 12)),
@@ -798,89 +864,108 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   Widget _contactPane() => _pane('contact', [
     _heading('Contact and residential address',
       hint: 'Student contact details are optional. Guardian contacts are recorded in the next step.'),
-    _field('contact', 'email', 'Student email',
-      type: TextInputType.emailAddress),
-    _field('contact', 'phone', 'Student phone', type: TextInputType.phone),
-    _field('contact', 'whatsapp', 'Student WhatsApp', type: TextInputType.phone),
+    const Divider(height: 24),
+    _sectionTitle('Contact information'),
+    _fieldGrid([
+      _field('contact', 'email', 'Student email', type: TextInputType.emailAddress),
+      _field('contact', 'phone', 'Student phone', type: TextInputType.phone),
+      _field('contact', 'whatsapp', 'Student WhatsApp', type: TextInputType.phone),
+      _field('contact', 'emergencyPhone', 'Additional emergency phone', type: TextInputType.phone),
+    ]),
+    const Divider(height: 24),
+    _sectionTitle('Residential address'),
     _field('contact', 'street', 'Street / house / building', maxLength: 180),
-    _field('contact', 'neighborhood', 'Neighborhood / area'),
-    _field('contact', 'city', 'City'),
-    _field('contact', 'postalCode', 'Postal code', maxLength: 16),
-    _field('contact', 'country', 'Country'),
-    _field('contact', 'emergencyPhone', 'Additional emergency phone',
-      type: TextInputType.phone),
+    _fieldGrid([
+      _field('contact', 'neighborhood', 'Neighborhood / area'),
+      _field('contact', 'city', 'City'),
+      _field('contact', 'postalCode', 'Postal code', maxLength: 16),
+      _field('contact', 'country', 'Country'),
+    ]),
   ]);
 
   Widget _guardianPane() => _pane('guardian', [
     _heading('Parent or guardian',
       hint: 'The same parent account will later be able to link multiple children.'),
-    _field('guardian', 'firstName', 'First name', required: true),
-    _field('guardian', 'middleName', 'Middle name (optional)'),
-    _field('guardian', 'lastName', 'Last name', required: true),
-    _choice('guardian', 'relationship', 'Relationship',
-      ['Father', 'Mother', 'Brother', 'Sister', 'Grandparent',
-       'Legal guardian', 'Uncle', 'Aunt', 'Other']),
-    _field('guardian', 'phone', 'Primary phone', required: true,
-      type: TextInputType.phone),
-    _field('guardian', 'whatsapp', 'WhatsApp number', type: TextInputType.phone),
-    _field('guardian', 'emergencyPhone', 'Emergency phone', type: TextInputType.phone),
-    _field('guardian', 'email', 'Guardian email', type: TextInputType.emailAddress),
-    _field('guardian', 'idNumber', 'Guardian ID / passport number',
-      maxLength: 40),
-    _field('guardian', 'occupation', 'Occupation (optional)'),
+    const Divider(height: 24),
+    _sectionTitle('Guardian information'),
+    _fieldGrid([
+      _field('guardian', 'firstName', 'First name', required: true),
+      _field('guardian', 'middleName', 'Middle name (optional)'),
+      _field('guardian', 'lastName', 'Last name', required: true),
+      _choice('guardian', 'relationship', 'Relationship',
+        ['Father', 'Mother', 'Brother', 'Sister', 'Grandparent',
+         'Legal guardian', 'Uncle', 'Aunt', 'Other']),
+      _field('guardian', 'idNumber', 'Guardian ID / passport number', maxLength: 40),
+      _field('guardian', 'occupation', 'Occupation (optional)'),
+    ]),
+    const Divider(height: 24),
+    _sectionTitle('Guardian contact'),
+    _fieldGrid([
+      _field('guardian', 'phone', 'Primary phone', required: true, type: TextInputType.phone),
+      _field('guardian', 'whatsapp', 'WhatsApp number', type: TextInputType.phone),
+      _field('guardian', 'emergencyPhone', 'Emergency phone', type: TextInputType.phone),
+      _field('guardian', 'email', 'Guardian email', type: TextInputType.emailAddress),
+    ]),
   ]);
 
   Widget _academicPane() => _pane('academic', [
     _heading('Registration and academic details',
       hint: 'Numbers are reserved automatically and cannot be edited.'),
-    _readOnly('Registration number', widget.record.registrationNo),
-    _readOnly('Roll number (5 digits)', widget.record.rollNo),
-    Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: DropdownButtonFormField<String>(
-        value: widget.classes.any((c) => c.id == _value('academic', 'classId'))
-            ? _value('academic', 'classId') : '',
-        isExpanded: true,
-        decoration: const InputDecoration(labelText: 'Class and section *'),
-        items: [
-          const DropdownMenuItem(value: '', child: Text('Select class / section')),
-          ...widget.classes.map((c) =>
-            DropdownMenuItem(value: c.id, child: Text(c.label))),
-        ],
-        onChanged: (value) {
-          if (value != null) setState(() => _assign('academic', 'classId', value));
-        },
+    const Divider(height: 24),
+    _sectionTitle('Registration'),
+    _fieldGrid([
+      _readOnly('Registration number', widget.record.registrationNo),
+      _readOnly('Roll number (5 digits)', widget.record.rollNo),
+    ]),
+    _sectionTitle('Class placement'),
+    _fieldGrid([
+      Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: DropdownButtonFormField<String>(
+          value: widget.classes.any((c) => c.id == _value('academic', 'classId'))
+              ? _value('academic', 'classId') : '',
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Class and section *'),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('Select class / section')),
+            ...widget.classes.map((c) =>
+              DropdownMenuItem(value: c.id, child: Text(c.label))),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => _assign('academic', 'classId', value));
+          },
+        ),
       ),
-    ),
-    _readOnly(
-      'Section',
-      widget.classes.where((c) =>
+      _readOnly('Section', widget.classes.where((c) =>
         c.id == _value('academic', 'classId')).map((c) => c.section)
-          .firstOrNull ?? 'Select a class',
-    ),
-    _field('academic', 'campus', 'Campus', required: true),
-    _field('academic', 'academicYear', 'Academic year',
-      hint: 'e.g. 2026–2027'),
-    _choice('academic', 'term', 'Term',
-      ['Annual', 'Term 1', 'Term 2', 'Term 3']),
-    _date('academic', 'admissionDate', 'Date of admission'),
-    _field('academic', 'previousSchool', 'Previous school / institution'),
-    _field('academic', 'previousGrade', 'Previous grade / class'),
-    _field('academic', 'transcriptNotes', 'Previous results / transcripts',
-      lines: 3, maxLength: 500),
+          .firstOrNull ?? 'Select a class'),
+      _field('academic', 'campus', 'Campus', required: true),
+      _field('academic', 'academicYear', 'Academic year', hint: 'e.g. 2026–2027'),
+      _choice('academic', 'term', 'Term', ['Annual', 'Term 1', 'Term 2', 'Term 3']),
+      _date('academic', 'admissionDate', 'Date of admission'),
+    ]),
+    const Divider(height: 24),
+    _sectionTitle('Previous education'),
+    _fieldGrid([
+      _field('academic', 'previousSchool', 'Previous school / institution'),
+      _field('academic', 'previousGrade', 'Previous grade / class'),
+    ]),
+    _field('academic', 'transcriptNotes', 'Previous results / transcripts', lines: 3, maxLength: 500),
   ]);
 
   Widget _healthPane() => _pane('health', [
     _heading('Health and special educational needs',
       hint: 'All fields are optional. Only collect what the school needs for student safety.'),
-    _field('health', 'medicalConditions', 'Medical conditions',
-      lines: 3, maxLength: 500),
-    _field('health', 'allergies', 'Allergies / medication alerts',
-      lines: 3, maxLength: 500),
-    _choice('health', 'bloodGroup', 'Blood group',
-      ['Not specified', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
-    _field('health', 'specialNeeds', 'Learning needs / accommodations',
-      lines: 3, maxLength: 500),
+    const Divider(height: 24),
+    _sectionTitle('Medical information'),
+    _fieldGrid([
+      _field('health', 'medicalConditions', 'Medical conditions', lines: 3, maxLength: 500),
+      _field('health', 'allergies', 'Allergies / medication alerts', lines: 3, maxLength: 500),
+      _choice('health', 'bloodGroup', 'Blood group',
+        ['Not specified', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
+    ]),
+    _sectionTitle('Learning support'),
+    _field('health', 'specialNeeds', 'Learning needs / accommodations', lines: 3, maxLength: 500),
   ]);
 
   static const _reviewLabels = <String, Map<String, String>>{
@@ -1002,122 +1087,136 @@ class _AdmissionWizardPageState extends State<AdmissionWizardPage>
   @override
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme;
+    final step = _tabs.index;
+    final disabled = _busy || _uploading || _closing;
     return PopScope(
       canPop: _closing,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) unawaited(_saveAndClose());
       },
       child: Scaffold(
+        backgroundColor: _background,
         appBar: AppBar(
+          backgroundColor: _background,
           automaticallyImplyLeading: false,
           leading: IconButton(
             tooltip: 'Save draft and close',
-            icon: const Icon(Icons.close_rounded),
-            onPressed: _busy || _uploading ? null : _saveAndClose,
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: disabled ? null : _saveAndClose,
           ),
-          title: Text(widget.record.isDraft ? 'New admission' : 'Student record',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          title: Text(widget.record.isDraft ? 'Add student' : 'Student record',
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
           actions: [
-            TextButton(
-              onPressed: _busy || _uploading ? null : _saveAndClose,
-              child: const Text('Save draft'),
+            TextButton.icon(
+              onPressed: disabled ? null : _saveAndClose,
+              icon: const Icon(Icons.save_outlined, size: 18),
+              label: Text(widget.record.isDraft ? 'Save draft' : 'Save changes'),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 8),
           ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(107),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 9),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text('Reg: ${widget.record.registrationNo}',
-                          style: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w800)),
-                      ),
-                      Text('Roll: ${widget.record.rollNo}',
-                        style: TextStyle(fontSize: 12, color: color.onSurfaceVariant)),
-                      const SizedBox(width: 10),
-                      Text(widget.record.isDraft ? 'DRAFT' : 'ADMITTED',
-                        style: TextStyle(
-                          fontSize: 10, fontWeight: FontWeight.w700,
-                          color: color.primary)),
-                    ],
-                  ),
-                ),
-                LinearProgressIndicator(
-                  value: (_tabs.index + 1) / _steps.length,
-                  minHeight: 3,
-                ),
-                TabBar(
-                  controller: _tabs,
-                  isScrollable: true,
-                  tabAlignment: TabAlignment.start,
-                  labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                  unselectedLabelStyle: const TextStyle(fontSize: 12),
-                  tabs: [
-                    for (var i = 0; i < _steps.length; i++)
-                      Tab(text: '${i + 1}. ${_steps[i]}'),
-                  ],
-                ),
-              ],
-            ),
-          ),
         ),
         body: SafeArea(
-          child: TabBarView(
-            controller: _tabs,
-            children: [
-              _studentPane(),
-              _contactPane(),
-              _guardianPane(),
-              _academicPane(),
-              _healthPane(),
-              _documentsPane(),
-              _reviewPane(),
-            ],
-          ),
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Center(child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: Card(
+                  margin: EdgeInsets.zero, elevation: 0,
+                  child: Padding(padding: const EdgeInsets.all(13), child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Wrap(spacing: 16, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                        Text('Reg: ${widget.record.registrationNo}',
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                        Text('Roll: ${widget.record.rollNo}', style: TextStyle(color: color.onSurfaceVariant)),
+                        Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(color: _tint, borderRadius: BorderRadius.circular(20)),
+                          child: Text(widget.record.isDraft ? 'DRAFT' : 'ADMITTED',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: _accent))),
+                        Text(_busy ? 'Saving…' : _dirty ? 'Unsaved changes' : 'Step ${step + 1} of ${_steps.length}',
+                          style: TextStyle(fontSize: 11, color: color.onSurfaceVariant)),
+                      ]),
+                      const SizedBox(height: 10),
+                      LinearProgressIndicator(value: (step + 1) / _steps.length,
+                        color: _accent, backgroundColor: _tint, minHeight: 5,
+                        borderRadius: BorderRadius.circular(8)),
+                      const SizedBox(height: 8),
+                      LayoutBuilder(builder: (context, limits) {
+                        final wide = limits.maxWidth >= 720;
+                        return TabBar(
+                          controller: _tabs,
+                          isScrollable: !wide,
+                          tabAlignment: wide ? TabAlignment.fill : TabAlignment.start,
+                          labelColor: _accent,
+                          unselectedLabelColor: color.onSurfaceVariant,
+                          labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+                          indicatorColor: _accent,
+                          dividerColor: Colors.transparent,
+                          labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                          unselectedLabelStyle: const TextStyle(fontSize: 12),
+                          tabs: [
+                            for (var i = 0; i < _steps.length; i++)
+                              Tab(icon: Icon(_stepIcons[i], size: 21),
+                                text: '${i + 1}. ${_steps[i]}'),
+                          ],
+                        );
+                      }),
+                    ],
+                  )),
+                ),
+              )),
+            ),
+            Expanded(child: TabBarView(
+              controller: _tabs,
+              children: [
+                _studentPane(), _contactPane(), _guardianPane(), _academicPane(),
+                _healthPane(), _documentsPane(), _reviewPane(),
+              ],
+            )),
+          ]),
         ),
         bottomNavigationBar: SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 9, 12, 12),
-            child: Center(
-              heightFactor: 1,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: Row(
-                  children: [
-                    if (_tabs.index > 0) ...[
-                      OutlinedButton(
-                        onPressed: _busy || _uploading
-                            ? null : () => _tabs.animateTo(_tabs.index - 1),
-                        child: const Text('Back'),
-                      ),
+          child: Material(
+            color: color.surface,
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Center(heightFactor: 1, child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: LayoutBuilder(builder: (context, limits) {
+                  final wide = limits.maxWidth >= 600;
+                  return Row(children: [
+                    if (step > 0) ...[
+                      if (wide) OutlinedButton.icon(
+                        onPressed: disabled ? null : () => _tabs.animateTo(step - 1),
+                        icon: const Icon(Icons.arrow_back, size: 17), label: const Text('Back'))
+                      else IconButton(tooltip: 'Back',
+                        onPressed: disabled ? null : () => _tabs.animateTo(step - 1),
+                        icon: const Icon(Icons.arrow_back)),
                       const SizedBox(width: 8),
                     ],
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _busy ? null : _saveAndClose,
-                        icon: const Icon(Icons.save_outlined, size: 18),
-                        label: Text(_busy ? 'Saving…' : widget.record.isDraft ? 'Save draft' : 'Save changes'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _busy || _uploading ? null
-                            : _tabs.index == _steps.length - 1 ? _finish : _next,
-                        child: Text(_tabs.index == _steps.length - 1
-                            ? widget.record.isDraft ? 'Review & admit' : 'Save reviewed changes'
-                            : widget.record.isDraft ? 'Save & next' : 'Next'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                    if (wide) ...[
+                      Text('Step ${step + 1} of ${_steps.length}', style: TextStyle(color: color.onSurfaceVariant)),
+                      const Spacer(),
+                    ],
+                    Flexible(flex: wide ? 0 : 1, fit: FlexFit.tight, child: OutlinedButton(
+                      onPressed: disabled ? null : _saveAndClose,
+                      child: Text(_busy ? 'Saving…' : widget.record.isDraft ? 'Save draft' : 'Save changes'),
+                    )),
+                    const SizedBox(width: 10),
+                    Flexible(flex: wide ? 0 : 1, fit: FlexFit.tight, child: FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: _accent, foregroundColor: Colors.white,
+                        minimumSize: const Size(100, 46)),
+                      onPressed: disabled ? null : step == _steps.length - 1 ? _finish : _next,
+                      child: Text(step == _steps.length - 1
+                        ? widget.record.isDraft ? 'Review & admit' : 'Save reviewed changes'
+                        : widget.record.isDraft ? 'Save & next' : 'Next', textAlign: TextAlign.center),
+                    )),
+                  ]);
+                }),
+              )),
             ),
           ),
         ),
