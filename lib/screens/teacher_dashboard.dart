@@ -122,7 +122,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   children: [
                     if(schoolPermission(widget.permissions,'teacher_profile')) _module('My profile & contract','Employment and service details',Icons.person_outline,()=>_open(const TeacherPersonalPage(section:'profile'))),
                     if(schoolPermission(widget.permissions,'teacher_payroll')) _module('My salary','Salary bills, payments and dues',Icons.payments_outlined,()=>_open(const TeacherPersonalPage(section:'salary'))),
-                    if(schoolPermission(widget.permissions,'teacher_analytics')) _module('Performance analytics','Released subject result outcomes',Icons.insights_outlined,()=>_open(const TeacherPersonalPage(section:'analytics'))),
+                    if(schoolPermission(widget.permissions,'teacher_analytics') && schoolPermission(widget.permissions,'teacher_academics')) _module('Performance analytics','Released subject result outcomes',Icons.insights_outlined,()=>_open(const TeacherPersonalPage(section:'analytics'))),
                     if(schoolPermission(widget.permissions,'messages')) _module('Messages','Contact school administration',Icons.forum_outlined,()=>_open(const SchoolMessagesPage())),
                     if(schoolPermission(widget.permissions,'teacher_academics')) _module('Examinations & marks', 'View exams and enter marks',
                       Icons.fact_check_outlined,

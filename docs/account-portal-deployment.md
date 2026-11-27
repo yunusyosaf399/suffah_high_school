@@ -26,3 +26,7 @@ After the Firebase function is deployed, deploy the Worker from cloudflare/stude
 Lists are bounded for read cost; the app displays a limitation warning when records are truncated. Staff service months are calculated from joining date, not actual attendance.
 
 Check the app on Windows and Android before rollout. Test revocation, parent-child isolation, private marks, file downloads and account deletion with test accounts, not production records.
+
+## Teacher portal direct access
+
+The teacher profile, contract, salary and performance screens now use authenticated Firestore queries instead of schoolPortal. Messaging uses the same private portal_threads documents via Firestore. Deploy firestore:rules before testing; a Cloud Function is not required for these teacher features. Teachers cannot write staff, contract or payroll records. Performance analytics needs both academic and analytics permissions and only includes marks from papers whose existing security rules permit access; the UI flags excluded historical papers and bounded data. The owner can start conversations from active parent/teacher accounts; the principal can reply to existing threads with participant metadata. Parents still need schoolPortal for child records and the Worker for document previews. Authentication deletion still needs schoolPortal.

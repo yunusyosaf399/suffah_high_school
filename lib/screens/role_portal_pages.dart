@@ -5,6 +5,7 @@ import 'package:pdfrx/pdfrx.dart';
 import '../data/admission_storage.dart';
 import '../data/school_user_service.dart';
 import '../data/school_portal_client.dart';
+import '../data/teacher_portal_repository.dart';
 import '../data/school_errors.dart';
 import 'school_settings_page.dart';
 
@@ -182,7 +183,7 @@ class TeacherPersonalPage extends StatelessWidget{
   @override
   Widget build(BuildContext context)=>Scaffold(
     appBar:AppBar(title:Text(section=='profile'?'My profile & contract':section=='salary'?'My salary':'Performance analytics')),
-    body:_PortalLoad(load:()=>SchoolPortalClient().request('teacherSection',{'section':section}),content:(context,data){
+    body:_PortalLoad(load:()=>TeacherPortalRepository().load(section),content:(context,data){
       if(section=='profile'){
         final p=portalMap(data['profile']),c=portalMap(data['contract']);
         final months=completedServiceMonths(p['joinDate']?.toString()??'');
@@ -205,6 +206,7 @@ class TeacherPersonalPage extends StatelessWidget{
       return [
         _notice('Released papers: ${_value(data['released'])}\nAwaiting review: ${_value(data['submitted'])}\nAverage released score: ${percent(data['average'])}'),
         const Text('These statistics describe recorded student outcomes for your papers, not a formal evaluation of teaching quality.'),
+        if((data['skipped'] as int? ?? 0)>0)_notice('Some historical papers have no current assignment access and were excluded from score averages.'),
         for(final r in rows)Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text(_value(r['name']),style:const TextStyle(fontWeight:FontWeight.w700)),
           Text('${_value(r['papers'])} papers • ${_value(r['marks'])} marks • ${percent(r['average'])}'),
@@ -220,7 +222,7 @@ class SchoolMessagesPage extends StatelessWidget {
   Widget build(BuildContext context){
     if(!admin)return const _ConversationPage();
     return Scaffold(appBar:AppBar(title:const Text('School messages')),
-      body:_PortalLoad(load:()=>SchoolPortalClient().request('threads'),content:(context,data){
+      body:_PortalLoad(load:()=>SchoolMessageRepository().threads(),content:(context,data){
         final rows=portalRows(data['rows']);
         return [
           if(rows.isEmpty)_notice('No active parent or teacher messaging accounts.'),
@@ -239,18 +241,17 @@ class _ConversationPage extends StatefulWidget {
 }
 class _ConversationPageState extends State<_ConversationPage>{
   final _text=TextEditingController();
-  final _client=SchoolPortalClient();
+  final _client=SchoolMessageRepository();
   bool _sending=false;
   int _revision=0;
   @override
   void dispose(){_text.dispose();super.dispose();}
-  Map<String,dynamic> get _thread=>{if(widget.uid!=null)'threadUid':widget.uid};
   Future<void> _send()async{
     final text=_text.text.trim();
     if(text.isEmpty||_sending)return;
     setState(()=>_sending=true);
     try{
-      await _client.request('sendMessage',{..._thread,'text':text});
+      await _client.send(widget.uid,text);
       if(mounted){_text.clear();setState(()=>_revision++);}
     }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));}
     finally{if(mounted)setState(()=>_sending=false);}
@@ -259,7 +260,7 @@ class _ConversationPageState extends State<_ConversationPage>{
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(widget.name??'School messages'),
     actions:[IconButton(tooltip:'Refresh messages',onPressed:()=>setState(()=>_revision++),icon:const Icon(Icons.refresh))]),
     body:SafeArea(child:Column(children:[
-      Expanded(child:_PortalLoad(key:ValueKey(_revision),load:()=>_client.request('messages',_thread),content:(context,data){
+      Expanded(child:_PortalLoad(key:ValueKey(_revision),load:()=>_client.messages(widget.uid),content:(context,data){
         final rows=portalRows(data['rows']);
         return [
           if(rows.isEmpty)_notice('No messages yet.'),

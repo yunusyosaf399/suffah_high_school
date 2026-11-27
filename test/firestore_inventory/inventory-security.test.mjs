@@ -933,3 +933,59 @@ test('disabled teacher capabilities deny direct Firestore reads and writes',asyn
   await assertFails(getDoc(doc(tutor,'classwork','W1')));
   await assertFails(setDoc(doc(tutor,'classwork','W2'),{kind:'homework',teacherUid:teacher,active:true,title:'Homework',staffId:'T1',assignmentId:'A1',classId:'C1',subject:'Math'}));
 });
+
+test('teacher direct profile, contract and payroll reads stay scoped and read-only',async()=>{
+  const teacher='portal-teacher',other='portal-other';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'users',teacher),{active:true,role:'teacher',staffId:'T1'});
+    await setDoc(doc(a,'users',other),{active:true,role:'teacher',staffId:'T2'});
+    for(const id of ['T1','T2']){
+      await setDoc(doc(a,'staff',id),{active:true,roleType:'teacher'});
+      await setDoc(doc(a,'staff_contracts',id),{type:'Full time'});
+      await setDoc(doc(a,'finance_salary_rates',id),{staffId:id,amountMinor:10000});
+      await setDoc(doc(a,'finance_salary_bills','bill-'+id),{staffId:id,amountMinor:10000,paidMinor:0});
+    }
+  });
+  const tutor=db(teacher),own=db(ownerId);
+  for(const collectionName of ['staff','staff_contracts','finance_salary_rates']){
+    await assertSucceeds(getDoc(doc(tutor,collectionName,'T1')));
+    await assertFails(getDoc(doc(tutor,collectionName,'T2')));
+    await assertFails(updateDoc(doc(tutor,collectionName,'T1'),{amountMinor:999999}));
+  }
+  await assertSucceeds(getDocs(query(collection(tutor,'finance_salary_bills'),where('staffId','==','T1'))));
+  await assertFails(getDocs(collection(tutor,'finance_salary_bills')));
+  await assertFails(getDoc(doc(tutor,'finance_salary_bills','bill-T2')));
+  await assertFails(updateDoc(doc(tutor,'finance_salary_bills','bill-T1'),{paidMinor:10000}));
+  await assertSucceeds(updateDoc(doc(own,'users',teacher),{permissions:{teacher_payroll:false,teacher_profile:false},updatedAt:serverTimestamp()}));
+  await assertFails(getDoc(doc(tutor,'finance_salary_rates','T1')));
+  await assertFails(getDocs(query(collection(tutor,'finance_salary_bills'),where('staffId','==','T1'))));
+  await assertFails(getDoc(doc(tutor,'staff_contracts','T1')));
+});
+test('private conversations permit own messages and school replies but block impersonation and cross-account access',async()=>{
+  const teacher='msg-teacher',other='msg-other',principal='msg-principal';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    for(const [uid,role] of [[teacher,'teacher'],[other,'teacher'],[principal,'principal']])
+      await setDoc(doc(a,'users',uid),{active:true,role,displayName:uid});
+  });
+  const tutor=db(teacher),admin=db(principal),stranger=db(other),own=db(ownerId);
+  async function send(database,target,sender,fromSchool,id){
+    const batch=writeBatch(database);
+    batch.set(doc(database,'portal_threads',target),{uid:target,name:target,role:'teacher',updatedAt:serverTimestamp()},{merge:true});
+    batch.set(doc(database,'portal_threads',target,'messages',id),{text:'Hello',senderUid:sender,fromSchool,createdAt:serverTimestamp()});
+    return batch.commit();
+  }
+  await assertSucceeds(send(tutor,teacher,teacher,false,'first'));
+  await assertFails(send(tutor,teacher,teacher,true,'forged'));
+  await assertFails(send(stranger,teacher,other,false,'cross'));
+  await assertFails(getDocs(collection(stranger,'portal_threads',teacher,'messages')));
+  await assertFails(getDocs(collection(tutor,'portal_threads')));
+  await assertSucceeds(getDocs(collection(admin,'portal_threads')));
+  await assertSucceeds(send(admin,teacher,principal,true,'reply'));
+  await assertSucceeds(getDocs(collection(tutor,'portal_threads',teacher,'messages')));
+  await assertFails(updateDoc(doc(tutor,'portal_threads',teacher,'messages','first'),{text:'edited'}));
+  await assertSucceeds(updateDoc(doc(own,'users',teacher),{permissions:{messages:false},updatedAt:serverTimestamp()}));
+  await assertFails(getDocs(collection(tutor,'portal_threads',teacher,'messages')));
+  await assertFails(send(tutor,teacher,teacher,false,'blocked'));
+});

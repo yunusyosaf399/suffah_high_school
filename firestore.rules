@@ -382,7 +382,8 @@ service cloud.firestore {
           || p.size() == 0);
     }
     match /staff_contracts/{staffId} {
-      allow read: if canManageAdmissions();
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_profile'));
+      allow list: if canManageAdmissions();
       allow create,update: if isOwner() && request.resource.data.keys().hasOnly(['type','startDate','endDate','details','updatedAt'])
         && request.resource.data.type is string && request.resource.data.type.size() <= 80
         && request.resource.data.startDate is string && request.resource.data.endDate is string
@@ -948,7 +949,8 @@ service cloud.firestore {
     }
 
     match /finance_salary_rates/{staffId} {
-      allow get, list: if canManageAdmissions();
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_payroll'));
+      allow list: if canManageAdmissions();
       allow create, update: if canManageAdmissions()
         && request.resource.data.staffId == staffId
         && request.resource.data.staffName is string
@@ -1028,7 +1030,7 @@ service cloud.firestore {
     }
 
     match /finance_salary_bills/{billId} {
-      allow get, list: if canManageAdmissions();
+      allow get, list: if canManageAdmissions() || (isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_payroll'));
       allow create: if validFinanceBillCreate(billId)
         && request.resource.data.category == 'salary'
         && request.resource.data.staffId is string
@@ -1537,6 +1539,48 @@ service cloud.firestore {
 
     // Everything else stays inaccessible until role-specific modules are
     // implemented and reviewed. DO NOT add a broad match allow rule here.
+    // Direct private messages use the same storage as the optional portal
+    // HTTPS backend. Only school administrators and the active thread
+    // participant may read messages. A teacher cannot impersonate staff.
+    function schoolMessageAdmin() {
+      return isOwner() || (isPrincipal() && accountPermission('messages'));
+    }
+    function eligibleMessageAccount(uid) {
+      let u=get(/databases/$(database)/documents/users/$(uid)).data;
+      return u.active == true && u.get('removed',false) == false
+        && u.role in ['parent','teacher'] && u.get('permissions',{}).get('messages',true) == true;
+    }
+    function messageThreadAccess(uid) {
+      return request.auth != null && eligibleMessageAccount(uid)
+        && (schoolMessageAdmin() || request.auth.uid == uid);
+    }
+    function validMessageThread(uid) {
+      let d=request.resource.data;
+      let u=get(/databases/$(database)/documents/users/$(uid)).data;
+      return d.keys().hasOnly(['uid','updatedAt','name','role'])
+        && d.uid == uid && d.updatedAt == request.time
+        && d.get('name','') == u.get('displayName','')
+        && d.role == u.role;
+    }
+    match /portal_threads/{uid} {
+      allow get: if schoolMessageAdmin() || messageThreadAccess(uid);
+      allow list: if schoolMessageAdmin();
+      allow create,update: if messageThreadAccess(uid) && validMessageThread(uid);
+      allow delete: if false;
+      match /messages/{messageId} {
+        allow get,list: if messageThreadAccess(uid);
+        allow create: if messageThreadAccess(uid)
+          && request.resource.data.keys().hasOnly(['text','senderUid','fromSchool','createdAt'])
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.fromSchool == schoolMessageAdmin()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+          && getAfter(/databases/$(database)/documents/portal_threads/$(uid)).data.uid == uid;
+        allow update,delete: if false;
+      }
+    }
+
     match /{other=**} {
       allow read, write: if false;
     }
