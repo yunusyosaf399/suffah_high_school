@@ -284,13 +284,21 @@ class SchoolUserService {
               }
               records[child.id]=data;
             }
+            final labels=<String,String>{};
+            for(final child in children){
+              final classId=records[child.id]!['classId']?.toString()??'';
+              if(classId.isNotEmpty&&!labels.containsKey(classId)){
+                final c=(await tx.get(_db.collection('classes').doc(classId))).data()??{};
+                labels[classId]=[c['name'],c['section']].whereType<String>().where((v)=>v.isNotEmpty).join(' – ');
+              }
+            }
             tx.set(userRef,profile);
             for(final child in children) {
               tx.update(_db.collection('students').doc(child.id),{
                 ...guardianEmailUpdate(records[child.id]!,cleanEmail),
                 'updatedAt':FieldValue.serverTimestamp(),
               });
-              writeParentChildViews((ref,value)=>tx.set(ref,value,SetOptions(merge:true)),_db,child.id,records[child.id]!);
+              writeParentChildViews((ref,value)=>tx.set(ref,value,ref.parent.id=='parent_children'?SetOptions(merge:true):null),_db,child.id,records[child.id]!,className:labels[records[child.id]!['classId']]);
             }
           });
         } else {
@@ -357,7 +365,7 @@ class SchoolUserService {
       for(final id in ids) {
         final child=await _db.collection('students').doc(id).get(const GetOptions(source:Source.server));
         if(!child.exists || child.data()?['status']=='draft')throw StateError('Choose existing admitted children.');
-        writeParentChildViews((ref,data)=>batch.set(ref,data,SetOptions(merge:true)),_db,id,child.data()!);
+        writeParentChildViews((ref,data)=>batch.set(ref,data,ref.parent.id=='parent_children'?SetOptions(merge:true):null),_db,id,child.data()!,className:await ParentPortalRepository.classLabel(_db,child.data()!['classId']?.toString()??''));
       }
     }
     batch.update(_db.collection('users').doc(account.uid),{

@@ -6,7 +6,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   doc, setDoc, getDoc, getDocs, collection, updateDoc, runTransaction,
-  query, where, serverTimestamp, Timestamp, writeBatch, arrayUnion,
+  query, where, collectionGroup, serverTimestamp, Timestamp, writeBatch, arrayUnion,
 } from 'firebase/firestore';
 
 const ownerId = 'tQt6vca2zuagZipvknBwcmSRcrc2';
@@ -1016,4 +1016,70 @@ test('new parent account and guardian emails are saved atomically by owner only'
   assert.equal((await getDoc(doc(own,'students',child))).data().details.guardian.email,'new@example.com');
   assert.equal((await getDoc(doc(own,'students',child))).data().details.student.firstName,'Child');
   await assertFails(updateDoc(doc(db(guardian),'students',child),{'details.guardian.email':'tampered@example.com'}));
+});
+
+test('parent portal reads only linked child views, live fees, attendance and released marks',async()=>{
+  const uid='portal-parent', child='PC1', other='PC2', klass='PC-A', otherClass='PC-B';
+  const file='student-documents/PC1/other/one.pdf';
+  const attachments={one:{path:file,name:'One',contentType:'application/pdf'}};
+  const paper={classId:klass,title:'Math',subject:'Math',active:true,resultStatus:'draft',maxMarks:100,examDate:'2026-12-01'};
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'users',uid),{role:'parent',active:true,linkedStudentIds:[child]});
+    for(const [id,c] of [[child,klass],[other,otherClass]]){
+      await setDoc(doc(a,'students',id),{status:'admitted',classId:c,fullName:id,photoPath:'',attachments:id===child?attachments:{}});
+      await setDoc(doc(a,'parent_children',id),{fullName:id,classId:c});
+      await setDoc(doc(a,'parent_profiles',id),{fullName:id,classId:c});
+      await setDoc(doc(a,'parent_documents',id),{photoPath:'',attachments:id===child?attachments:{}});
+      await setDoc(doc(a,'finance_fee_bills',id),{studentId:id,amountMinor:1000,paidMinor:0});
+      await setDoc(doc(a,'parent_attendance',id,'days','day'),{studentId:id,classId:c,date:'2026-11-01',status:'present'});
+      await setDoc(doc(a,'class_rosters',c,'students',id),{studentId:id,classId:c,active:true});
+    }
+    await setDoc(doc(a,'examinations','PE1'),{...paper,rosterSnapshot:{PC1:{fullName:'Child'},PC2:{fullName:'Other'}}});
+    await setDoc(doc(a,'examinations','PE1','marks',child),{studentId:child,score:70});
+    await setDoc(doc(a,'examinations','PE1','marks',other),{studentId:other,score:99});
+    await setDoc(doc(a,'parent_class_schedules',klass,'papers','PE1'),paper);
+  });
+  const parent=db(uid), own=db(ownerId);
+  await assertSucceeds(getDoc(doc(parent,'parent_children',child)));
+  await assertSucceeds(getDoc(doc(parent,'parent_profiles',child)));
+  await assertSucceeds(getDoc(doc(parent,'parent_documents',child)));
+  await assertFails(getDoc(doc(parent,'students',child)));
+  await assertFails(getDoc(doc(parent,'parent_profiles',other)));
+  await assertFails(getDocs(collection(parent,'parent_profiles')));
+  await assertFails(updateDoc(doc(parent,'parent_profiles',child),{fullName:'Changed'}));
+  await assertSucceeds(getDocs(query(collection(parent,'finance_fee_bills'),where('studentId','==',child))));
+  await assertFails(getDocs(collection(parent,'finance_fee_bills')));
+  await assertFails(getDocs(query(collection(parent,'finance_fee_bills'),where('studentId','==',other))));
+  await assertSucceeds(getDocs(collection(parent,'parent_attendance',child,'days')));
+  await assertFails(getDocs(collection(parent,'parent_attendance',other,'days')));
+  await assertFails(getDocs(query(collectionGroup(parent,'marks'),where('studentId','==',child))));
+  await assertSucceeds(getDocs(query(collectionGroup(own,'marks'),where('studentId','==',child))));
+  const grant=c=>doc(parent,'parent_class_grants',uid,'classes',c);
+  await assertFails(getDocs(collection(parent,'parent_class_schedules',klass,'papers')));
+  await assertFails(setDoc(grant(otherClass),{studentId:child}));
+  await assertFails(setDoc(grant(otherClass),{studentId:other}));
+  await assertSucceeds(setDoc(grant(klass),{studentId:child}));
+  await assertSucceeds(getDocs(collection(parent,'parent_class_schedules',klass,'papers')));
+  await assertFails(getDoc(doc(parent,'examinations','PE1')));
+  await assertFails(getDoc(doc(parent,'examinations','PE1','marks',child)));
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),'examinations','PE1'),{resultStatus:'released'});
+  });
+  await assertSucceeds(getDoc(doc(parent,'examinations','PE1','marks',child)));
+  await assertFails(getDoc(doc(parent,'examinations','PE1','marks',other)));
+  await assertFails(getDocs(collection(parent,'examinations','PE1','marks')));
+  await assertFails(setDoc(doc(parent,'parent_class_schedules',klass,'papers','PE1'),paper));
+  await assertSucceeds(setDoc(doc(own,'parent_class_schedules',klass,'papers','PE1'),{...paper,resultStatus:'released'}));
+  await assertFails(setDoc(doc(own,'parent_class_schedules',klass,'papers','PE1'),{...paper,resultStatus:'released',rosterSnapshot:{PC2:'Other'}}));
+  // Removing the attachment revokes the stale parent view immediately.
+  await assertSucceeds(updateDoc(doc(own,'students',child),{attachments:{}}));
+  await assertFails(getDoc(doc(parent,'parent_documents',child)));
+  await assertSucceeds(updateDoc(doc(own,'users',uid),{permissions:{parent_fees:false,parent_exams:false},updatedAt:serverTimestamp()}));
+  await assertFails(getDocs(query(collection(parent,'finance_fee_bills'),where('studentId','==',child))));
+  await assertFails(getDocs(collection(parent,'parent_class_schedules',klass,'papers')));
+  await assertFails(getDoc(doc(parent,'examinations','PE1','marks',child)));
+  await assertSucceeds(updateDoc(doc(own,'users',uid),{active:false,updatedAt:serverTimestamp()}));
+  await assertFails(getDoc(doc(parent,'parent_profiles',child)));
+  await assertFails(getDocs(collection(parent,'parent_attendance',child,'days')));
 });

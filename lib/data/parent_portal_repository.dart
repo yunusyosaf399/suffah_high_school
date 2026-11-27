@@ -12,7 +12,7 @@ const parentCycleFields=['status','category','startDate','endDate','excludedDate
 const parentAttendanceFields=['studentId','classId','date','status'];
 
 void writeParentChildViews(void Function(DocumentReference<Map<String,dynamic>>,Map<String,dynamic>) set,
-    FirebaseFirestore db,String id,Map<String,dynamic> d,{List<String>? history}) {
+    FirebaseFirestore db,String id,Map<String,dynamic> d,{List<String>? history,String? className}) {
   final details=_map(d['details']);
   final student=_map(details['student']),academic=_map(details['academic']);
   final classId=(d['classId']??academic['classId']??'').toString();
@@ -24,7 +24,7 @@ void writeParentChildViews(void Function(DocumentReference<Map<String,dynamic>>,
       'admissionDate':(d['admittedAt'] as Timestamp).toDate().toIso8601String().split('T').first,
   };
   final child=db.collection('parent_children').doc(id);
-  set(child,{'fullName':d['fullName']??'Student','classId':classId,'className':classId,
+  set(child,{'fullName':d['fullName']??'Student','classId':classId,'className':className??classId,
     if(history!=null)'historyClassIds':FieldValue.arrayUnion(history)});
   set(db.collection('parent_profiles').doc(id),profile);
   set(db.collection('parent_documents').doc(id),{'photoPath':d['photoPath']??'','attachments':_map(d['attachments'])});
@@ -122,6 +122,13 @@ class ParentPortalRepository {
     return {'rows':rows,'truncated':truncated};
   }
 
+  static Future<String> classLabel(FirebaseFirestore db,String id)async{
+    if(id.isEmpty)return '';
+    final c=(await db.collection('classes').doc(id).get(server)).data();
+    if(c==null)return id;
+    final name=[c['name'],c['section']].whereType<String>().where((s)=>s.isNotEmpty).join(' – ');
+    return name.isEmpty?id:name;
+  }
   static Future<void> syncPaper(FirebaseFirestore db,String id)async{
     final p=(await db.collection('examinations').doc(id).get(server)).data();
     if(p==null||p['classId'] is! String)return;
@@ -147,7 +154,7 @@ class ParentPortalRepository {
         if((await db.collection('class_rosters').doc(c.id).collection('students').doc(id).get(server)).exists)history.add(c.id);
       }
       final batch=db.batch();
-      writeParentChildViews((ref,data)=>batch.set(ref,data,SetOptions(merge:true)),db,id,child,history:history);
+      writeParentChildViews((ref,data)=>batch.set(ref,data,ref.parent.id=='parent_children'?SetOptions(merge:true):null),db,id,child,history:history);
       final classId=child['classId'];
       final klass=classes.docs.where((d)=>d.id==classId).firstOrNull?.data();
       if(klass!=null)batch.set(db.collection('parent_children').doc(id),{'className':
