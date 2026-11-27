@@ -94,7 +94,7 @@ class ParentChildOption {
     String value(String key)=>data[key]?.toString().trim()??'';
     return ParentChildOption(id:id,name:value('fullName').isEmpty
       ?admissionFullName(details['student']??{}):value('fullName'),
-      classId:value('classId').isEmpty?details['academic']?['classId']??'':value('classId'),
+      classId:value('classId').isEmpty ? (details['academic']?['classId']??'') : value('classId'),
       guardianName:name.isEmpty?value('guardianName'):name,
       relationship:guardian['relationship']??'',
       phone:(guardian['phone']??value('guardianPhone')).trim(),
