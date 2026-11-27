@@ -41,5 +41,5 @@ class SchoolSettingsPage extends StatelessWidget {
               catch(_) {if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Theme applied for this session; preference could not be saved.')));}
             })),
         ]))),
-    )));
+    ));
 }
