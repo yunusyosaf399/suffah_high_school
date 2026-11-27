@@ -1,9 +1,48 @@
+import 'dart:async';
+import 'package:suffah_high_school/screens/owner_analytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suffah_high_school/data/school_repository.dart';
 import 'package:suffah_high_school/screens/owner_dashboard.dart';
 
 void main() {
+  testWidgets('desktop sidebar toggles between expanded and compact navigation',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(home: OwnerDashboard(
+      displayName: 'School Owner',
+      summaryLoader: () async => const SchoolSummary(students: 3, classes: 11),
+      financePreview: const SizedBox(height: 100),
+    )));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Collapse navigation'), findsOneWidget);
+    await tester.tap(find.byTooltip('Collapse navigation'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Pin expanded navigation'), findsOneWidget);
+    await tester.tap(find.byTooltip('Pin expanded navigation'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Collapse navigation'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('school summary uses a skeleton while data is pending', (tester) async {
+    final pending = Completer<SchoolSummary>();
+    await tester.pumpWidget(MaterialApp(home: OwnerDashboard(
+      displayName: 'School Owner',
+      summaryLoader: () => pending.future,
+      financePreview: const SizedBox(height: 100),
+    )));
+    await tester.pump();
+    expect(find.byType(DashboardSkeleton), findsOneWidget);
+    pending.complete(const SchoolSummary(students: 3, classes: 11));
+    await tester.pumpAndSettle();
+    expect(find.byType(DashboardSkeleton), findsNothing);
+    expect(find.text('Student records'), findsOneWidget);
+  });
+
   testWidgets('school dashboard scrolls past finance metrics to all modules',
       (tester) async {
     tester.view.physicalSize = const Size(390, 760);
