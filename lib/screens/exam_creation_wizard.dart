@@ -196,7 +196,10 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
           activeCycleId:widget.activeCycle?['id']?.toString(), plannedClassIds:widget.classNames.keys.toList(),
           excludedDates:_excluded,skipSunday:_skipSunday);
       }
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) {
+        if(repo.parentSyncPending)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Published. Ask the owner to sync parent records to refresh the parent timetable.')));
+        Navigator.pop(context,true);
+      }
     } catch (error) {
       if (mounted) setState(() => _error = schoolErrorMessage(error));
     } finally {

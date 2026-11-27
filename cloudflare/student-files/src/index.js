@@ -75,13 +75,13 @@ async function firebaseToken(request, projectId) {
 
 // Firestore REST with a Firebase ID token ENFORCES the same students/{id}
 // security rule as the Flutter client. No service-account/admin bypass.
-async function authorizeStudent(env, token, studentId) {
+async function authorizeStudent(env, token, studentId, collection='students') {
   if (!studentPattern.test(studentId)) {
     throw new ApiError(400, 'Invalid student registration number.');
   }
   const url = 'https://firestore.googleapis.com/v1/projects/' +
     encodeURIComponent(env.FIREBASE_PROJECT_ID) +
-    '/databases/(default)/documents/students/' + encodeURIComponent(studentId);
+    '/databases/(default)/documents/' + collection + '/' + encodeURIComponent(studentId);
   let response;
   try {
     response = await fetch(url, {
@@ -188,17 +188,10 @@ function stillReferenced(student, path) {
 
 async function authorizeParentFile(env,token,path) {
   const childId=studentFromPath(path);
-  const project=encodeURIComponent(env.FIREBASE_PROJECT_ID);
-  const endpoint='https://asia-south1-'+project+'.cloudfunctions.net/schoolPortal';
-  let check;
-  try {
-    check=await fetch(endpoint,{method:'POST',redirect:'manual',
-      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-      body:JSON.stringify({action:'authorizeFile',childId,path})});
-  } catch(_) {throw new ApiError(502,'Parent document authorization is unavailable.');}
-  if(!check.ok) throw new ApiError(check.status===401||check.status===403?403:503,'Parent document access was not authorized.');
-  const authorized=await check.json();
-  if(authorized.authorized!==true) throw new ApiError(403,'Parent document access was not authorized.');
+  // The caller's own Firebase ID token enforces the parent link,
+  // document permission and current attachment equality in Firestore.
+  const view=await authorizeStudent(env,token,childId,'parent_documents');
+  if(!stillReferenced(view,path))throw new ApiError(403,'This file is not linked to your child.');
 }
 
 async function handle(request, env) {
@@ -207,7 +200,7 @@ async function handle(request, env) {
   }
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname === '/health') {
-    return json({ status: 'ok', release: 'r2-firestore-redirect-v3' });
+    return json({ status: 'ok', release: 'r2-parent-firestore-v4' });
   }
   const token = await firebaseToken(request, env.FIREBASE_PROJECT_ID);
 

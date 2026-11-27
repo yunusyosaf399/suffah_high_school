@@ -352,15 +352,18 @@ class SchoolUserService {
     if(!allowed.keys.toSet().containsAll(permissions.keys))throw ArgumentError('Unsupported permission.');
     final ids=childIds.toSet().toList()..sort();
     if(ids.length>50 || (account.role!='parent' && ids.isNotEmpty))throw ArgumentError('Invalid child links.');
+    final batch=_db.batch();
     if(account.role=='parent') {
       for(final id in ids) {
         final child=await _db.collection('students').doc(id).get(const GetOptions(source:Source.server));
         if(!child.exists || child.data()?['status']=='draft')throw StateError('Choose existing admitted children.');
+        writeParentChildViews((ref,data)=>batch.set(ref,data,SetOptions(merge:true)),_db,id,child.data()!);
       }
     }
-    await _db.collection('users').doc(account.uid).update({
+    batch.update(_db.collection('users').doc(account.uid),{
       'permissions':permissions,'linkedStudentIds':ids,'updatedAt':FieldValue.serverTimestamp(),
     });
+    await batch.commit();
   }
 
   Future<void> removeAccount(SchoolUserAccount account,{bool deleteAuthentication=false}) async {

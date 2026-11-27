@@ -24,8 +24,8 @@ void writeParentChildViews(void Function(DocumentReference<Map<String,dynamic>>,
       'admissionDate':(d['admittedAt'] as Timestamp).toDate().toIso8601String().split('T').first,
   };
   final child=db.collection('parent_children').doc(id);
-  set(child,{'fullName':d['fullName']??'Student','classId':classId,
-    if(history!=null)'historyClassIds':history});
+  set(child,{'fullName':d['fullName']??'Student','classId':classId,'className':classId,
+    if(history!=null)'historyClassIds':FieldValue.arrayUnion(history)});
   set(db.collection('parent_profiles').doc(id),profile);
   set(db.collection('parent_documents').doc(id),{'photoPath':d['photoPath']??'','attachments':_map(d['attachments'])});
 }

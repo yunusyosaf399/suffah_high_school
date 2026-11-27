@@ -1685,6 +1685,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Only the owner can run the cross-collection backfill. This does not
+    // grant parents access to a collection-group of private marks.
+    match /{path=**}/marks/{markId} {
+      allow list: if isOwner();
+    }
     match /{other=**} {
       allow read, write: if false;
     }

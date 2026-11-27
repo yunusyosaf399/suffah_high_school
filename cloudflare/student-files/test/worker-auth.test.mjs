@@ -75,19 +75,22 @@ test('missing student draft is clearly reported', async () => {
   });
 });
 
-test('parent authorization uses only the trusted backend with no redirects',async()=>{
+
+test('parent authorization uses Firestore rules and checks the exact referenced file',async()=>{
   const path='student-documents/ST-2026-0005/other/11111111-1111-1111-1111-111111111111.pdf';
   await withMockFetch(async(url,options)=>{
-    assert.equal(url,'https://asia-south1-suffah-high-school.cloudfunctions.net/schoolPortal');
+    assert.match(String(url),/\/documents\/parent_documents\/ST-2026-0005$/);
     assert.equal(options.redirect,'manual');
     assert.equal(options.headers.Authorization,'Bearer '+token);
-    assert.deepEqual(JSON.parse(options.body),{action:'authorizeFile',childId:studentId,path});
-    return Response.json({authorized:true});
+    return Response.json({fields:{attachments:{mapValue:{fields:{one:{mapValue:{fields:{path:{stringValue:path}}}}}}}}});
   },()=>authorizeParentFile(env,token,path));
-  await withMockFetch(async()=>Response.json({authorized:false}),async()=>{
+  await withMockFetch(async()=>Response.json({fields:{}}),async()=>{
+    await assert.rejects(()=>authorizeParentFile(env,token,path),e=>e.status===403);
+  });
+  await withMockFetch(async()=>new Response(null,{status:403}),async()=>{
     await assert.rejects(()=>authorizeParentFile(env,token,path),e=>e.status===403);
   });
   await withMockFetch(async()=>new Response(null,{status:302,headers:{Location:'https://unexpected.example'}}),async()=>{
-    await assert.rejects(()=>authorizeParentFile(env,token,path),e=>e.status===503);
+    await assert.rejects(()=>authorizeParentFile(env,token,path),e=>e.status===502);
   });
 });

@@ -103,14 +103,15 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
       if (confirmed != true) return;
       if (action == 'release' || action == 'reopen') {
         await _repo.setTermResult(doc.id,release:action=='release');
-        _message('Paper updated.'); return;
+        _message(_repo.parentSyncPending?'Paper updated. Owner: sync parent records.':'Paper updated.'); return;
       }
       await doc.reference.update({
         if (action == 'archive' || action == 'restore') 'active': action == 'restore',
         if (action == 'release' || action == 'reopen') 'resultStatus': action == 'release' ? 'released' : 'draft',
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      _message('Paper updated.');
+      await _repo.syncParentPaper(doc.id);
+      _message(_repo.parentSyncPending?'Paper updated. Owner: sync parent records.':'Paper updated.');
     } catch (error) { _message(schoolErrorMessage(error)); }
   }
 
@@ -121,7 +122,7 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
       actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),
         FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Declare & close'))]));
     if(confirmed!=true)return;
-    try {await _repo.closeTerm(id);_message('Examination declared and closed.');}
+    try {await _repo.closeTerm(id);_message(_repo.parentSyncPending?'Examination closed. Owner: sync parent records.':'Examination declared and closed.');}
     catch(error){_message(schoolErrorMessage(error));}
   }
 
@@ -197,7 +198,7 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
     if(timing==null)return;
     try {
       await _repo.reschedulePaper(doc.id,date,timing.start,timing.end,timing.reason);
-      _message('Paper rescheduled to ${examDateKey(date)}.');
+      _message(_repo.parentSyncPending?'Paper rescheduled. Owner: sync parent records.':'Paper rescheduled to ${examDateKey(date)}.');
     } catch(error){_message(schoolErrorMessage(error));}
   }
 

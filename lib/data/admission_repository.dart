@@ -277,7 +277,7 @@ class AdmissionRepository {
       writeParentChildViews((ref,value)=>batch.set(ref,value,SetOptions(merge:true)),_db,admission.id,{
         ...data,'admissionNo':admission.registrationNo,'rollNo':admission.rollNo,
         'photoPath':photoPath??admission.photoPath,'attachments':attachments??admission.attachments,
-      });
+      },history:[if((admission.details['academic']?['classId']??'').isNotEmpty)admission.details['academic']!['classId']!]);
       final previousClassId =
           (admission.details['academic']?['classId'] ?? '').trim();
       final nextClassId = value('academic', 'classId');
