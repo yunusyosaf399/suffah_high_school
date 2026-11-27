@@ -205,7 +205,7 @@ class AttendanceRepository {
     final entries = changes.entries.toList();
     // Teacher writes check each student's safe roster record in Rules.
     // Keep these batches small to respect Firestore's per-batch read limits.
-    final batchSize = forAttendanceTeacher ? 8 : 400;
+    final batchSize = forAttendanceTeacher ? 4 : 10;
 
     for (var start = 0; start < entries.length; start += batchSize) {
       final end = start + batchSize < entries.length
@@ -228,6 +228,9 @@ class AttendanceRepository {
           'updatedBy': user.uid,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+        batch.set(_db.collection('parent_attendance').doc(entry.key).collection('days').doc(dayRef.id),{
+          'studentId':entry.key,'classId':classId,'date':attendanceDateKey(date),'status':entry.value,
+        });
       }
       await batch.commit().timeout(const Duration(seconds: 30));
     }

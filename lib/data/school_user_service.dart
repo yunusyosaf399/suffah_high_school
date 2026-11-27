@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'school_portal_client.dart';
 import 'admission_repository.dart';
+import 'parent_portal_repository.dart';
 
 const schoolOwnerUid = 'tQt6vca2zuagZipvknBwcmSRcrc2';
 
@@ -289,6 +290,7 @@ class SchoolUserService {
                 ...guardianEmailUpdate(records[child.id]!,cleanEmail),
                 'updatedAt':FieldValue.serverTimestamp(),
               });
+              writeParentChildViews((ref,value)=>tx.set(ref,value,SetOptions(merge:true)),_db,child.id,records[child.id]!);
             }
           });
         } else {

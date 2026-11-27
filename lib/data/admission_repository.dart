@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'parent_portal_repository.dart';
 
 String registrationNumberFor(int year, int sequence) {
   if (year < 2000 || year > 9999 || sequence < 1 || sequence > 9999) {
@@ -273,6 +274,10 @@ class AdmissionRepository {
     final studentRef = _students.doc(admission.id);
     batch.update(studentRef, data);
     if (complete) {
+      writeParentChildViews((ref,value)=>batch.set(ref,value,SetOptions(merge:true)),_db,admission.id,{
+        ...data,'admissionNo':admission.registrationNo,'rollNo':admission.rollNo,
+        'photoPath':photoPath??admission.photoPath,'attachments':attachments??admission.attachments,
+      });
       final previousClassId =
           (admission.details['academic']?['classId'] ?? '').trim();
       final nextClassId = value('academic', 'classId');

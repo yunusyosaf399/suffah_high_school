@@ -6,6 +6,7 @@ import '../data/admission_storage.dart';
 import '../data/school_user_service.dart';
 import '../data/school_portal_client.dart';
 import '../data/teacher_portal_repository.dart';
+import '../data/parent_portal_repository.dart';
 import '../data/school_errors.dart';
 import 'school_settings_page.dart';
 
@@ -53,14 +54,14 @@ class ParentPortalPage extends StatelessWidget {
       const SchoolSettingsButton(),
       IconButton(tooltip:'Sign out',icon:const Icon(Icons.logout),onPressed:()=>FirebaseAuth.instance.signOut()),
     ]),
-    body:_PortalLoad(load:()=>SchoolPortalClient().request('children'),content:(context,data){
+    body:_PortalLoad(load:()=>ParentPortalRepository().children(),content:(context,data){
       final children=portalRows(data['rows']);
       return [
         _heading(context,'Welcome, $displayName'),
         const Text('Your linked children'),
         if(children.isEmpty)_notice('No child is linked to this account. Ask the school owner to verify and link your child.'),
         for(final child in children)Card(child:ListTile(
-          leading:const CircleAvatar(child:Icon(Icons.school_outlined)),title:Text(_value(child['name'])),subtitle:Text(_value(child['id'])),
+          leading:const CircleAvatar(child:Icon(Icons.school_outlined)),title:Text(_value(child['name'])),subtitle:Text(child['needsSync']==true?'${child['id']} • Ask owner to sync parent records':_value(child['id'])),
           trailing:const Icon(Icons.chevron_right),onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>
             _ChildPortalPage(child:child,permissions:permissions))))),
         if(schoolPermission(permissions,'messages'))Card(child:ListTile(leading:const Icon(Icons.forum_outlined),
@@ -93,7 +94,7 @@ class _ParentSection extends StatelessWidget {
   final String childId,section,title;
   @override
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(title)),
-    body:_PortalLoad(load:()=>SchoolPortalClient().request('parentSection',{'childId':childId,'section':section}),
+    body:_PortalLoad(load:()=>ParentPortalRepository().section(childId,section),
       content:(context,data){
         final rows=portalRows(data['rows']);
         if(section=='profile'){

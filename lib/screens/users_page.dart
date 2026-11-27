@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../data/school_errors.dart';
 import '../data/school_user_service.dart';
 import '../data/staff_repository.dart';
+import '../data/parent_portal_repository.dart';
 import 'user_access_page.dart';
 
 class UsersPage extends StatefulWidget {
@@ -43,6 +44,17 @@ class _UsersPageState extends State<UsersPage> {
 
   void _reload() =>
       setState(() => _users = widget.usersStream ?? _service.watchUsers());
+
+  bool _syncing=false;
+  Future<void> _syncParents()async{
+    if(_syncing)return;
+    setState(()=>_syncing=true);
+    try{
+      final count=await ParentPortalRepository().syncExisting();
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Parent records synchronized for $count linked children.')));
+    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));}
+    finally{if(mounted)setState(()=>_syncing=false);}
+  }
 
   Future<void> _create() async {
     await showDialog<void>(
@@ -102,6 +114,7 @@ class _UsersPageState extends State<UsersPage> {
         title: const Text('Users & accounts',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         actions: [
+          IconButton(tooltip:'Sync parent records',onPressed:_syncing?null:_syncParents,icon:_syncing?const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.sync)),
           IconButton(
             tooltip: 'Reload accounts',
             onPressed: _reload,
