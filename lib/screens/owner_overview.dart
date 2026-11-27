@@ -17,10 +17,9 @@ const _palette = [dashboardPurple, Color(0xFF9870E1), Color(0xFFC4ABF5),
 
 class OwnerOverview extends StatefulWidget {
   const OwnerOverview({super.key, required this.summary, required this.slideshow,
-    required this.onOpenExams, required this.examCard});
+    required this.examCard});
   final Future<SchoolSummary> summary;
   final bool slideshow;
-  final VoidCallback onOpenExams;
   final Widget examCard;
 
   @override
@@ -35,7 +34,8 @@ class _OwnerOverviewState extends State<OwnerOverview> {
   late final _attendance = _loadAttendance();
   int _feeMonths = 6;
   int _attendanceDays = 14;
-  bool _yearSales = false;
+  final _yearSales = <String,bool>{};
+  final _detailsKey = GlobalKey();
 
   @override
   void initState() {
@@ -141,7 +141,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
   );
 
   Widget _kpis() => LayoutBuilder(builder: (context, c) {
-    final columns = c.maxWidth >= 1050 ? 4 : c.maxWidth >= 450 ? 2 : 1;
+    final columns = c.maxWidth >= 900 ? 4 : c.maxWidth >= 450 ? 2 : 1;
     final w = (c.maxWidth - (columns-1)*12)/columns;
     return Wrap(spacing: 12, runSpacing: 12, children: [
       SizedBox(width:w, child: _loaded(widget.summary, (s) =>
@@ -199,7 +199,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
   }, title:'Fees analytics');
 
   Widget _salesChart(String dept) => _loaded(_sales, (data) {
-    final groups=(_yearSales?data.year:data.month)[dept]??{};
+    final groups=((_yearSales[dept]??false)?data.year:data.month)[dept]??{};
     final sorted=groups.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));
     final entries=sorted.take(5).toList();
     if(sorted.length>5) entries.add(MapEntry('Remaining categories',sorted.skip(5).fold<int>(0,(s,e)=>s+e.value)));
@@ -218,9 +218,9 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         for(var i=0;i<entries.length;i++) Padding(padding:const EdgeInsets.only(top:5),
           child:Row(children:[Expanded(child:_Legend(entries[i].key,_palette[i])),
             Text('${(entries[i].value*100/total).toStringAsFixed(0)}%',style:const TextStyle(fontSize:11,fontWeight:FontWeight.w700))])),
-      ]),filter:DropdownButton<bool>(value:_yearSales,underline:const SizedBox.shrink(),
+      ]),filter:DropdownButton<bool>(value:_yearSales[dept]??false,underline:const SizedBox.shrink(),
         items:const [DropdownMenuItem(value:false,child:Text('This month')),DropdownMenuItem(value:true,child:Text('This year'))],
-        onChanged:(v){if(v!=null)setState(()=>_yearSales=v);}));
+        onChanged:(v){if(v!=null)setState(()=>_yearSales[dept]=v);}));
   },title:dept=='canteen'?'Canteen sales':'Stationery analytics');
 
   Widget _attendanceChart() => _loaded(_attendance,(data){
@@ -250,7 +250,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
             SizedBox(width:width,child:chart),
         ]);
       }),
-    if(widget.slideshow) OwnerAnalytics(slideshow:true),
+    if(widget.slideshow) OwnerAnalytics(key:_detailsKey,slideshow:true),
     const SizedBox(height:16),
     LayoutBuilder(builder:(context,c){
       final n=c.maxWidth>=850?2:1;
@@ -264,7 +264,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
       const SizedBox(height:18),
       const Text('Detailed reports',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800)),
       const SizedBox(height:8),
-      OwnerAnalytics(slideshow:false),
+      OwnerAnalytics(key:_detailsKey,slideshow:false),
     ],
   ]);
 }
