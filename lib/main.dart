@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'screens/owner_dashboard.dart';
+import 'screens/owner_analytics.dart';
 import 'screens/examinations_page.dart';
 import 'data/school_user_service.dart';
 import 'screens/sign_in_page.dart';
@@ -102,7 +103,7 @@ class AuthGate extends StatelessWidget {
         if (auth.connectionState == ConnectionState.waiting) {
           return const _StatusPage(message: 'Checking your session…');
         }
-        if (auth.hasError) return const _StatusPage(message: 'Unable to check your session.');
+        if (auth.hasError) return const _AccessPage(message: 'Unable to check your session.');
         final user = auth.data;
         if (user == null) return const SignInPage();
 
@@ -161,11 +162,19 @@ class _StatusPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      const CircularProgressIndicator(),
-      const SizedBox(height: 18),
-      Text(message, style: const TextStyle(fontSize: 12)),
-    ])),
+    appBar: AppBar(title: const Text('Suffah High School')),
+    body: SafeArea(child: Center(child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 1000),
+      child: ListView(padding: const EdgeInsets.all(18), children: [
+        Text(message, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 16),
+        const DashboardSkeleton(full: true),
+        const SizedBox(height: 16),
+        const DashboardSkeleton(),
+        const SizedBox(height: 16),
+        const DashboardSkeleton(),
+      ]),
+    ))),
   );
 }
 
