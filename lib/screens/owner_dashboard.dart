@@ -248,7 +248,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('${module.title} is planned for a future version.')));
       return;
     }
-    final page = widget.moduleBuilder?.call(index) ?? switch(index) {
+    final page = widget.moduleBuilder?.call(index) ?? (switch(index) {
       0 => StudentsPage(role:widget.role),
       1 => const ClassesPage(),
       2 => AttendancePage(role:widget.role),
@@ -260,7 +260,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       10 when widget.role=='owner' => InventoryPage(role:widget.role,department:'stationery'),
       11 => StudentDocumentsPage(role:widget.role),
       _ => const SizedBox.shrink(),
-    };
+    });
     await _showPage(index,page);
   }
 
@@ -414,7 +414,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           const VerticalDivider(width:1,thickness:1,color:Color(0xFFE4DFF0)),
         ],
         Expanded(child:NavigatorPopHandler<void>(
-          onPopWithResult:(_)=>_navigator.currentState?.maybePop(),
+          onPopWithResult:(_){_navigator.currentState?.maybePop();},
           child:Navigator(key:_navigator,onGenerateRoute:(_)=>MaterialPageRoute<void>(
             settings:const RouteSettings(name:'/dashboard'),
             builder:(_)=>_DashboardBody(builder:_dashboard),
