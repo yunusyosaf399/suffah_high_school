@@ -66,49 +66,70 @@ class _SignInPageState extends State<SignInPage> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    const purple = Color(0xFF6325A6);
+    const ink = Color(0xFF21194F);
     return Scaffold(
+      backgroundColor: const Color(0xFFF7F5FC),
       body: SafeArea(
         child: LayoutBuilder(builder: (context, constraints) {
           final wide = constraints.maxWidth >= 760;
-          return Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: wide ? 440 : 420),
-                child: Card(
-                  elevation: 0,
-                  color: scheme.surface,
-                  child: Padding(
-                    padding: EdgeInsets.all(wide ? 36 : 24),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Align(
-                            alignment: Alignment.center,
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(15),
-                              ),
-                              child: Image.asset(
-                                'assets/icon/app_icon.png',
-                                width: 112,
-                                height: 112,
-                                fit: BoxFit.contain,
-                                semanticLabel: 'Suffah High School logo',
-                              ),
-                            ),
+          final width = constraints.maxWidth;
+          final height = constraints.maxHeight;
+          final canvasHeight = wide
+              ? (height < 620 ? 620.0 : height)
+              : (height < width * 1.95 ? width * 1.95 : height);
+          final formWidth = wide ? width * .39 : width * .84;
+          return SingleChildScrollView(
+            child: SizedBox(
+              width: width,
+              height: canvasHeight,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Image.asset(
+                      wide ? 'assets/screens/login/desktop.png'
+                          : 'assets/screens/login/mobile.png',
+                      fit: BoxFit.fill,
+                      semanticLabel: 'Suffah High School, School Management System',
+                    ),
+                  ),
+                  Positioned(
+                    top: canvasHeight * (wide ? .32 : .46),
+                    left: wide ? width * .56 : width * .08,
+                    width: formWidth,
+                    bottom: canvasHeight * (wide ? .14 : .10),
+                    child: Theme(
+                      data: ThemeData.light().copyWith(
+                        colorScheme: ColorScheme.fromSeed(seedColor: purple),
+                        inputDecorationTheme: InputDecorationTheme(
+                          filled: true,
+                          fillColor: Colors.white.withValues(alpha: .75),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(color: Color(0xFFDAD6E6)),
                           ),
-                          const SizedBox(height: 22),
-                          Text('Welcome back', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 6),
-                          Text('Suffah High School • Management portal', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
-                          const SizedBox(height: 28),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(color: Color(0xFFDAD6E6)),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                        ),
+                      ),
+                      child: SingleChildScrollView(
+                        child: AutofillGroup(
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text('Welcome Back', style: TextStyle(
+                                  color: ink, fontSize: wide ? 30 : 24,
+                                  fontWeight: FontWeight.w800,
+                                )),
+                                const SizedBox(height: 5),
+                                const Text('Sign in to access your account',
+                                  style: TextStyle(color: Color(0xFF68647D), fontSize: 14)),
+                                const SizedBox(height: 18),
                           TextFormField(
                             controller: _email,
                             enabled: !_busy,
@@ -146,7 +167,7 @@ class _SignInPageState extends State<SignInPage> {
                               liveRegion: true,
                               child: Container(
                                 padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(color: scheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(10)),
+                                decoration: BoxDecoration(color: const Color(0xFFECE5F7), borderRadius: BorderRadius.circular(10)),
                                 child: Text(_message!, style: const TextStyle(fontSize: 12)),
                               ),
                             ),
@@ -154,21 +175,23 @@ class _SignInPageState extends State<SignInPage> {
                           ],
                           FilledButton(
                             onPressed: _busy ? null : _signIn,
+                            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6325A6), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               child: _busy
                                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                  : const Text('Sign in'),
+                                  : const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.login_rounded), SizedBox(width: 10), Text('Sign In')]),
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          Text('Staff and parents receive access from school administration.', textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
-                        ],
+
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           );
