@@ -1,4 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'owner_analytics.dart';
 import 'package:flutter/material.dart';
 
 import '../data/school_repository.dart';
@@ -41,6 +43,109 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       (_repository ??= SchoolRepository()).loadSummary();
   late Future<SchoolSummary> _summary = _loadSummary();
   int _financeRevision = 0;
+  bool _pinned = true;
+  bool _slideshow = false;
+  bool _savingPreferences = false;
+  bool _preferencesTouched = false;
+
+  bool get _realOwner => widget.role == 'owner' && widget.summaryLoader == null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_realOwner) _loadDashboardPreferences();
+  }
+
+  DocumentReference<Map<String, dynamic>>? _preferences() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    return uid == null ? null :
+      FirebaseFirestore.instance.collection('finance_dashboard_preferences').doc(uid);
+  }
+
+  Future<void> _loadDashboardPreferences() async {
+    try {
+      final ref = _preferences();
+      if (ref == null) return;
+      final data = (await ref.get()).data();
+      if (!mounted || _preferencesTouched || data == null) return;
+      setState(() {
+        _pinned = data['navigationPinned'] != false;
+        _slideshow = data['schoolSlideshow'] == true;
+      });
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Dashboard preferences could not be loaded.')));
+    }
+  }
+
+  Future<void> _setPreferences({bool? pinned, bool? slideshow}) async {
+    if (_savingPreferences) return;
+    setState(() {
+      _preferencesTouched = true;
+      _pinned = pinned ?? _pinned;
+      _slideshow = slideshow ?? _slideshow;
+      _savingPreferences = _realOwner;
+    });
+    if (!_realOwner) return;
+    try {
+      final ref = _preferences();
+      if (ref == null) throw StateError('Sign in again.');
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final previous = (await tx.get(ref)).data();
+        tx.set(ref, {
+          if (previous == null) ...{
+            'uid': ref.id,
+            'visibleCards': ['credit', 'debit', 'net', 'fees'],
+            'rotate': false,
+          },
+          'navigationPinned': _pinned,
+          'schoolSlideshow': _slideshow,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      });
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Changed for this session; preferences could not be saved.')));
+    } finally {
+      if (mounted) setState(() => _savingPreferences = false);
+    }
+  }
+
+  Widget _navigation(List<_DashboardModule> modules, {required bool expanded, bool drawer = false}) {
+    return Material(
+      color: const Color(0xFFFAF8FD),
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+        children: [
+          if (expanded) const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text('WORKSPACE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF68647D))),
+          ),
+          ListTile(
+            selected: true,
+            selectedColor: dashboardPurple,
+            selectedTileColor: const Color(0xFFEDE5F8),
+            leading: const Icon(Icons.dashboard_outlined),
+            title: expanded ? const Text('Dashboard') : null,
+            onTap: drawer ? () => Navigator.of(context).pop() : null,
+          ),
+          for (final module in modules)
+            Tooltip(
+              message: module.title,
+              child: ListTile(
+                dense: true,
+                leading: Icon(module.icon, color: dashboardPurple),
+                title: expanded ? Text(module.title, maxLines: 1, overflow: TextOverflow.ellipsis) : null,
+                onTap: () {
+                  if (drawer) Navigator.of(context).pop();
+                  _openModule(_modules.indexOf(module));
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   static const _modules = [
     _DashboardModule('Students', Icons.groups_outlined, 'Admissions & profiles', true),
@@ -65,6 +170,11 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   }
 
   Future<void> _openModule(int index) async {
+    await _navigateModule(index);
+    if (mounted && _modules[index].available) _refresh();
+  }
+
+  Future<void> _navigateModule(int index) async {
     if (index == 0 || index == 1) {
       await Navigator.push<void>(
         context,
@@ -74,7 +184,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
               : const ClassesPage(),
         ),
       );
-      _refresh();
       return;
     }
     if (index == 2) {
@@ -89,7 +198,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       await Navigator.of(context).push<void>(
         MaterialPageRoute(builder: (_) => FinancePage(role: widget.role)),
       );
-      _refresh();
       return;
     }
     if (index == 4) {
@@ -147,8 +255,15 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
             module.title != 'Canteen Sales' &&
             module.title != 'Stationery & Books').toList();
 
+    final desktop = MediaQuery.sizeOf(context).width >= 900;
     return Scaffold(
+      drawer: desktop ? null : Drawer(child: SafeArea(child: _navigation(shownModules, expanded: true, drawer: true))),
       appBar: AppBar(
+        leading: desktop ? IconButton(
+          tooltip: _pinned ? 'Collapse navigation' : 'Pin expanded navigation',
+          onPressed: _savingPreferences ? null : () => _setPreferences(pinned: !_pinned),
+          icon: Icon(_pinned ? Icons.menu_open : Icons.menu),
+        ) : null,
         title: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -162,6 +277,11 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           ],
         ),
         actions: [
+          if (widget.role == 'owner') IconButton(
+            tooltip: _slideshow ? 'Stop dashboard slideshow' : 'Start 10-second dashboard slideshow',
+            onPressed: _savingPreferences ? null : () => _setPreferences(slideshow: !_slideshow),
+            icon: Icon(_slideshow ? Icons.pause_circle_outline : Icons.slideshow_outlined, color: dashboardPurple),
+          ),
           IconButton(
             tooltip: 'Refresh school overview',
             onPressed: _refresh,
@@ -177,16 +297,19 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       ),
       body: SafeArea(
         child: LayoutBuilder(builder: (context, limits) {
-          final width = limits.maxWidth;
+          final navWidth = desktop ? (_pinned ? 224.0 : 76.0) : 0.0;
+          final width = limits.maxWidth - navWidth;
           final gridColumns = width >= 1060 ? 4 : width >= 640 ? 3 : 2;
           final maxWidth = width >= 1150 ? 1100.0 : width;
-          return Center(
+          return Row(children: [
+            if (desktop) SizedBox(width: navWidth, child: _navigation(shownModules, expanded: _pinned)),
+            Expanded(child: Center(
             child: SizedBox(
               width: maxWidth,
               child: RefreshIndicator(
                 onRefresh: () async {
                   final next = _loadSummary();
-                  setState(() => _summary = next);
+                  setState(() { _summary = next; _financeRevision++; });
                   try { await next; } catch (_) { /* Retry through refresh. */ }
                 },
                 child: ListView(
@@ -210,7 +333,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     const SizedBox(height: 17),
                     Container(
                       decoration: BoxDecoration(
-                        color: scheme.primary,
+                        color: dashboardPurple,
                         borderRadius: BorderRadius.circular(19),
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
@@ -239,7 +362,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     FutureBuilder<SchoolSummary>(
                       future: _summary,
                       builder: (context, snapshot) {
-                        final message = snapshot.hasError ? 'Tap refresh to retry' : 'Loading…';
+                        if (snapshot.connectionState == ConnectionState.waiting) return const DashboardSkeleton(full: true);
+                        final message = 'Tap refresh to retry';
                         final items = [
                           _Stat('Student records', snapshot.hasData ? '${snapshot.data!.students}' : '—',
                             Icons.groups_2_outlined),
@@ -267,15 +391,15 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                         );
                       },
                     ),
-                    const SizedBox(height: 18),
-                    widget.financePreview ??
-                        FinanceDashboardPreview(
-                          key: ValueKey(_financeRevision),
-                        ),
                     if (widget.summaryLoader == null) ...[
                       const SizedBox(height: 16),
                       ExamTermOverview(onOpen:()=>_openModule(4)),
                     ],
+                    const SizedBox(height: 18),
+                    widget.financePreview ?? (widget.role == 'owner'
+                        ? OwnerAnalytics(key: ValueKey(_financeRevision), slideshow: _slideshow)
+                        : FinanceDashboardPreview(key: ValueKey(_financeRevision))),
+
                     const SizedBox(height: 27),
                     Row(
                       children: [
@@ -352,7 +476,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                 ),
               ),
             ),
-          );
+          )),
+          ]);
         }),
       ),
     );
