@@ -50,7 +50,17 @@ async function parentSection(db,account,id,section) {
   if(section==='profile') {
     const c=str(student.classId);
     const klass=validId(c)?(await db.collection('classes').doc(c).get()).data():null;
-    return {profile:{...pick(student,profileKeys),className:klass?[klass.name,klass.section].filter(Boolean).join(' – '):c}};
+    // Admissions store these personal fields under details.student. Only
+    // child-profile fields are projected; guardian identifiers, health data,
+    // private notes and the complete admission document are never returned.
+    const personal=student.details?.student||{};
+    const profile={...pick(student,profileKeys),
+      ...pick(personal,['dateOfBirth','gender','nationality']),
+      className:klass?[klass.name,klass.section].filter(Boolean).join(' – '):c};
+    const date=student.details?.academic?.admissionDate;
+    if(typeof date==='string' && date) profile.admissionDate=date;
+    if(!profile.admissionDate && student.admittedAt?.toDate) profile.admissionDate=student.admittedAt.toDate().toISOString().slice(0,10);
+    return {profile};
   }
   if(section==='documents') return {rows:fileMetadata(student,id)};
   if(section==='fees') {

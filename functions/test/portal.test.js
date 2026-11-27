@@ -35,14 +35,14 @@ test('parent cannot request other child, disabled documents, teacher salary or a
 });
 
 test('linked parent receives allowlisted profile fields only',async()=>{
-  const profile={fullName:'Child',admissionNo:'S1',classId:'C1',status:'admitted',guardianPhone:'private',medicalHistory:'private'};
+  const profile={fullName:'Child',admissionNo:'S1',classId:'C1',status:'admitted',guardianPhone:'private',medicalHistory:'private',details:{student:{dateOfBirth:'2020-01-01',gender:'Female',nationality:'Pakistan',privateNote:'hidden'},guardian:{email:'private@example.com'},health:{note:'private'}}};
   const db={collection(name){return {doc(id){return {async get(){
     if(name==='students'&&id==='S1')return {exists:true,data:()=>profile};
     if(name==='classes'&&id==='C1')return {exists:true,data:()=>({name:'Grade 1',section:'A'})};
     throw new Error('unexpected record');
   }}}}}};
   const result=await portalAction(db,{},parent,{action:'parentSection',childId:'S1',section:'profile'},()=>null);
-  assert.deepEqual(result.profile,{fullName:'Child',admissionNo:'S1',classId:'C1',status:'admitted',className:'Grade 1 – A'});
+  assert.deepEqual(result.profile,{fullName:'Child',admissionNo:'S1',classId:'C1',status:'admitted',dateOfBirth:'2020-01-01',gender:'Female',nationality:'Pakistan',className:'Grade 1 – A'});
 });
 test('parent file authorization requires linked child and currently referenced path',async()=>{
   const child={status:'admitted',attachments:{birth:{path:'student-documents/S1/birth_certificate/one.pdf'}}};

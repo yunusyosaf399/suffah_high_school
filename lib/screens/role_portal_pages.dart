@@ -99,7 +99,7 @@ class _ParentSection extends StatelessWidget {
         if(section=='profile'){
           final p=portalMap(data['profile']);
           return [for(final field in const [('fullName','Name'),('admissionNo','Admission number'),('rollNo','Roll number'),
-            ('className','Class'),('dateOfBirth','Date of birth'),('gender','Gender'),('admissionDate','Admission date'),('status','Status')])
+            ('className','Class'),('dateOfBirth','Date of birth'),('gender','Gender'),('nationality','Nationality'),('admissionDate','Admission date'),('status','Status')])
             _entry(field.$2,p[field.$1])];
         }
         if(section=='fees')return _bills(rows);

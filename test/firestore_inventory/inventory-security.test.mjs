@@ -989,3 +989,31 @@ test('private conversations permit own messages and school replies but block imp
   await assertFails(getDocs(collection(tutor,'portal_threads',teacher,'messages')));
   await assertFails(send(tutor,teacher,teacher,false,'blocked'));
 });
+
+test('new parent account and guardian emails are saved atomically by owner only',async()=>{
+  const guardian='new-parent-profile', child='parent-child-new';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'students',child),{admissionNo:child,rollNo:'12345',status:'admitted',active:true,
+      guardianName:'Guardian',details:{guardian:{firstName:'Guardian',email:'old@example.com'},student:{firstName:'Child'}}});
+    await setDoc(doc(a,'users','parent-creator-principal'),{active:true,role:'principal'});
+  });
+  const own=db(ownerId), principal=db('parent-creator-principal');
+  const profile={role:'parent',displayName:'Guardian',email:'new@example.com',active:true,
+    linkedStudentIds:[child],createdBy:ownerId,createdAt:serverTimestamp(),updatedAt:serverTimestamp()};
+  await assertFails(setDoc(doc(own,'users','empty-parent'),{...profile,linkedStudentIds:[]}));
+  await assertFails(setDoc(doc(own,'users','duplicate-child-parent'),{...profile,linkedStudentIds:[child,child]}));
+  async function create(database){
+    const batch=writeBatch(database);
+    batch.set(doc(database,'users',guardian),profile);
+    batch.update(doc(database,'students',child),{'details.guardian.email':'new@example.com',updatedAt:serverTimestamp()});
+    return batch.commit();
+  }
+  await assertFails(create(principal));
+  assert.equal((await getDoc(doc(own,'students',child))).data().details.guardian.email,'old@example.com');
+  await assertSucceeds(create(own));
+  assert.deepEqual((await getDoc(doc(own,'users',guardian))).data().linkedStudentIds,[child]);
+  assert.equal((await getDoc(doc(own,'students',child))).data().details.guardian.email,'new@example.com');
+  assert.equal((await getDoc(doc(own,'students',child))).data().details.student.firstName,'Child');
+  await assertFails(updateDoc(doc(db(guardian),'students',child),{'details.guardian.email':'tampered@example.com'}));
+});
