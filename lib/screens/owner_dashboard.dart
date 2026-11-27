@@ -304,7 +304,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
             const SizedBox(height:18),
             if(_realOwner && widget.financePreview==null)
               OwnerOverview(key:ValueKey(_financeRevision),summary:_summary,slideshow:_slideshow,
-                onOpenExams:()=>_openModule(4),examCard:ExamTermOverview(onOpen:()=>_openModule(4),dashboard:true))
+                examCard:ExamTermOverview(onOpen:()=>_openModule(4),dashboard:true))
             else ...[
               const Text('School overview',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
               const SizedBox(height:12),
