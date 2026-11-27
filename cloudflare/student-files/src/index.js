@@ -196,6 +196,30 @@ async function handle(request, env) {
   }
   const token = await firebaseToken(request, env.FIREBASE_PROJECT_ID);
 
+  // Parent reads use a separate endpoint. The original student read/write
+  // authorization remains administrator-only, even before this Worker deploys.
+  if(url.pathname==='/v1/parent-files' && request.method==='GET') {
+    const path=url.searchParams.get('path')||'';
+    const childId=studentFromPath(path);
+    const project=encodeURIComponent(env.FIREBASE_PROJECT_ID);
+    const endpoint='https://asia-south1-'+project+'.cloudfunctions.net/schoolPortal';
+    let check;
+    try {
+      check=await fetch(endpoint,{method:'POST',redirect:'manual',
+        headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+        body:JSON.stringify({action:'authorizeFile',childId,path})});
+    } catch(_) {throw new ApiError(502,'Parent document authorization is unavailable.');}
+    if(!check.ok) throw new ApiError(check.status===401||check.status===403?403:503,'Parent document access was not authorized.');
+    const authorized=await check.json();
+    if(authorized.authorized!==true) throw new ApiError(403,'Parent document access was not authorized.');
+    const object=await env.STUDENT_FILES.get(path);
+    if(!object) throw new ApiError(404,'File not found.');
+    return new Response(object.body,{headers:{
+      'Content-Type':object.httpMetadata?.contentType||'application/octet-stream',
+      'Content-Disposition':'attachment','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff',
+    }});
+  }
+
   const upload = /^\/v1\/students\/([^/]+)\/(photo|documents\/([a-z_]+))$/.exec(url.pathname);
   if (request.method === 'PUT' && upload) {
     const studentId = upload[1];
