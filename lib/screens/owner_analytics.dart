@@ -90,7 +90,9 @@ class OwnerAnalytics extends StatefulWidget {
   State<OwnerAnalytics> createState() => _OwnerAnalyticsState();
 }
 
-class _OwnerAnalyticsState extends State<OwnerAnalytics> {
+class _OwnerAnalyticsState extends State<OwnerAnalytics> with AutomaticKeepAliveClientMixin<OwnerAnalytics> {
+  @override
+  bool get wantKeepAlive => true;
   final _db = FirebaseFirestore.instance;
   final _now = schoolExamNow();
   late final _finance = _loadFinance();
@@ -110,6 +112,11 @@ class _OwnerAnalyticsState extends State<OwnerAnalytics> {
   @override
   void initState() {
     super.initState();
+    // Start all reports once, even if the saved slideshow opens on only one.
+    // Attach an error listener now; each FutureBuilder still receives its error.
+    for (final future in [_finance, _canteen, _stationery, _attendance, _exams]) {
+      unawaited(future.then<void>((_) {}, onError: (Object _, StackTrace __) {}));
+    }
     _syncTimer();
   }
 
@@ -242,7 +249,11 @@ class _OwnerAnalyticsState extends State<OwnerAnalytics> {
     final cycle = await repo.loadActiveTerm().timeout(const Duration(seconds: 20));
     final query = await _db.collection('examinations').where('active', isEqualTo: true)
         .get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 25));
-    final papers = query.docs;
+    // Closed annual cycles keep their paper documents for historical results.
+    final papers = query.docs.where((p) {
+      final id = p.data()['cycleId'];
+      return id == null || id == cycle?['id'];
+    }).toList();
     int status(String value) => papers.where((p) => (p.data()['resultStatus'] ?? 'draft') == value).length;
     final managed = papers.where((p) => p.data()['cycleId'] != null).toList();
     final expected = managed.fold<int>(0, (n, p) => n + examStrings(p.data()['expectedStudentIds']).length);
@@ -251,10 +262,13 @@ class _OwnerAnalyticsState extends State<OwnerAnalytics> {
       return n + examStrings(d['markedStudentIds']).toSet()
         .intersection(examStrings(d['expectedStudentIds']).toSet()).length;
     });
-    final eligible = papers.where((p) => p.data()['resultStatus'] == 'released').toList()
+    final eligible = query.docs.where((p) => p.data()['resultStatus'] == 'released').toList()
       ..sort((a,b) => (b.data()['examDate'] ?? '').toString().compareTo((a.data()['examDate'] ?? '').toString()));
     final sample = eligible.take(10).toList();
-    final performance = await Future.wait([
+    List<_Metric> performance = [];
+    var performanceUnavailable = false;
+    try {
+    final scoresByPaper = await Future.wait([
       for (final p in sample) () async {
         final max = p.data()['maxMarks'];
         final scores = await p.reference.collection('marks').get(const GetOptions(source: Source.server));
@@ -266,6 +280,10 @@ class _OwnerAnalyticsState extends State<OwnerAnalytics> {
           percent: true);
       }(),
     ]).timeout(const Duration(seconds: 25));
+    performance = scoresByPaper.whereType<_Metric>().toList();
+    } catch (_) {
+      performanceUnavailable = true;
+    }
     return [
       _Report('Examination status', cycle == null ? 'No active annual term • active papers and tests'
           : '${cycle['category']} • ${cycle['startDate']} – ${cycle['endDate']}', [
@@ -279,8 +297,8 @@ class _OwnerAnalyticsState extends State<OwnerAnalytics> {
         _Metric('Marks recorded', marked.toDouble()),
         _Metric('Marks pending', math.max(0, expected - marked).toDouble()),
       ], note: 'Based on the examination roster ledger; excludes older unmanaged papers.'),
-      _Report('Marks performance', 'Mean percentage • latest 10 released active papers', performance.whereType<_Metric>().toList(),
-        note: 'Only recorded valid scores are included. Not a school-wide average.'),
+      _Report('Marks performance', 'Mean percentage • latest 10 released papers in loaded records', performance,
+        note: performanceUnavailable ? 'Marks could not be loaded. Refresh to retry.' : 'Only recorded valid scores are included. Not a school-wide average.'),
     ];
   }
 
@@ -309,7 +327,9 @@ class _OwnerAnalyticsState extends State<OwnerAnalytics> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    super.build(context);
+    return Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       Row(children: [
@@ -334,6 +354,7 @@ class _OwnerAnalyticsState extends State<OwnerAnalytics> {
       }),
     ],
   );
+  }
 }
 
 class _ReportCard extends StatelessWidget {
