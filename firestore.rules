@@ -340,6 +340,7 @@ service cloud.firestore {
         && allowedNewRole()
         && request.resource.data.active == true && request.resource.data.get('removed',false) == false
         && validAccountPermissions(request.resource.data)
+        && (request.resource.data.role != 'parent' || request.resource.data.get('linkedStudentIds',[]).size() > 0)
         && (
           request.resource.data.role != 'teacher'
           || validTeacherAccount(userId)
@@ -361,7 +362,7 @@ service cloud.firestore {
     function validAccountPermissions(d) {
       let p=d.get('permissions',{});
       let ids=d.get('linkedStudentIds',[]);
-      return p is map && ids is list && ids.size() <= 50
+      return p is map && ids is list && ids.size() <= 50 && ids.toSet().size() == ids.size()
         && p.get('parent_profile',true) is bool
         && p.get('parent_fees',true) is bool
         && p.get('parent_attendance',true) is bool

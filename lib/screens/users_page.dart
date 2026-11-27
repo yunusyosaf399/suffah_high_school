@@ -15,6 +15,8 @@ class UsersPage extends StatefulWidget {
     this.usersStream,
     this.createOverride,
     this.teachersStream,
+    this.childrenStream,
+    this.parentCreateOverride,
   });
 
   final String role;
@@ -27,6 +29,8 @@ class UsersPage extends StatefulWidget {
     String? staffId,
   })? createOverride;
   final Stream<List<StaffMember>>? teachersStream;
+  final Stream<List<ParentChildOption>>? childrenStream;
+  final Future<CreatedSchoolUser> Function({required String name,required String email,required String password,required List<ParentChildOption> children,required bool guardianConfirmed})? parentCreateOverride;
 
   @override
   State<UsersPage> createState() => _UsersPageState();
@@ -46,6 +50,10 @@ class _UsersPageState extends State<UsersPage> {
       barrierDismissible: false,
       builder: (_) => _CreateUserDialog(
         teacherStreamProvider: () => widget.teachersStream ?? StaffRepository().watchStaff(),
+        childStreamProvider:()=>widget.childrenStream??_service.watchParentChildren(),
+        onCreateParent:({required name,required email,required password,required children,required guardianConfirmed})=>
+          widget.parentCreateOverride?.call(name:name,email:email,password:password,children:children,guardianConfirmed:guardianConfirmed)??
+          _service.createAccount(name:name,email:email,password:password,role:'parent',children:children,guardianConfirmed:guardianConfirmed),
         onCreate: ({
           required String name,
           required String email,
@@ -243,7 +251,9 @@ class _EmptyUsers extends StatelessWidget {
 }
 
 class _CreateUserDialog extends StatefulWidget {
-  const _CreateUserDialog({required this.onCreate, required this.teacherStreamProvider});
+  const _CreateUserDialog({required this.onCreate, required this.teacherStreamProvider,required this.childStreamProvider,required this.onCreateParent});
+  final Stream<List<ParentChildOption>> Function() childStreamProvider;
+  final Future<CreatedSchoolUser> Function({required String name,required String email,required String password,required List<ParentChildOption> children,required bool guardianConfirmed}) onCreateParent;
   final Stream<List<StaffMember>> Function() teacherStreamProvider;
   final Future<CreatedSchoolUser> Function({
     required String name,
@@ -264,6 +274,9 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
   String _role = 'principal';
   String? _teacherId;
   String? _teacherEmail;
+  final _children=<ParentChildOption>[];
+  bool _guardianConfirmed=false;
+  Stream<List<ParentChildOption>>? _childStreamCache;
   bool _busy = false;
   bool _revealPassword = false;
   Stream<List<StaffMember>>? _teacherStreamCache;
@@ -297,7 +310,8 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
            _teacherEmail!.isEmpty)) {
         throw ArgumentError('Select an active teacher and an email from the profile.');
       }
-      final created = await widget.onCreate(
+      if(_role=='parent' && (_children.isEmpty || !_guardianConfirmed))throw ArgumentError('Select children and confirm the guardian identity and email.');
+      final created = _role=='parent'?await widget.onCreateParent(name:_name.text,email:_email.text,password:_password.text,children:List.of(_children),guardianConfirmed:_guardianConfirmed):await widget.onCreate(
         name: _name.text,
         email: _role == 'teacher' ? _teacherEmail! : _email.text,
         password: _password.text,
@@ -312,6 +326,59 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
     }
   }
 
+  Widget _parentForm()=>Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+    StreamBuilder<List<ParentChildOption>>(
+      stream:_childStreamCache??=widget.childStreamProvider(),
+      builder:(context,snapshot){
+        if(snapshot.hasError)return Text(schoolErrorMessage(snapshot.error!));
+        if(!snapshot.hasData)return const LinearProgressIndicator();
+        final options=snapshot.data!;
+        return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+          OutlinedButton.icon(key:const Key('parent_child_picker'),onPressed:_busy||options.isEmpty?null:()async{
+            final selected=await showDialog<List<ParentChildOption>>(context:context,builder:(_)=>
+              _ParentChildPicker(options:options,initial:_children));
+            if(selected==null||!mounted)return;
+            setState((){
+              final previous=_children.firstOrNull?.id;
+              _children..clear()..addAll(selected);
+              if(_children.firstOrNull?.id!=previous){
+                _name.text=_children.firstOrNull?.guardianName??'';
+                _email.text=_children.firstOrNull?.email??'';
+              }
+              _guardianConfirmed=false;
+            });
+          },icon:const Icon(Icons.family_restroom),label:Text(_children.isEmpty?'Select student(s) *':'Change selected children (${_children.length})')),
+          if(options.isEmpty)const Text('No active admitted students are available.'),
+          for(final child in _children)
+            ListTile(contentPadding:EdgeInsets.zero,title:Text(child.name),
+              subtitle:Text('${child.id} • ${child.classId}\n${child.guardianName} • ${child.relationship}\nPhone: ${child.phone.isEmpty?'Not recorded':child.phone}\nSaved email: ${child.email.isEmpty?'Not recorded':child.email}')),
+        ]);
+      }),
+    if(_children.isNotEmpty)...[
+      const SizedBox(height:8),
+      TextField(controller:_name,readOnly:_busy,decoration:const InputDecoration(labelText:'Parent / guardian name *'),
+        onChanged:(_)=>setState(()=>_guardianConfirmed=false)),
+      const SizedBox(height:12),
+      if(_children.map((c)=>c.email).where((e)=>e.isNotEmpty).toSet().isNotEmpty)
+        Wrap(spacing:6,children:[
+          for(final email in _children.map((c)=>c.email).where((e)=>e.isNotEmpty).toSet())
+            ActionChip(label:Text(email),onPressed:_busy?null:()=>setState((){_email.text=email;_guardianConfirmed=false;})),
+        ]),
+      TextField(key:const Key('parent_guardian_email'),controller:_email,readOnly:_busy,
+        keyboardType:TextInputType.emailAddress,autocorrect:false,
+        decoration:InputDecoration(labelText:'Guardian email / account email *',
+          helperText:_children.first.email.isEmpty?'No email recorded. Enter a valid guardian email.':'Use the saved email or enter a correction.'),
+        onChanged:(_)=>setState(()=>_guardianConfirmed=false)),
+      const SizedBox(height:8),
+      Text('The account email will be saved as the guardian email for every selected child.'),
+      if(_children.any((c)=>c.email.isNotEmpty&&c.email.trim().toLowerCase()!=_email.text.trim().toLowerCase()))
+        Text('Warning: an existing guardian email will be replaced.',style:TextStyle(color:Theme.of(context).colorScheme.error)),
+      CheckboxListTile(key:const Key('parent_guardian_confirm'),contentPadding:EdgeInsets.zero,
+        value:_guardianConfirmed,onChanged:_busy?null:(v)=>setState(()=>_guardianConfirmed=v==true),
+        title:const Text('I verified this guardian may access every selected child and approve the email update.')),
+    ],
+  ]);
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
@@ -322,6 +389,31 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
           ? Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                DropdownButtonFormField<String>(
+                  key: const Key('account_role_dropdown'),
+                  initialValue: _role,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Account role'),
+                  items: schoolRoles.entries.map((entry) =>
+                      DropdownMenuItem(
+                        value: entry.key, child: Text(entry.value))).toList(),
+                  onChanged: _busy ? null : (role) {
+                    if (role != null) setState(() {
+                      _role = role;
+                      _children.clear();
+                      _guardianConfirmed=false;
+                      _name.clear();
+                      _email.clear();
+                      _teacherId = null;
+                      _teacherEmail = null;
+                      if (role == 'teacher') {
+                        _name.clear();
+                        _email.clear();
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
                 if (_role == 'teacher') ...[
                   StreamBuilder<List<StaffMember>>(
                     stream: _teacherStream,
@@ -409,6 +501,8 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
                       );
                     },
                   ),
+                ] else if(_role=='parent') ...[
+                  _parentForm(),
                 ] else ...[
                   TextField(
                     controller: _name,
@@ -423,27 +517,6 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
                     decoration: const InputDecoration(labelText: 'Email address *'),
                   ),
                 ],
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  key: const Key('account_role_dropdown'),
-                  initialValue: _role,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Account role'),
-                  items: schoolRoles.entries.map((entry) =>
-                      DropdownMenuItem(
-                        value: entry.key, child: Text(entry.value))).toList(),
-                  onChanged: _busy ? null : (role) {
-                    if (role != null) setState(() {
-                      _role = role;
-                      _teacherId = null;
-                      _teacherEmail = null;
-                      if (role == 'teacher') {
-                        _name.clear();
-                        _email.clear();
-                      }
-                    });
-                  },
-                ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _password,
@@ -521,4 +594,36 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
         ),
     ],
   );
+}
+
+class _ParentChildPicker extends StatefulWidget{
+  const _ParentChildPicker({required this.options,required this.initial});
+  final List<ParentChildOption> options,initial;
+  @override
+  State<_ParentChildPicker> createState()=>_ParentChildPickerState();
+}
+class _ParentChildPickerState extends State<_ParentChildPicker>{
+  late final _selected=widget.initial.map((c)=>c.id).toList();
+  String _query='';
+  @override
+  Widget build(BuildContext context)=>AlertDialog(
+    title:const Text('Select children for guardian'),
+    content:SizedBox(width:500,height:400,child:Column(children:[
+      TextField(decoration:const InputDecoration(prefixIcon:Icon(Icons.search),hintText:'Search student, admission no., guardian or email'),
+        onChanged:(v)=>setState(()=>_query=v.trim().toLowerCase())),
+      const SizedBox(height:8),
+      Expanded(child:ListView.builder(
+        itemCount:widget.options.where((c)=>'${c.name} ${c.id} ${c.guardianName} ${c.email}'.toLowerCase().contains(_query)).length,
+        itemBuilder:(context,i){
+          final c=widget.options.where((c)=>'${c.name} ${c.id} ${c.guardianName} ${c.email}'.toLowerCase().contains(_query)).elementAt(i);
+          return CheckboxListTile(key:ValueKey('parent_child_${c.id}'),value:_selected.contains(c.id),
+            title:Text('${c.name} • ${c.id}'),subtitle:Text('${c.classId} • ${c.guardianName}\n${c.email.isEmpty?'No guardian email':c.email}'),
+            onChanged:(v)=>setState((){if(v==true&&_selected.length<50){_selected.add(c.id);}else if(v==false){_selected.remove(c.id);}}));
+        })),
+    ])),actions:[
+      TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+      FilledButton(onPressed:_selected.isEmpty?null:()=>Navigator.pop(context,[for(final id in _selected)
+        if(widget.options.any((c)=>c.id==id))widget.options.firstWhere((c)=>c.id==id)]),
+        child:Text('Select ${_selected.length} children')),
+    ]);
 }

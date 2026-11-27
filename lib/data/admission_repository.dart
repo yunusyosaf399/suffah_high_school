@@ -106,6 +106,7 @@ class AdmissionRecord {
       parsed['guardian'] = {
         'firstName': (data['guardianName'] as String?) ?? '',
         'phone': (data['guardianPhone'] as String?) ?? '',
+        'email': (data['guardianEmail'] as String?) ?? '',
       };
       parsed['academic'] = {'classId': (data['classId'] as String?) ?? ''};
     }

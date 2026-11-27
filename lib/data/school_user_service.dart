@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'school_portal_client.dart';
+import 'admission_repository.dart';
 
 const schoolOwnerUid = 'tQt6vca2zuagZipvknBwcmSRcrc2';
 
@@ -80,6 +81,48 @@ class SchoolUserAccount {
   }
 }
 
+
+class ParentChildOption {
+  const ParentChildOption({required this.id,required this.name,this.classId='',
+    this.guardianName='',this.relationship='',this.phone='',this.email=''});
+  final String id,name,classId,guardianName,relationship,phone,email;
+
+  factory ParentChildOption.fromData(String id,Map<String,dynamic> data) {
+    final details=AdmissionRecord.parseDetails(data);
+    final guardian=details['guardian']??const <String,String>{};
+    final name=admissionFullName(guardian);
+    String value(String key)=>data[key]?.toString().trim()??'';
+    return ParentChildOption(id:id,name:value('fullName').isEmpty
+      ?admissionFullName(details['student']??{}):value('fullName'),
+      classId:value('classId').isEmpty?details['academic']?['classId']??'':value('classId'),
+      guardianName:name.isEmpty?value('guardianName'):name,
+      relationship:guardian['relationship']??'',
+      phone:(guardian['phone']??value('guardianPhone')).trim(),
+      email:(guardian['email']??value('guardianEmail')).trim());
+  }
+
+  bool sameGuardian(ParentChildOption other)=>guardianName==other.guardianName &&
+    relationship==other.relationship && phone==other.phone && email==other.email;
+}
+
+Map<String,dynamic> guardianEmailUpdate(Map<String,dynamic> data,String email) {
+  // Preserve every other detail, including the legacy admission fallback.
+  final raw=data['details'];
+  final details=raw is Map && raw.isNotEmpty
+    ?Map<String,dynamic>.from(raw)
+    :<String,dynamic>{...AdmissionRecord.parseDetails(data)};
+  final guardian=details['guardian'];
+  details['guardian']={
+    if(guardian is Map)...Map<String,dynamic>.from(guardian)
+    else ...?AdmissionRecord.parseDetails(data)['guardian'],
+    'email':email,
+  };
+  return {'details':details,if(data.containsKey('guardianEmail'))'guardianEmail':email};
+}
+
+bool eligibleParentChild(Map<String,dynamic> data)=>
+    (data['status']??'admitted')=='admitted' && data['active']!=false;
+
 class CreatedSchoolUser {
   const CreatedSchoolUser({
     required this.uid,
@@ -111,12 +154,18 @@ class SchoolUserService {
       .map((snapshot) =>
           snapshot.docs.map(SchoolUserAccount.fromSnapshot).toList());
 
+  Stream<List<ParentChildOption>> watchParentChildren()=>_db.collection('students').snapshots()
+    .map((snapshot)=>snapshot.docs.where((d)=>eligibleParentChild(d.data()))
+      .map((d)=>ParentChildOption.fromData(d.id,d.data())).toList()..sort((a,b)=>a.name.compareTo(b.name)));
+
   Future<CreatedSchoolUser> createAccount({
     required String name,
     required String email,
     required String password,
     required String role,
     String? staffId,
+    List<ParentChildOption> children=const [],
+    bool guardianConfirmed=false,
   }) async {
     final cleanName = name.trim();
     final cleanEmail = email.trim().toLowerCase();
@@ -131,6 +180,22 @@ class SchoolUserService {
     }
     if (password.length < 12) {
       throw ArgumentError('The temporary password must be at least 12 characters.');
+    }
+    final childIds=children.map((c)=>c.id).toSet().toList();
+    if(role=='parent') {
+      if(!guardianConfirmed || children.isEmpty || childIds.length!=children.length || childIds.length>50 ||
+        childIds.any((id)=>id.isEmpty || id.contains('/'))) {
+        throw ArgumentError('Select 1–50 children and confirm the guardian identity and email.');
+      }
+      // Check the selections before creating any Firebase sign-in.
+      for(final child in children) {
+        final data=(await _db.collection('students').doc(child.id).get(const GetOptions(source:Source.server))).data();
+        if(data==null || !eligibleParentChild(data) || !child.sameGuardian(ParentChildOption.fromData(child.id,data))) {
+          throw StateError('Student or guardian information changed. Reopen the form and select the child again.');
+        }
+      }
+    } else if(children.isNotEmpty) {
+      throw ArgumentError('Only parent accounts may link children.');
     }
     DocumentReference<Map<String, dynamic>>? linkedStaffRef;
     String linkedStaffNo = '';
@@ -191,12 +256,12 @@ class SchoolUserService {
         throw StateError('Firebase did not return the newly created account.');
       }
       try {
-        await _db.collection('users').doc(createdUser.uid).set({
+        final profile=<String,dynamic>{
           'displayName': cleanName,
           'email': cleanEmail,
           'role': role,
           'active': true,
-          'linkedStudentIds': <String>[],
+          'linkedStudentIds': childIds,
           if (staffId != null && role == 'teacher') ...{
             'staffId': staffId,
             'staffNo': linkedStaffNo,
@@ -204,7 +269,31 @@ class SchoolUserService {
           'createdBy': schoolOwnerUid,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+        };
+        final userRef=_db.collection('users').doc(createdUser.uid);
+        if(role=='parent') {
+          // All student email updates and the role record commit together.
+          await _db.runTransaction((tx) async {
+            final records=<String,Map<String,dynamic>>{};
+            for(final child in children) {
+              final data=(await tx.get(_db.collection('students').doc(child.id))).data();
+              if(data==null || !eligibleParentChild(data) ||
+                 !child.sameGuardian(ParentChildOption.fromData(child.id,data))) {
+                throw StateError('Guardian information changed while creating the account. Select the child again.');
+              }
+              records[child.id]=data;
+            }
+            tx.set(userRef,profile);
+            for(final child in children) {
+              tx.update(_db.collection('students').doc(child.id),{
+                ...guardianEmailUpdate(records[child.id]!,cleanEmail),
+                'updatedAt':FieldValue.serverTimestamp(),
+              });
+            }
+          });
+        } else {
+          await userRef.set(profile);
+        }
       } catch (error) {
         // Without this rollback, the app could leave an Auth account with
         // no corresponding school role after a Firestore permissions failure.
