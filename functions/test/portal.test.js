@@ -33,3 +33,27 @@ test('parent cannot request other child, disabled documents, teacher salary or a
     {action:'deleteAuthAccount',uid:'someone'},
   ]) await assert.rejects(portalAction(noDb,{},parent,body,()=>null),e=>e.status===403);
 });
+
+test('linked parent receives allowlisted profile fields only',async()=>{
+  const profile={fullName:'Child',admissionNo:'S1',classId:'C1',status:'admitted',guardianPhone:'private',medicalHistory:'private'};
+  const db={collection(name){return {doc(id){return {async get(){
+    if(name==='students'&&id==='S1')return {exists:true,data:()=>profile};
+    if(name==='classes'&&id==='C1')return {exists:true,data:()=>({name:'Grade 1',section:'A'})};
+    throw new Error('unexpected record');
+  }}}}}};
+  const result=await portalAction(db,{},parent,{action:'parentSection',childId:'S1',section:'profile'},()=>null);
+  assert.deepEqual(result.profile,{fullName:'Child',admissionNo:'S1',classId:'C1',status:'admitted',className:'Grade 1 – A'});
+});
+test('parent file authorization requires linked child and currently referenced path',async()=>{
+  const child={status:'admitted',attachments:{birth:{path:'student-documents/S1/birth_certificate/one.pdf'}}};
+  const db={collection(){return {doc(){return {async get(){return {exists:true,data:()=>child}}}}}}};
+  const account={...parent,permissions:{}};
+  assert.deepEqual(await portalAction(db,{},account,{action:'authorizeFile',childId:'S1',path:child.attachments.birth.path},()=>null),{authorized:true});
+  await assert.rejects(portalAction(db,{},account,{action:'authorizeFile',childId:'S1',path:'student-documents/S1/other/old.pdf'},()=>null),e=>e.status===403);
+  await assert.rejects(portalAction(db,{},account,{action:'authorizeFile',childId:'S2',path:child.attachments.birth.path},()=>null),e=>e.status===403);
+});
+test('only the account owner can request its private message thread',async()=>{
+  const db={collection(){throw new Error('unexpected database access');}};
+  await assert.rejects(portalAction(db,{},parent,{action:'messages',threadUid:'another'},()=>null),e=>e.status===403);
+  await assert.rejects(portalAction(db,{},parent,{action:'threads'},()=>null),e=>e.status===403);
+});

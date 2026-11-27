@@ -135,6 +135,21 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('owner can open a parent permission editor', (tester) async {
+    await tester.pumpWidget(MaterialApp(home:UsersPage(role:'owner',usersStream:Stream.value(const [
+      SchoolUserAccount(uid:'parent-test',name:'Test Parent',email:'parent@example.com',role:'parent',active:true,linkedStudentIds:['S1'])
+    ]))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Test Parent'));
+    await tester.pumpAndSettle();
+    expect(find.text('Account & permissions'),findsOneWidget);
+    expect(find.text('Fees and dues'),findsOneWidget);
+    await tester.tap(find.text('Fees and dues'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile,'Fees and dues')).value,isFalse);
+    expect(tester.takeException(),isNull);
+  });
+
   testWidgets('non-owner cannot manage or create users', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

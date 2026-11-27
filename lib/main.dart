@@ -162,7 +162,7 @@ class _AuthGateState extends State<AuthGate> {
               }
               return TeacherDashboard(displayName: name, staffId: staffId,permissions:accountPermissions(record['permissions']));
             }
-            if(role=='parent') return ParentPortalPage(displayName:name,permissions:accountPermissions(record['permissions']));
+            if(role=='parent') return ParentPortalPage(key:ValueKey('${user.uid}|${record['linkedStudentIds']}|${keys.map((k)=>'$k:${permissions[k]}').join(',')}'),displayName:name,permissions:permissions);
             if (role == 'canteen_seller' || role == 'inventory_manager') {
               return InventorySectionsPage(role: role);
             }

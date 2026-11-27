@@ -186,6 +186,21 @@ function stillReferenced(student, path) {
     value?.mapValue?.fields?.path?.stringValue === path);
 }
 
+async function authorizeParentFile(env,token,path) {
+  const childId=studentFromPath(path);
+  const project=encodeURIComponent(env.FIREBASE_PROJECT_ID);
+  const endpoint='https://asia-south1-'+project+'.cloudfunctions.net/schoolPortal';
+  let check;
+  try {
+    check=await fetch(endpoint,{method:'POST',redirect:'manual',
+      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({action:'authorizeFile',childId,path})});
+  } catch(_) {throw new ApiError(502,'Parent document authorization is unavailable.');}
+  if(!check.ok) throw new ApiError(check.status===401||check.status===403?403:503,'Parent document access was not authorized.');
+  const authorized=await check.json();
+  if(authorized.authorized!==true) throw new ApiError(403,'Parent document access was not authorized.');
+}
+
 async function handle(request, env) {
   if (!env.STUDENT_FILES || !env.FIREBASE_PROJECT_ID) {
     throw new ApiError(503, 'R2 storage is not configured on this Worker.');
@@ -200,18 +215,7 @@ async function handle(request, env) {
   // authorization remains administrator-only, even before this Worker deploys.
   if(url.pathname==='/v1/parent-files' && request.method==='GET') {
     const path=url.searchParams.get('path')||'';
-    const childId=studentFromPath(path);
-    const project=encodeURIComponent(env.FIREBASE_PROJECT_ID);
-    const endpoint='https://asia-south1-'+project+'.cloudfunctions.net/schoolPortal';
-    let check;
-    try {
-      check=await fetch(endpoint,{method:'POST',redirect:'manual',
-        headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-        body:JSON.stringify({action:'authorizeFile',childId,path})});
-    } catch(_) {throw new ApiError(502,'Parent document authorization is unavailable.');}
-    if(!check.ok) throw new ApiError(check.status===401||check.status===403?403:503,'Parent document access was not authorized.');
-    const authorized=await check.json();
-    if(authorized.authorized!==true) throw new ApiError(403,'Parent document access was not authorized.');
+    await authorizeParentFile(env,token,path);
     const object=await env.STUDENT_FILES.get(path);
     if(!object) throw new ApiError(404,'File not found.');
     return new Response(object.body,{headers:{
@@ -314,4 +318,4 @@ export default {
 };
 
 // Exported for direct regression tests; no additional public HTTP endpoint.
-export { authorizeStudent };
+export { authorizeStudent, authorizeParentFile };
