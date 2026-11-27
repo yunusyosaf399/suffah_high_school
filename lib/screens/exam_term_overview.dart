@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../data/examination_repository.dart';
 import '../data/school_errors.dart';
+import 'owner_analytics.dart';
 
 class ExamTermOverview extends StatefulWidget {
   const ExamTermOverview({super.key,this.onOpen,this.onAddClass,this.onClose,this.onHoliday,this.compact=false});
@@ -22,9 +23,9 @@ class _ExamTermOverviewState extends State<ExamTermOverview> {
     stream:_control,builder:(context,snapshot) {
       if(snapshot.hasError)return Padding(padding:const EdgeInsets.all(8),
         child:Text(schoolErrorMessage(snapshot.error!),style:const TextStyle(fontSize:12)));
-      if(!snapshot.hasData)return const SizedBox.shrink();
+      if(!snapshot.hasData)return const DashboardSkeleton();
       final id=snapshot.data?.data()?['cycleId'];
-      if(id is! String || id.isEmpty)return const SizedBox.shrink();
+      if(id is! String || id.isEmpty)return const Card(child: ListTile(leading: Icon(Icons.event_available_outlined), title: Text('No active annual examination')));
       return _CycleCard(key:ValueKey(id),id:id,config:widget);
     });
 }
@@ -53,6 +54,7 @@ class _CycleCardState extends State<_CycleCard> {
     stream:_cycle,builder:(context,snapshot) {
       if(snapshot.hasError)return Text(schoolErrorMessage(snapshot.error!));
       final cycle=snapshot.data?.data();
+      if(!snapshot.hasData)return const DashboardSkeleton();
       if(cycle==null)return const SizedBox.shrink();
       if(cycle['status']=='closed') {
         return Card(margin:const EdgeInsets.symmetric(horizontal:12,vertical:6),child:ListTile(
@@ -66,6 +68,7 @@ class _CycleCardState extends State<_CycleCard> {
       return StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(
         stream:_papers,builder:(context,paperSnapshot) {
           if(paperSnapshot.hasError)return Text(schoolErrorMessage(paperSnapshot.error!));
+          if(!paperSnapshot.hasData)return const DashboardSkeleton();
           final papers=paperSnapshot.data?.docs.map((d)=>d.data()).toList()??[];
           final off=examStringMap(cycle['excludedDates']);
           final now=schoolExamNow();
