@@ -481,7 +481,7 @@ service cloud.firestore {
     }
 
     match /attendance_teacher_links/{staffId} {
-      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_profile'));
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_attendance'));
       allow list: if canManageAdmissions();
       allow create, update: if canManageAdmissions()
         && request.resource.data.staffId == staffId
@@ -545,7 +545,7 @@ service cloud.firestore {
 
     // School staff directory; only owner/principal can view and modify it.
     match /staff/{staffId} {
-      allow get: if canManageAdmissions() || isLinkedTeacher(staffId);
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_profile'));
       allow list: if canManageAdmissions();
       allow create: if canManageAdmissions()
         && request.resource.data.staffNo == staffId
