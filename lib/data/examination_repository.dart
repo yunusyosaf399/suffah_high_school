@@ -10,7 +10,8 @@ const classTestTypes = ['Monthly Test', 'Weekly Test', 'Unit Test', 'Quiz', 'Oth
 const paperTypes = ['Theory', 'Practical / Lab', 'Oral'];
 
 bool canScheduleFormalExams(String role) =>
-    ['owner', 'principal', 'examiner'].contains(role);
+    ['owner', 'principal'].contains(role);
+bool canManageExamCentre(String role)=>canScheduleFormalExams(role)||role=='examiner';
 
 String examDateKey(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';

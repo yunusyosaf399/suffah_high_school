@@ -14,6 +14,11 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'principal';
     }
 
+    function accountPermission(key) {
+      return request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('permissions',{}).get(key,true) == true;
+    }
+
     function canManageAdmissions() {
       return isOwner() || isPrincipal();
     }
@@ -54,9 +59,17 @@ service cloud.firestore {
 
     function activeExamAdministrator() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return user.active == true && user.role in ['principal','examiner'];
+      return user.active == true && (user.role == 'examiner' || (user.role == 'principal' && user.get('permissions',{}).get('principal_exams',true) == true));
     }
 
+    function canCreateFormalTerm() {
+      return isOwner() || (request.auth != null && principalCanSchedule());
+    }
+    function principalCanSchedule() {
+      let user=get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return user.active == true && user.role == 'principal'
+        && user.get('permissions',{}).get('principal_exams',true) == true;
+    }
     function examAssignmentMatches(d) {
       let a = get(/databases/$(database)/documents/teacher_assignments/$(d.assignmentId)).data;
       return a.active == true && a.staffId == d.staffId
@@ -118,7 +131,7 @@ service cloud.firestore {
       return request.auth != null
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'
-        && isLinkedTeacher(staffId)
+        && isLinkedTeacher(staffId) && accountPermission('teacher_attendance')
         && exists(/databases/$(database)/documents/attendance_teacher_links/$(staffId))
         && get(/databases/$(database)/documents/attendance_teacher_links/$(staffId)).data.active == true
         && get(/databases/$(database)/documents/attendance_teacher_links/$(staffId)).data.classId == classId
@@ -150,6 +163,7 @@ service cloud.firestore {
       let assignment = get(/databases/$(database)/documents/teacher_assignments/$(d.assignmentId)).data;
       let schoolClass = get(/databases/$(database)/documents/classes/$(d.classId)).data;
       return user.active == true && user.role == 'teacher' && user.staffId == d.staffId
+        && user.get('permissions',{}).get('teacher_academics',true) == true
         && staff.active == true && staff.roleType == 'teacher'
         && assignment.active == true && assignment.staffId == d.staffId
         && assignment.classId == d.classId && assignment.subject == d.subject
@@ -324,16 +338,44 @@ service cloud.firestore {
       allow create: if isOwner()
         && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
         && allowedNewRole()
-        && request.resource.data.active == true
+        && request.resource.data.active == true && request.resource.data.get('removed',false) == false
+        && validAccountPermissions(request.resource.data)
         && (
           request.resource.data.role != 'teacher'
           || validTeacherAccount(userId)
         );
-      // Suspensions only. Role changes are a separate, audited future flow.
       allow update: if isOwner()
         && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['active', 'updatedAt']);
+          .hasOnly(['active','permissions','linkedStudentIds','removed','removedAt','updatedAt'])
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time
+        && (resource.data.get('removed',false) == false ||
+          (request.resource.data.get('removed',false) == true && request.resource.data.active == false))
+        && (request.resource.data.get('removed',false) == false ||
+          (request.resource.data.active == false && request.resource.data.removedAt is timestamp))
+        && validAccountPermissions(request.resource.data);
+      // Preserve role audit records and historical references.
+      allow delete: if false;
+    }
+    function validAccountPermissions(d) {
+      let p=d.get('permissions',{});
+      let ids=d.get('linkedStudentIds',[]);
+      return p is map && ids is list && ids.size() <= 50
+        && (d.role == 'parent' || ids.size() == 0)
+        && ((d.role == 'parent' && p.keys().hasOnly(['parent_profile','parent_fees','parent_attendance','parent_exams','parent_documents','messages']))
+          || (d.role == 'teacher' && p.keys().hasOnly(['teacher_profile','teacher_payroll','teacher_academics','teacher_classwork','teacher_attendance','teacher_analytics','messages']))
+          || (d.role == 'principal' && p.keys().hasOnly(['principal_exams','messages']))
+          || p.size() == 0);
+    }
+    match /staff_contracts/{staffId} {
+      allow read: if canManageAdmissions();
+      allow create,update: if isOwner() && request.resource.data.keys().hasOnly(['type','startDate','endDate','details','updatedAt'])
+        && request.resource.data.type is string && request.resource.data.type.size() <= 80
+        && request.resource.data.startDate is string && request.resource.data.endDate is string
+        && request.resource.data.details is string && request.resource.data.details.size() <= 2000
+        && request.resource.data.updatedAt == request.time
+        && exists(/databases/$(database)/documents/staff/$(staffId));
       allow delete: if false;
     }
 
@@ -426,7 +468,7 @@ service cloud.firestore {
     }
 
     match /attendance_teacher_links/{staffId} {
-      allow get: if canManageAdmissions() || isLinkedTeacher(staffId);
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_profile'));
       allow list: if canManageAdmissions();
       allow create, update: if canManageAdmissions()
         && request.resource.data.staffId == staffId
@@ -590,7 +632,7 @@ service cloud.firestore {
     // Teacher-created assignments and homework are scoped to an active
     // teacher/class/subject assignment and the authenticated linked teacher.
     match /classwork/{workId} {
-      allow get, list: if canManageExams() || isLinkedTeacher(resource.data.staffId);
+      allow get, list: if canManageExams() || (isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_classwork'));
       allow create: if request.auth != null
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.title is string
@@ -599,13 +641,13 @@ service cloud.firestore {
           (canManageExams() && request.resource.data.kind == 'assignment'
             && examAssignmentMatches(request.resource.data))
           || (request.resource.data.kind in ['assignment', 'homework']
-            && isLinkedTeacher(request.resource.data.staffId)
+            && isLinkedTeacher(request.resource.data.staffId) && accountPermission('teacher_classwork')
             && activeTeacherAssignment(request.resource.data.assignmentId,
               request.resource.data.staffId, request.resource.data.classId,
               request.resource.data.subject))
         );
       allow update: if (canManageExams()
-          || (isLinkedTeacher(resource.data.staffId)
+          || (isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_classwork')
             && resource.data.teacherUid == request.auth.uid))
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['title', 'instructions', 'dueDate', 'active', 'updatedAt']);
@@ -650,7 +692,7 @@ service cloud.firestore {
     }
     function termControlChange() {
       let id = request.resource.data.cycleId;
-      return canManageExams() && request.resource.data.keys().hasOnly(['cycleId','updatedAt'])
+      return canCreateFormalTerm() && request.resource.data.keys().hasOnly(['cycleId','updatedAt'])
         && id is string && request.resource.data.updatedAt == request.time
         && !exists(termCyclePath(id))
         && getAfter(termCyclePath(id)).data.status == 'active';
@@ -710,10 +752,10 @@ service cloud.firestore {
     }
     match /exam_term_cycles/{id} {
       allow read: if canManageExams();
-      allow create: if canManageExams() && validTermStart(id,request.resource.data);
+      allow create: if canCreateFormalTerm() && validTermStart(id,request.resource.data);
       allow update: if canManageExams() && resource.data.status == 'active'
         && request.resource.data.updatedAt == request.time
-        && (appendTermClass(resource.data,request.resource.data)
+        && ((canCreateFormalTerm() && appendTermClass(resource.data,request.resource.data))
           || termCanClose(resource.data,request.resource.data)
           || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['excludedDates','updatedAt'])
             && request.resource.data.excludedDates is map)
@@ -776,7 +818,7 @@ service cloud.firestore {
 
     match /examinations/{examId} {
       allow get, list: if canManageExams()
-        || (resource.data.active == true && isLinkedTeacher(resource.data.staffId));
+        || (resource.data.active == true && isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_academics'));
       allow create: if request.auth != null
         && request.resource.data.assignmentId is string
         && request.resource.data.staffId is string
@@ -790,7 +832,8 @@ service cloud.firestore {
         && request.resource.data.get('resultStatus', 'draft') == 'draft'
         && examAssignmentMatches(request.resource.data)
         && (request.resource.data.get('kind','term') == 'test' || validManagedPaper(examId,request.resource.data))
-        && (canManageExams()
+        && ((request.resource.data.get('kind','term') != 'test' && canCreateFormalTerm())
+          || (request.resource.data.kind == 'test' && canManageExams())
           || (request.resource.data.kind == 'test'
             && request.resource.data.createdBy == request.auth.uid
             && examTeacherAuthorized(request.resource.data)))

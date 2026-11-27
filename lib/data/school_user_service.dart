@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'school_portal_client.dart';
 
 const schoolOwnerUid = 'tQt6vca2zuagZipvknBwcmSRcrc2';
 
@@ -15,6 +16,27 @@ const schoolRoles = <String, String>{
   'inventory_manager': 'Inventory manager',
 };
 
+// Role ceilings are fixed. The owner may disable these specific capabilities;
+// a permission switch never grants a capability outside its role.
+const schoolPermissionLabels=<String,Map<String,String>>{
+  'parent':{
+    'parent_profile':'Child profile','parent_fees':'Fees and dues',
+    'parent_attendance':'Attendance','parent_exams':'Examinations and released marks',
+    'parent_documents':'Child documents','messages':'School messages',
+  },
+  'teacher':{
+    'teacher_profile':'Own profile and contract','teacher_payroll':'Own salary',
+    'teacher_academics':'Assigned examinations, marks and class tests',
+    'teacher_classwork':'Homework and assignments','teacher_attendance':'Assigned attendance',
+    'teacher_analytics':'Own teaching outcomes','messages':'School messages',
+  },
+  'principal':{'principal_exams':'Formal examinations and results','messages':'School messages'},
+};
+Map<String,bool> accountPermissions(dynamic value)=>value is Map
+  ?{for(final entry in value.entries) if(entry.key is String && entry.value is bool) entry.key as String:entry.value as bool}
+  :<String,bool>{};
+bool schoolPermission(Map<String,bool> permissions,String key)=>permissions[key]!=false;
+
 class SchoolUserAccount {
   const SchoolUserAccount({
     required this.uid,
@@ -24,6 +46,7 @@ class SchoolUserAccount {
     required this.active,
     this.staffId = '',
     this.staffNo = '',
+    this.removed=false,this.linkedStudentIds=const [],this.permissions=const {},
   });
 
   final String uid;
@@ -33,6 +56,9 @@ class SchoolUserAccount {
   final bool active;
   final String staffId;
   final String staffNo;
+  final bool removed;
+  final List<String> linkedStudentIds;
+  final Map<String,bool> permissions;
   bool get isOwner => role == 'owner' || uid == schoolOwnerUid;
 
   factory SchoolUserAccount.fromSnapshot(
@@ -47,6 +73,9 @@ class SchoolUserAccount {
       active: data['active'] == true,
       staffId: (data['staffId'] as String?) ?? '',
       staffNo: (data['staffNo'] as String?) ?? '',
+      removed:data['removed']==true,
+      linkedStudentIds:(data['linkedStudentIds'] as List? ?? []).whereType<String>().toList(),
+      permissions:accountPermissions(data['permissions']),
     );
   }
 }
@@ -213,7 +242,7 @@ class SchoolUserService {
     if (_mainAuth.currentUser?.uid != schoolOwnerUid) {
       throw StateError('Only the school owner may update user accounts.');
     }
-    if (account.isOwner) {
+    if (account.isOwner || account.removed) {
       throw StateError('The school owner cannot be disabled here.');
     }
     await _db.collection('users').doc(account.uid).update({
@@ -221,4 +250,37 @@ class SchoolUserService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
+  void _requireOwner(SchoolUserAccount account) {
+    if(_mainAuth.currentUser?.uid!=schoolOwnerUid || account.isOwner)throw StateError('Only the owner may manage non-owner accounts.');
+  }
+
+  Future<void> saveAccess(SchoolUserAccount account,Map<String,bool> permissions,List<String> childIds) async {
+    _requireOwner(account);
+    if(account.removed)throw StateError('This account has been removed.');
+    final allowed=schoolPermissionLabels[account.role]??{};
+    if(!allowed.keys.toSet().containsAll(permissions.keys))throw ArgumentError('Unsupported permission.');
+    final ids=childIds.toSet().toList()..sort();
+    if(ids.length>50 || (account.role!='parent' && ids.isNotEmpty))throw ArgumentError('Invalid child links.');
+    if(account.role=='parent') {
+      for(final id in ids) {
+        final child=await _db.collection('students').doc(id).get(const GetOptions(source:Source.server));
+        if(!child.exists || child.data()?['status']=='draft')throw StateError('Choose existing admitted children.');
+      }
+    }
+    await _db.collection('users').doc(account.uid).update({
+      'permissions':permissions,'linkedStudentIds':ids,'updatedAt':FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> removeAccount(SchoolUserAccount account,{bool deleteAuthentication=false}) async {
+    _requireOwner(account);
+    if(!account.removed) {
+      await _db.collection('users').doc(account.uid).update({
+        'active':false,'removed':true,'removedAt':FieldValue.serverTimestamp(),
+        'updatedAt':FieldValue.serverTimestamp(),
+      });
+    }
+    if(deleteAuthentication)await SchoolPortalClient().request('deleteAuthAccount',{'uid':account.uid});
+  }
+
 }

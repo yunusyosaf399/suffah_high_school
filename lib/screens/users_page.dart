@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../data/school_errors.dart';
 import '../data/school_user_service.dart';
 import '../data/staff_repository.dart';
+import 'user_access_page.dart';
 
 class UsersPage extends StatefulWidget {
   const UsersPage({
@@ -192,6 +193,7 @@ class _UsersPageState extends State<UsersPage> {
                           return Card(
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
+                              onTap:user.isOwner?null:()=>Navigator.of(context).push<void>(MaterialPageRoute(builder:(_)=>UserAccessPage(account:user))),
                               leading: CircleAvatar(
                                 child: Icon(user.isOwner
                                     ? Icons.admin_panel_settings_outlined
@@ -202,10 +204,10 @@ class _UsersPageState extends State<UsersPage> {
                                 style: const TextStyle(
                                   fontSize: 13, fontWeight: FontWeight.w700)),
                               subtitle: Text(
-                                '$roleName • ${user.email.isEmpty ? "Email not listed" : user.email}',
+                                '$roleName • ${user.email.isEmpty ? "Email not listed" : user.email} • ${user.removed?'Removed':user.active?'Active':'Suspended'}',
                                 maxLines: 2, overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 11)),
-                              trailing: user.isOwner
+                              trailing: user.isOwner || user.removed
                                   ? const Icon(Icons.lock_outline)
                                   : Switch.adaptive(
                                       value: user.active,

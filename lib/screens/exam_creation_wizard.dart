@@ -218,7 +218,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
         if (canScheduleFormalExams(widget.role))
           const DropdownMenuItem(value: 'term', child: Text('Term Examination')),
         const DropdownMenuItem(value: 'test', child: Text('Classwise Test')),
-        if (canScheduleFormalExams(widget.role))
+        if (canManageExamCentre(widget.role))
           const DropdownMenuItem(value: 'assignment', child: Text('Class Assignment')),
       ],
       onChanged: widget.activeCycle!=null ? null : (v) {

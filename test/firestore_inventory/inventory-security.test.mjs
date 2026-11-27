@@ -793,7 +793,7 @@ test('annual exam locks, complete marks, release and closure are enforced', asyn
   const examiner='examiner-uid',teacher='exam-teacher-uid';
   await environment.withSecurityRulesDisabled(async context => {
     const admin=context.firestore();
-    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    await setDoc(doc(admin,'users',examiner),{role:'principal',active:true});
     await setDoc(doc(admin,'users',teacher),{role:'teacher',active:true,staffId:'T1'});
     await setDoc(doc(admin,'staff','T1'),{active:true,roleType:'teacher'});
     await setDoc(doc(admin,'classes','C1'),{active:true});
@@ -811,9 +811,14 @@ test('annual exam locks, complete marks, release and closure are enforced', asyn
   await assertFails(closeExam(manager,'2026_first',examiner));
   await assertFails(updateDoc(doc(manager,'exam_term_cycles','2026_first'),{releasedPaperIds:['E1'],lastPaperId:'E1',updatedAt:serverTimestamp()}));
   await assertSucceeds(getDocs(query(collection(tutor,'examinations'),where('staffId','==','T1'),where('active','==',true))));
-  await assertFails(getDoc(doc(manager,'students','S1')));
-  await assertFails(getDoc(doc(manager,'staff','T1')));
-  await assertFails(getDoc(doc(manager,'inventory_purchases','sample-purchase')));
+  await environment.withSecurityRulesDisabled(async context=>{
+    await setDoc(doc(context.firestore(),'users','review-examiner'),{role:'examiner',active:true});
+  });
+  const review=db('review-examiner');
+  await assertFails(getDoc(doc(review,'students','S1')));
+  await assertFails(getDoc(doc(review,'staff','T1')));
+  await assertFails(getDoc(doc(review,'inventory_purchases','sample-purchase')));
+  await assertFails(publishTerm(review,'review-examiner','2026_mid',{E3:{...middle,createdBy:'review-examiner'}},{category:'Mid Term'}));
   await assertFails(setDoc(doc(tutor,'examinations','formal'),{...fields,createdBy:teacher}));
   const classTest={...fields,kind:'test',category:'Monthly Test',createdBy:teacher};
   delete classTest.cycleId;
@@ -843,7 +848,7 @@ test('term supports 15 distinct papers in one class and appends a second class',
   const examiner='schedule-examiner';
   await environment.withSecurityRulesDisabled(async context => {
     const admin=context.firestore();
-    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    await setDoc(doc(admin,'users',examiner),{role:'principal',active:true});
     for(let i=0;i<16;i++) {
       await setDoc(doc(admin,'teacher_assignments','multi-'+i),{active:true,staffId:'teacher-'+i,classId:i===15?'C2':'C1',subject:'Subject '+i});
     }
@@ -866,7 +871,7 @@ test('holiday exclusion and paper reschedule preserve slots and audit reason', a
   const examiner='holiday-examiner';
   await environment.withSecurityRulesDisabled(async context=>{
     const admin=context.firestore();
-    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    await setDoc(doc(admin,'users',examiner),{role:'principal',active:true});
     await setDoc(doc(admin,'teacher_assignments','A1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
     await setDoc(doc(admin,'teacher_assignments','A2'),{active:true,staffId:'T2',classId:'C1',subject:'English'});
   });
