@@ -12,7 +12,7 @@ function activeAccount(uid,record) {
   if(record.role==='owner' && uid!==OWNER_UID) fail(403,'Invalid administrator account.');
   return {...record,uid,role:uid===OWNER_UID?'owner':record.role};
 }
-function allowed(account,key) { return account.role==='owner' || account.permissions?.[key]!==false; }
+function allowed(account,key) { return account.role==='owner' || (account.permissions?.[key]===undefined || account.permissions[key]===true); }
 function needPermission(account,key) { if(!allowed(account,key)) fail(403,'This permission is disabled by the school owner.'); }
 function linkedChild(account,id) {
   needId(id);

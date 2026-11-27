@@ -891,3 +891,45 @@ test('holiday exclusion and paper reschedule preserve slots and audit reason', a
   await assertFails(move('2090-01-04',{'C1__2090-01-04':'E1','C1__2026-01-03':'E2'}));
   await assertSucceeds(move('2090-01-06',{'C1__2090-01-06':'E1','C1__2026-01-03':'E2'}));
 });
+
+test('owner can suspend, configure parent links and remove accounts; principal and parent cannot alter them',async()=>{
+  const parent='guardian-one', principal='principal-one';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'users',parent),{active:true,role:'parent',linkedStudentIds:['S1']});
+    await setDoc(doc(a,'users',principal),{active:true,role:'principal'});
+    await setDoc(doc(a,'students','S1'),{fullName:'Student'});
+    await setDoc(doc(a,'examinations','private-exam'),{active:true,rosterSnapshot:{S1:{fullName:'Student'},S2:{fullName:'Other'}}});
+  });
+  const own=db(ownerId),p=db(parent),admin=db(principal);
+  const target=database=>doc(database,'users',parent);
+  const patch={permissions:{parent_fees:false},linkedStudentIds:['S1'],updatedAt:serverTimestamp()};
+  await assertFails(updateDoc(target(p),patch));
+  await assertFails(updateDoc(target(admin),patch));
+  await assertSucceeds(updateDoc(target(own),patch));
+  await assertFails(updateDoc(target(own),{permissions:{teacher_payroll:true},updatedAt:serverTimestamp()}));
+  await assertFails(getDoc(doc(p,'students','S1')));
+  await assertFails(getDoc(doc(p,'examinations','private-exam')));
+  await assertSucceeds(updateDoc(target(own),{active:false,updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(target(own),{active:true,updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(target(own),{active:false,removed:true,removedAt:serverTimestamp(),updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(target(own),{active:true,updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(target(own),{removed:false,updatedAt:serverTimestamp()}));
+});
+test('disabled teacher capabilities deny direct Firestore reads and writes',async()=>{
+  const teacher='restricted-teacher';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'users',teacher),{active:true,role:'teacher',staffId:'T1',permissions:{teacher_profile:false,teacher_academics:false,teacher_classwork:false}});
+    await setDoc(doc(a,'staff','T1'),{active:true,roleType:'teacher'});
+    await setDoc(doc(a,'classes','C1'),{active:true});
+    await setDoc(doc(a,'teacher_assignments','A1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
+    await setDoc(doc(a,'examinations','E1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
+    await setDoc(doc(a,'classwork','W1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
+  });
+  const tutor=db(teacher);
+  await assertFails(getDoc(doc(tutor,'staff','T1')));
+  await assertFails(getDoc(doc(tutor,'examinations','E1')));
+  await assertFails(getDoc(doc(tutor,'classwork','W1')));
+  await assertFails(setDoc(doc(tutor,'classwork','W2'),{kind:'homework',teacherUid:teacher,active:true,title:'Homework',staffId:'T1',assignmentId:'A1',classId:'C1',subject:'Math'}));
+});

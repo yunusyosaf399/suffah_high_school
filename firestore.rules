@@ -362,6 +362,19 @@ service cloud.firestore {
       let p=d.get('permissions',{});
       let ids=d.get('linkedStudentIds',[]);
       return p is map && ids is list && ids.size() <= 50
+        && p.get('parent_profile',true) is bool
+        && p.get('parent_fees',true) is bool
+        && p.get('parent_attendance',true) is bool
+        && p.get('parent_exams',true) is bool
+        && p.get('parent_documents',true) is bool
+        && p.get('messages',true) is bool
+        && p.get('teacher_profile',true) is bool
+        && p.get('teacher_payroll',true) is bool
+        && p.get('teacher_academics',true) is bool
+        && p.get('teacher_classwork',true) is bool
+        && p.get('teacher_attendance',true) is bool
+        && p.get('teacher_analytics',true) is bool
+        && p.get('principal_exams',true) is bool
         && (d.role == 'parent' || ids.size() == 0)
         && ((d.role == 'parent' && p.keys().hasOnly(['parent_profile','parent_fees','parent_attendance','parent_exams','parent_documents','messages']))
           || (d.role == 'teacher' && p.keys().hasOnly(['teacher_profile','teacher_payroll','teacher_academics','teacher_classwork','teacher_attendance','teacher_analytics','messages']))
@@ -380,14 +393,14 @@ service cloud.firestore {
     }
 
     match /classes/{classId} {
-      allow read: if canManageExams();
+      allow read: if canManageAdmissions() || canManageExams();
       allow create, update: if canManageAdmissions();
       allow delete: if false;
     }
 
     // Owner-managed subject catalog, distinct for each class and section.
     match /classes/{classId}/subjects/{subjectId} {
-      allow get, list: if canManageExams();
+      allow get, list: if canManageAdmissions() || canManageExams();
       allow create: if canManageAdmissions()
         && exists(/databases/$(database)/documents/classes/$(classId))
         && get(/databases/$(database)/documents/classes/$(classId)).data.active == true
@@ -552,7 +565,7 @@ service cloud.firestore {
 
     // One teacher-to-class-and-subject assignment per stable document ID.
     match /teacher_assignments/{assignmentId} {
-      allow read: if canManageExams() || isLinkedTeacher(resource.data.staffId);
+      allow read: if canManageAdmissions() || canManageExams() || isLinkedTeacher(resource.data.staffId);
       allow create: if canManageAdmissions()
         && request.resource.data.staffId is string
         && request.resource.data.classId is string
@@ -617,7 +630,7 @@ service cloud.firestore {
     // Safe roster projection: names and roll numbers only, never guardian,
     // contact, address or health details from the student record.
     match /class_rosters/{classId}/students/{studentId} {
-      allow get, list: if canManageExams()
+      allow get, list: if canManageAdmissions() || canManageExams()
         || (resource.data.active == true
           && (hasTeacherClassAccess(classId) || canMarkClassAttendance(classId)));
       allow create, update: if canManageAdmissions()

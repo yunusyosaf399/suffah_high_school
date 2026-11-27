@@ -130,6 +130,7 @@ class _AuthGateState extends State<AuthGate> {
               return const _StatusPage(message: 'Loading your school profile…');
             }
             if (profile.hasError) {
+              _accessChanged('unverified');
               return const _AccessPage(message: 'Could not verify your school access. Check your connection and Firestore rules.');
             }
             final record = profile.data?.data();

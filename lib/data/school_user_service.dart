@@ -33,7 +33,7 @@ const schoolPermissionLabels=<String,Map<String,String>>{
   'principal':{'principal_exams':'Formal examinations and results','messages':'School messages'},
 };
 Map<String,bool> accountPermissions(dynamic value)=>value is Map
-  ?{for(final entry in value.entries) if(entry.key is String && entry.value is bool) entry.key as String:entry.value as bool}
+  ?{for(final entry in value.entries) if(entry.key is String && entry.value is bool) (entry.key as String):(entry.value as bool)}
   :<String,bool>{};
 bool schoolPermission(Map<String,bool> permissions,String key)=>permissions[key]!=false;
 
@@ -156,9 +156,9 @@ class SchoolUserService {
         throw StateError('Choose an email address saved on this teacher profile.');
       }
       final linkedUsers = await _db.collection('users')
-          .where('staffId', isEqualTo: staffId).limit(1)
+          .where('staffId', isEqualTo: staffId)
           .get(const GetOptions(source: Source.server));
-      if (linkedUsers.docs.isNotEmpty) {
+      if (linkedUsers.docs.any((doc)=>doc.data()['removed']!=true)) {
         throw StateError('This teacher already has a linked user account.');
       }
       if (((staff['fullName'] as String?) ?? '').trim() != cleanName) {
@@ -280,7 +280,10 @@ class SchoolUserService {
         'updatedAt':FieldValue.serverTimestamp(),
       });
     }
-    if(deleteAuthentication)await SchoolPortalClient().request('deleteAuthAccount',{'uid':account.uid});
+    if(deleteAuthentication) {
+      try {await SchoolPortalClient().request('deleteAuthAccount',{'uid':account.uid});}
+      catch(error){throw StateError('School access removed, but Firebase Authentication deletion failed. Reopen the removed account to retry. $error');}
+    }
   }
 
 }
