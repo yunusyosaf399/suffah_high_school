@@ -51,16 +51,16 @@ class SchoolApp extends StatelessWidget {
   // Shared with layout regression tests: tests must use the actual school
   // theme, rather than MaterialApp's unconstrained default button style.
   static ThemeData buildTheme() {
-    const seed = Color(0xFF176B56);
+    const seed = Color(0xFF7138D0);
     final color = ColorScheme.fromSeed(seedColor: seed);
     return ThemeData(
         useMaterial3: true,
         colorScheme: color,
-        scaffoldBackgroundColor: const Color(0xFFF7F9F8),
-        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF7F9F8), elevation: 0),
+        scaffoldBackgroundColor: const Color(0xFFF6F4FB),
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF6F4FB), elevation: 0),
         cardTheme: CardThemeData(
           color: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFE7EDEA))),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFE5DFF1))),
         ),
         inputDecorationTheme: InputDecorationTheme(
           isDense: true,
