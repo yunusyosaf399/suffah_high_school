@@ -168,20 +168,20 @@ class AdmissionStorage {
     };
   }
 
-  Future<Uint8List> downloadFile(String path) async {
+  Future<Uint8List> downloadFile(String path,{bool parentReadOnly=false}) async {
     final response = await _client.get(
-      _endpoint('/v1/files', {'path': path}),
+      _endpoint(parentReadOnly?'/v1/parent-files':'/v1/files', {'path': path}),
       headers: await _headers(),
     ).timeout(const Duration(seconds: 40));
     _verify(response);
     return response.bodyBytes;
   }
 
-  Future<bool> saveDocumentToDevice(Map<String, dynamic> document) async {
+  Future<bool> saveDocumentToDevice(Map<String, dynamic> document,{bool parentReadOnly=false}) async {
     final path = (document['path'] ?? '').toString();
     final name = (document['name'] ?? 'document.pdf')
         .toString().replaceAll(RegExp(r'[/\\\r\n]'), '_');
-    final bytes = await downloadFile(path);
+    final bytes = await downloadFile(path,parentReadOnly:parentReadOnly);
     final savedPath = await FilePicker.platform.saveFile(
       dialogTitle: 'Save student document',
       fileName: name,

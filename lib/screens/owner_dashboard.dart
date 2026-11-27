@@ -14,6 +14,9 @@ import 'finance_page.dart';
 import 'finance_analytics_tab.dart';
 import 'inventory_page.dart';
 import 'student_documents_page.dart';
+import '../data/school_user_service.dart';
+import 'role_portal_pages.dart';
+import 'school_settings_page.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({
@@ -22,10 +25,14 @@ class OwnerDashboard extends StatefulWidget {
     this.role = 'owner',
     this.summaryLoader,
     this.financePreview,
+    this.permissions=const {},
   });
 
   final String displayName;
   final String role;
+  final Map<String,bool> permissions;
+  bool get examAccess=>role=='owner'||schoolPermission(permissions,'principal_exams');
+  bool get messageAccess=>role=='owner'||schoolPermission(permissions,'messages');
   // Optional sources make navigation and scrolling testable without Firebase.
   final Future<SchoolSummary> Function()? summaryLoader;
   final Widget? financePreview;
@@ -50,7 +57,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Examinations', Icons.assignment_outlined, 'Marks & results', true),
     _DashboardModule('Staff', Icons.badge_outlined, 'Team & assignments', true),
     _DashboardModule('Parents', Icons.family_restroom_outlined, 'Families & children', false),
-    _DashboardModule('Messages', Icons.forum_outlined, 'School communications', false),
+    _DashboardModule('Messages', Icons.forum_outlined, 'School communications', true),
     _DashboardModule('Users', Icons.manage_accounts_outlined, 'Staff and parent sign-ins', true),
     _DashboardModule('Canteen Sales', Icons.fastfood_outlined, 'Quick selling, stock & receipts', true),
     _DashboardModule('Stationery & Books', Icons.menu_book_outlined, 'Products, customer sales & credit', true),
@@ -65,6 +72,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   }
 
   Future<void> _openModule(int index) async {
+    if(index==4 && !widget.examAccess)return;
+    if(index==7 && widget.messageAccess){await Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const SchoolMessagesPage(admin:true)));return;}
     if (index == 0 || index == 1) {
       await Navigator.push<void>(
         context,
@@ -145,7 +154,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
         ? _modules
         : _modules.where((module) => module.title != 'Users' &&
             module.title != 'Canteen Sales' &&
-            module.title != 'Stationery & Books').toList();
+            module.title != 'Stationery & Books' &&
+            (module.title!='Examinations'||widget.examAccess) && (module.title!='Messages'||widget.messageAccess)).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -162,6 +172,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           ],
         ),
         actions: [
+          const SchoolSettingsButton(),
           IconButton(
             tooltip: 'Refresh school overview',
             onPressed: _refresh,
@@ -272,7 +283,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                         FinanceDashboardPreview(
                           key: ValueKey(_financeRevision),
                         ),
-                    if (widget.summaryLoader == null) ...[
+                    if (widget.summaryLoader == null && widget.examAccess) ...[
                       const SizedBox(height: 16),
                       ExamTermOverview(onOpen:()=>_openModule(4)),
                     ],

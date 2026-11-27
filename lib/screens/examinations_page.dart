@@ -10,6 +10,7 @@ import '../data/staff_repository.dart';
 import 'exam_creation_wizard.dart';
 import 'teacher_examinations_page.dart';
 import 'exam_term_overview.dart';
+import 'school_settings_page.dart';
 
 class ExaminationsPage extends StatefulWidget {
   const ExaminationsPage({super.key, required this.role});
@@ -278,6 +279,7 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Examinations'),
         actions: [
+          const SchoolSettingsButton(),
           if (_admissionsAdmin) IconButton(tooltip: 'Sync student rosters & teachers', onPressed: _busy ? null : _sync,
             icon: const Icon(Icons.sync)),
           if (widget.role == 'examiner') IconButton(tooltip: 'Sign out',

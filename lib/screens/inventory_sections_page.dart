@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'school_settings_page.dart';
 
 import 'inventory_page.dart';
 
@@ -16,6 +17,7 @@ class InventorySectionsPage extends StatelessWidget {
       appBar: AppBar(
         title: const Text('School Shop'),
         actions: [
+          const SchoolSettingsButton(),
           if (role == 'canteen_seller' || role == 'inventory_manager')
             IconButton(
               tooltip: 'Sign out',

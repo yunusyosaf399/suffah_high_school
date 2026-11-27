@@ -93,24 +93,38 @@ class SchoolApp extends StatelessWidget {
   }
 }
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
-
+  @override
+  State<AuthGate> createState()=>_AuthGateState();
+}
+class _AuthGateState extends State<AuthGate> {
+  String? _lastAccess;
+  Stream<User?>? _auth;
+  Stream<DocumentSnapshot<Map<String,dynamic>>>? _profile;
+  String? _profileUid;
+  void _accessChanged(String access){
+    if(_lastAccess!=null && _lastAccess!=access){
+      WidgetsBinding.instance.addPostFrameCallback((_){if(mounted)Navigator.of(context).popUntil((route)=>route.isFirst);});
+    }
+    _lastAccess=access;
+  }
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+      stream: _auth??=FirebaseAuth.instance.authStateChanges(),
       builder: (context, auth) {
         if (auth.connectionState == ConnectionState.waiting) {
           return const _StatusPage(message: 'Checking your session…');
         }
         if (auth.hasError) return const _StatusPage(message: 'Unable to check your session.');
         final user = auth.data;
-        if (user == null) return const SignInPage();
+        if (user == null) {_accessChanged('signed-out');return const SignInPage();}
+        if(_profileUid!=user.uid){_profileUid=user.uid;_profile=FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots();}
 
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           key: ValueKey(user.uid),
-          stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
+          stream: _profile,
           builder: (context, profile) {
             if (profile.connectionState == ConnectionState.waiting && !profile.hasData) {
               return const _StatusPage(message: 'Loading your school profile…');
@@ -120,9 +134,13 @@ class AuthGate extends StatelessWidget {
             }
             final record = profile.data?.data();
             if (record == null || record['active'] != true || record['removed']==true) {
+              _accessChanged('inactive');
               return const _AccessPage(message: 'This school account is inactive or has no approved role.');
             }
             final role = (record['role'] as String?) ?? '';
+            final permissions=accountPermissions(record['permissions']);
+            final keys=permissions.keys.toList()..sort();
+            _accessChanged('${user.uid}|$role|${keys.map((k)=>'$k:${permissions[k]}').join(',')}|${record['linkedStudentIds']}');
             if (role == 'owner' && user.uid != schoolOwnerUid) {
               return const _AccessPage(message: 'This user is not the registered school owner.');
             }

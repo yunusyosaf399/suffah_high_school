@@ -2,7 +2,7 @@ name: Finance scheduler backend tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/account-settings-portals]
     paths:
       - "functions/**"
       - "firebase.json"
