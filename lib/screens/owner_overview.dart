@@ -206,19 +206,24 @@ class _OwnerOverviewState extends State<OwnerOverview> {
     final total=entries.fold<int>(0,(s,e)=>s+e.value);
     return _panel(dept=='canteen'?'Canteen sales':'Stationery analytics',
       'Sales value by current product category',dept=='canteen'?Icons.restaurant:Icons.edit_outlined,
-      Column(children:[
-        SizedBox(height:154,child:Stack(alignment:Alignment.center,children:[
+      LayoutBuilder(builder:(context,c){
+        final ring = SizedBox(height:154,child:Stack(alignment:Alignment.center,children:[
           _AnimatedPlot(height:154,painter:(t)=>_RingPainter(entries.map((e)=>e.value.toDouble()).toList(),t)),
-          SizedBox(width:112,child:Column(mainAxisSize:MainAxisSize.min,children:[
+          SizedBox(width:100,child:Column(mainAxisSize:MainAxisSize.min,children:[
             FittedBox(fit:BoxFit.scaleDown,child:Text(financeMoney(total),style:const TextStyle(fontWeight:FontWeight.w800,fontSize:16))),
             const Text('Total sales',style:TextStyle(fontSize:11,color:_muted)),
           ])),
-        ])),
-        if(entries.isEmpty)const Text('No sales in this period',style:TextStyle(color:_muted)),
-        for(var i=0;i<entries.length;i++) Padding(padding:const EdgeInsets.only(top:5),
-          child:Row(children:[Expanded(child:_Legend(entries[i].key,_palette[i])),
-            Text('${(entries[i].value*100/total).toStringAsFixed(0)}%',style:const TextStyle(fontSize:11,fontWeight:FontWeight.w700))])),
-      ]),filter:DropdownButton<bool>(value:_yearSales[dept]??false,underline:const SizedBox.shrink(),
+        ]));
+        final legend = Column(mainAxisSize:MainAxisSize.min,children:[
+          if(entries.isEmpty)const Text('No sales in this period',style:TextStyle(color:_muted)),
+          for(var i=0;i<entries.length;i++) Padding(padding:const EdgeInsets.only(top:5),
+            child:Row(children:[Expanded(child:_Legend(entries[i].key,_palette[i])),
+              Text('${(entries[i].value*100/total).toStringAsFixed(0)}%',style:const TextStyle(fontSize:11,fontWeight:FontWeight.w700))])),
+        ]);
+        return ConstrainedBox(constraints:const BoxConstraints(minHeight:188),child:c.maxWidth>=285
+          ? Row(children:[SizedBox(width:c.maxWidth*.49,child:ring),const SizedBox(width:8),Expanded(child:legend)])
+          : Column(children:[ring,legend]));
+      }),filter:DropdownButton<bool>(value:_yearSales[dept]??false,underline:const SizedBox.shrink(),
         items:const [DropdownMenuItem(value:false,child:Text('This month')),DropdownMenuItem(value:true,child:Text('This year'))],
         onChanged:(v){if(v!=null)setState(()=>_yearSales[dept]=v);}));
   },title:dept=='canteen'?'Canteen sales':'Stationery analytics');
@@ -297,9 +302,9 @@ class _RingPainter extends CustomPainter {
   final double progress;
   @override
   void paint(Canvas canvas,Size size){
-    final radius=math.max(0.0,math.min(size.width,size.height)/2-15);
+    final radius=math.max(0.0,math.min(size.width,size.height)/2-13);
     final rect=Rect.fromCircle(center:size.center(Offset.zero),radius:radius);
-    final brush=Paint()..style=PaintingStyle.stroke..strokeWidth=24;
+    final brush=Paint()..style=PaintingStyle.stroke..strokeWidth=21;
     canvas.drawArc(rect,0,2*math.pi,false,brush..color=_pale);
     final total=values.fold<double>(0,(s,v)=>s+v);
     if(total<=0)return;
