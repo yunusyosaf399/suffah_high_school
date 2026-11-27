@@ -868,6 +868,6 @@ class FinanceRepository {
       'visibleCards': visibleCards,
       'rotate': rotate,
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
   }
 }
