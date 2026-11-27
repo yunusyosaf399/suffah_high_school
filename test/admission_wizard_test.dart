@@ -54,6 +54,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final size in [const Size(1280, 850), const Size(390, 800)]) {
+    testWidgets('admission fields adapt and retain values at ${size.width}px',
+        (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(MaterialApp(home: AdmissionWizardPage(
+        record: record, classes: classes,
+        saveOverride: (details, step, complete) async {},
+      )));
+      await tester.pumpAndSettle();
+      final first = find.widgetWithText(TextFormField, 'First name *');
+      final middle = find.widgetWithText(TextFormField, 'Middle name (optional)');
+      await tester.ensureVisible(first);
+      if (size.width >= 1000) {
+        expect(tester.getTopLeft(first).dy, tester.getTopLeft(middle).dy);
+        expect(tester.getTopLeft(first).dx, lessThan(tester.getTopLeft(middle).dx));
+      } else {
+        expect(tester.getTopLeft(first).dy, lessThan(tester.getTopLeft(middle).dy));
+      }
+      await tester.enterText(first, 'Bilal');
+      await tester.tap(find.text('2. Contact'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('1. Student'));
+      await tester.pumpAndSettle();
+      expect(find.text('Bilal'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('save draft closes without demanding mandatory fields',
       (tester) async {
     bool saved = false;
