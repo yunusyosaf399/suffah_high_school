@@ -118,7 +118,7 @@ class _ConversationState extends State<_Conversation>{
           else IconButton(tooltip:'Retry voice upload',onPressed:uploadVoice,icon:Icon(Icons.refresh,color:fg)),
           const SizedBox(width:10),
           Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Row(children:[for(var i=0;i<24;i++)Expanded(child:Padding(padding:const EdgeInsets.symmetric(horizontal:1),child:Container(height:8+((i*7)%19).toDouble(),decoration:BoxDecoration(color:fg.withValues(alpha:.4),borderRadius:BorderRadius.circular(2)))))]),
+            Container(height:4,margin:const EdgeInsets.symmetric(vertical:9),decoration:BoxDecoration(color:fg.withValues(alpha:.3),borderRadius:BorderRadius.circular(4))),
             Text('${clip.durationMs~/60000}:${(clip.durationMs~/1000%60).toString().padLeft(2,'0')}',style:TextStyle(color:fg,fontSize:11)),
           ])),
           if(!voiceSending)IconButton(tooltip:'Discard unsent voice',onPressed:()=>setState((){pendingVoice=null;pendingVoiceId=null;voiceFailure=null;}),icon:Icon(Icons.close,color:fg)),

@@ -125,7 +125,22 @@ class SchoolMessageRepository {
   String get currentUid=>_uid;
   DocumentReference<Map<String,dynamic>> thread(String? uid)=>_db.collection('portal_threads').doc(uid??_uid);
   Stream<QuerySnapshot<Map<String,dynamic>>> watch(String? uid,int limit)=>thread(uid).collection('messages')
-    .orderBy('createdAt',descending:true).limit(limit).snapshots();
+    .orderBy('createdAt',descending:true).limit(limit).snapshots(includeMetadataChanges:true).map((snapshot){
+      if(!snapshot.metadata.isFromCache){
+        final account=_auth.currentUser?.uid;
+        if(account!=null){
+          for(final change in snapshot.docChanges){
+            final m=change.doc.data();
+            if(change.type==DocumentChangeType.removed||m?['deleted']==true){
+              unawaited(VoiceCache.remove(account,uid??account,change.doc.id));
+            }else if(m?['kind']=='voice'&&m?['readAt']!=null){
+              unawaited(_checkCachedVoice(account,uid??account,change.doc.id));
+            }
+          }
+        }
+      }
+      return snapshot;
+    });
   Stream<QuerySnapshot<Map<String,dynamic>>> hidden(String? uid)=>thread(uid).collection('hidden').doc(_uid).collection('items').snapshots();
   Stream<QuerySnapshot<Map<String,dynamic>>> scheduled(String? uid)=>thread(uid).collection('scheduled').where('senderUid',isEqualTo:_uid).snapshots();
   Future<void> hide(String? uid,String id)=>thread(uid).collection('hidden').doc(_uid).collection('items').doc(id)
@@ -192,6 +207,9 @@ class SchoolMessageRepository {
       rethrow;
     }
   }
+  Future<void> _checkCachedVoice(String account,String target,String id)async{
+    try{if(await VoiceCache.read(account,target,id)!=null)await _voiceExpiry(account,target,id);}catch(_){}
+  }
   // Verify small server metadata for revocation, but never re-download cached audio.
   Future<File> voiceFile(String? uid,String id)async{
     final account=_uid,target=uid??account;
@@ -230,12 +248,30 @@ class SchoolMessageRepository {
     }
     final message=thread.collection('messages').doc(messageId);
     if(kind=='voice'){
+      if(messageId!=null){
+        final existing=(await message.get(_server)).data();
+        if(existing!=null){
+          if(existing['senderUid']!=uid||existing['kind']!='voice')throw StateError('Message reference already used.');
+          return; // A previous attempt committed before its response arrived.
+        }
+      }
       if(voice==null||voice.isEmpty||voice.length>3000000)throw StateError('Recording is too large.');
       await thread.set({'uid':target,...metadata,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
       final result=await http.put(_voiceEndpoint('/v1/voice',target,message.id),
         headers:{'Authorization':'Bearer ${await _voiceToken()}','Content-Type':'audio/mp4'},
         body:voice).timeout(const Duration(seconds:45));
-      if(result.statusCode!=201)throw StateError('Voice upload failed (HTTP ${result.statusCode}). Try again.');
+      if(result.statusCode!=201){
+        // A retry may reuse an already uploaded, uncommitted recording.
+        var reusable=false;
+        if(result.statusCode==409){
+          try{
+            final j=(await _db.collection('voice_jobs').doc(message.id).get(_server)).data();
+            final expiry=j?['expiresAt'];
+            reusable=j?['ready']==true&&j?['threadUid']==target&&j?['senderUid']==uid&&expiry is Timestamp&&expiry.toDate().isAfter(DateTime.now());
+          }catch(_){}
+        }
+        if(!reusable)throw StateError('Voice upload failed (HTTP ${result.statusCode}). Try again.');
+      }
     }
     final batch=_db.batch();
     batch.set(thread,{'uid':target,...metadata,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
