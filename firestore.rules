@@ -1600,6 +1600,29 @@ service cloud.firestore {
     function admittedChild(studentId) {
       return get(/databases/$(database)/documents/students/$(studentId)).data.get('status','admitted') == 'admitted';
     }
+    // Photo-only projection, checked against the current private source.
+    match /student_photo_directory/{studentId} {
+      function source() {
+        return get(/databases/$(database)/documents/students/$(studentId)).data;
+      }
+      allow get: if canManageAdmissions() || (
+        resource.data.photoPath == source().get('photoPath','')
+        && source().get('status','admitted') == 'admitted'
+        && (canManageExams()
+          || (source().get('active',true) == true &&
+            (canSellInventory()
+              || (hasTeacherClassAccess(source().classId) && accountPermission('teacher_academics'))
+              || canMarkClassAttendance(source().classId)))
+          || parentFeature(studentId,'parent_profile')
+          || parentFeature(studentId,'parent_documents')));
+      allow list: if isOwner();
+      allow create,update: if canManageAdmissions()
+        && request.resource.data.keys().hasOnly(['photoPath'])
+        && request.resource.data.photoPath is string
+        && request.resource.data.photoPath ==
+          getAfter(/databases/$(database)/documents/students/$(studentId)).data.get('photoPath','');
+      allow delete: if canManageAdmissions();
+    }
     match /parent_children/{studentId} {
       allow get: if canManageAdmissions() || (linkedParent(studentId) && admittedChild(studentId));
       allow list: if canManageAdmissions();

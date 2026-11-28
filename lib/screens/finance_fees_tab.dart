@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'package:flutter/material.dart';
 
 import '../data/finance_models.dart';
@@ -507,6 +508,8 @@ class _FinanceCollectionsTabState extends State<FinanceCollectionsTab> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        StudentAvatar(studentId:bill.studentId,name:bill.studentName),
+                        const SizedBox(width:8),
                         Expanded(child: Text(
                           '${bill.studentName} · ${bill.title}',
                           style: Theme.of(context).textTheme.titleSmall,

@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'package:flutter/material.dart';
 
 import '../data/inventory_checkout_service.dart';
@@ -190,6 +191,7 @@ class _InventoryCheckoutPageState extends State<InventoryCheckoutPage> {
                       itemBuilder: (_, index) {
                         final student = matching[index];
                         return ListTile(
+                          leading: StudentAvatar(studentId:student.id,name:student.fullName),
                           title: Text(student.fullName),
                           subtitle: Text('${student.id} • Roll ${student.rollNo} • '
                               '${student.classId}'),
@@ -328,6 +330,7 @@ class _InventoryCheckoutPageState extends State<InventoryCheckoutPage> {
                   ),
                   if (_selectedStudent != null)
                     ListTile(
+                      leading: StudentAvatar(studentId:_selectedStudent!.id,name:_selectedStudent!.fullName),
                       title: Text(_selectedStudent!.fullName),
                       subtitle: Text('Reg: ${_selectedStudent!.id} • '
                         'Roll: ${_selectedStudent!.rollNo} • '

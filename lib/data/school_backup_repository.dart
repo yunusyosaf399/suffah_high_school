@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'school_user_service.dart';
 
 const backupCollections = <String>[
-  'users','classes','counters','students','staff','staff_contracts',
+  'users','classes','counters','students','student_photo_directory','staff','staff_contracts',
   'exam_teacher_directory','attendance_class_assignments','attendance_teacher_links',
   'attendance_days','teacher_assignments','system_migrations','teacher_class_links',
   'class_rosters','classwork','exam_term_control','exam_term_cycles','examinations',

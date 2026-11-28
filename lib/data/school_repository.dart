@@ -43,6 +43,7 @@ class StudentRecord {
     required this.rollNo,
     required this.active,
     this.status = 'admitted',
+    this.photoPath,
   });
 
   final String id;
@@ -55,6 +56,7 @@ class StudentRecord {
   final String rollNo;
   final bool active;
   final String status;
+  final String? photoPath;
   bool get isDraft => status == 'draft';
 
   factory StudentRecord.fromSnapshot(
@@ -72,6 +74,7 @@ class StudentRecord {
       rollNo: (data['rollNo'] as String?) ?? '',
       active: data['active'] != false,
       status: (data['status'] as String?) ?? 'admitted',
+      photoPath: data['photoPath'] as String?,
     );
   }
 }

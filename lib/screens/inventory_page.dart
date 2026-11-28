@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -888,6 +889,7 @@ class _InventoryPageState extends State<InventoryPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(children: [
+                          if(order.customerType=='student') ...[StudentAvatar(studentId:order.customerId,name:order.customerName),const SizedBox(width:8)],
                           Expanded(child: Text(order.customerName,
                             style: const TextStyle(
                                 fontWeight: FontWeight.w800, fontSize: 15))),

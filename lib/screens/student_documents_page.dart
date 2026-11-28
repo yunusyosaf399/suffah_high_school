@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -171,7 +172,7 @@ class _StudentDocumentsPageState extends State<StudentDocumentsPage> {
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
         key: PageStorageKey('documents-folder-${folder.id}'),
-        leading: const Icon(Icons.folder_rounded, size: 36, color: Color(0xFFD89B30)),
+        leading: StudentAvatar(studentId:folder.id,name:folder.name,photoPath:folder.photoPath),
         title: Text(folder.name, style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text(subtitle),
         children: [

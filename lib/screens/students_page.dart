@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -228,6 +229,14 @@ class _StudentsPageState extends State<StudentsPage> {
         title: const Text('Students',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         actions: [
+          if(_canEdit) IconButton(tooltip:'Sync student photos',icon:const Icon(Icons.photo_library_outlined),
+            onPressed:() async {
+              final messenger=ScaffoldMessenger.of(context);
+              try {
+                final count=await syncStudentPhotoDirectory();
+                if(mounted)messenger.showSnackBar(SnackBar(content:Text('Synced $count student photo references.')));
+              }catch(e){if(mounted)messenger.showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));}
+            }),
           IconButton(
             tooltip: 'Reload students',
             onPressed: _reload,
@@ -432,20 +441,13 @@ class _StudentsPageState extends State<StudentsPage> {
                         itemCount: shown.length,
                         itemBuilder: (context, index) {
                           final student = shown[index];
-                          final initials = student.fullName.trim().isEmpty
-                              ? '?' : student.fullName.trim()[0].toUpperCase();
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 7),
                             child: Card(
                               margin: EdgeInsets.zero,
                               child: ListTile(
                                 contentPadding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
-                                leading: CircleAvatar(
-                                  backgroundColor: colors.primaryContainer,
-                                  foregroundColor: colors.onPrimaryContainer,
-                                  child: Text(initials,
-                                    style: const TextStyle(fontWeight: FontWeight.w700)),
-                                ),
+                                leading: StudentAvatar(studentId:student.id,name:student.fullName,photoPath:student.photoPath),
                                 title: Text(student.isDraft
                                   ? 'Draft • ${student.admissionNo}'
                                   : student.fullName,

@@ -194,6 +194,21 @@ async function authorizeParentFile(env,token,path) {
   if(!stillReferenced(view,path))throw new ApiError(403,'This file is not linked to your child.');
 }
 
+async function authorizeStudentPhoto(env,token,id) {
+  let view;
+  try {
+    view=await authorizeStudent(env,token,id);
+  } catch(e) {
+    if(e.status!==403 && e.status!==404) throw e;
+    view=await authorizeStudent(env,token,id,'student_photo_directory');
+  }
+  const path=view.fields?.photoPath?.stringValue || '';
+  if(!path) throw new ApiError(404,'No profile photo.');
+  if(!path.startsWith('student-photos/') || studentFromPath(path)!==id)
+    throw new ApiError(403,'Invalid student photo.');
+  return path;
+}
+
 async function handle(request, env) {
   if (!env.STUDENT_FILES || !env.FIREBASE_PROJECT_ID) {
     throw new ApiError(503, 'R2 storage is not configured on this Worker.');
@@ -203,6 +218,16 @@ async function handle(request, env) {
     return json({ status: 'ok', release: 'r2-parent-firestore-v4' });
   }
   const token = await firebaseToken(request, env.FIREBASE_PROJECT_ID);
+
+  if(url.pathname==='/v1/student-photo' && request.method==='GET') {
+    const path=await authorizeStudentPhoto(env,token,url.searchParams.get('studentId')||'');
+    const object=await env.STUDENT_FILES.get(path);
+    if(!object) throw new ApiError(404,'Photo not found.');
+    return new Response(object.body,{headers:{
+      'Content-Type':'image/webp','Cache-Control':'private, no-store',
+      'X-Content-Type-Options':'nosniff',
+    }});
+  }
 
   // Parent reads use a separate endpoint. The original student read/write
   // authorization remains administrator-only, even before this Worker deploys.
@@ -311,4 +336,4 @@ export default {
 };
 
 // Exported for direct regression tests; no additional public HTTP endpoint.
-export { authorizeStudent, authorizeParentFile };
+export { authorizeStudent, authorizeParentFile, authorizeStudentPhoto };

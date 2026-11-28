@@ -319,6 +319,12 @@ class AdmissionRepository {
       }
     }
     await batch.commit();
+    try {
+      await _db.collection('student_photo_directory').doc(admission.id)
+        .set({'photoPath':photoPath??admission.photoPath});
+    } catch (_) {
+      // Existing photos can be repaired using Students > Sync student photos.
+    }
 
     // Separate best-effort synchronization protects admission saves even
     // before updated inventory directory rules are deployed. The directory

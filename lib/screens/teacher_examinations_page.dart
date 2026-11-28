@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import '../data/parent_portal_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -259,6 +260,7 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
               return Card(
                 margin: const EdgeInsets.only(bottom: 7),
                 child: ListTile(
+                  leading: StudentAvatar(studentId:student.id,name:student.name),
                   title: Text(student.name,
                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                   subtitle: Text('Roll no: ${student.rollNo.isEmpty ? '—' : student.rollNo}',

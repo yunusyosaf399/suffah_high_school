@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -363,7 +364,7 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
           },icon:const Icon(Icons.family_restroom),label:Text(_children.isEmpty?'Select student(s) *':'Change selected children (${_children.length})')),
           if(options.isEmpty)const Text('No active admitted students are available.'),
           for(final child in _children)
-            ListTile(contentPadding:EdgeInsets.zero,title:Text(child.name),
+            ListTile(contentPadding:EdgeInsets.zero,leading:StudentAvatar(studentId:child.id,name:child.name),title:Text(child.name),
               subtitle:Text('${child.id} • ${child.classId}\n${child.guardianName} • ${child.relationship}\nPhone: ${child.phone.isEmpty?'Not recorded':child.phone}\nSaved email: ${child.email.isEmpty?'Not recorded':child.email}')),
         ]);
       }),
@@ -630,6 +631,7 @@ class _ParentChildPickerState extends State<_ParentChildPicker>{
         itemBuilder:(context,i){
           final c=widget.options.where((c)=>'${c.name} ${c.id} ${c.guardianName} ${c.email}'.toLowerCase().contains(_query)).elementAt(i);
           return CheckboxListTile(key:ValueKey('parent_child_${c.id}'),value:_selected.contains(c.id),
+            secondary:StudentAvatar(studentId:c.id,name:c.name),
             title:Text('${c.name} • ${c.id}'),subtitle:Text('${c.classId} • ${c.guardianName}\n${c.email.isEmpty?'No guardian email':c.email}'),
             onChanged:(v)=>setState((){if(v==true&&_selected.length<50){_selected.add(c.id);}else if(v==false){_selected.remove(c.id);}}));
         })),

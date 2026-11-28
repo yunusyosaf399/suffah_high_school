@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'package:flutter/material.dart';
 
 import '../data/attendance_repository.dart';
@@ -317,7 +318,6 @@ class _AttendancePageState extends State<AttendancePage>
     final color = Theme.of(context).colorScheme;
     final selected = _marks[student.id] ?? 'unmarked';
     final name = student.fullName.trim();
-    final initial = name.isEmpty ? '?' : name[0].toUpperCase();
 
     return Card(
       key: Key('attendance_student_${student.id}'),
@@ -329,14 +329,7 @@ class _AttendancePageState extends State<AttendancePage>
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  radius: 19,
-                  backgroundColor: color.primaryContainer,
-                  foregroundColor: color.onPrimaryContainer,
-                  child: Text(initial,
-                    style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w800)),
-                ),
+                StudentAvatar(studentId:student.id,name:name,photoPath:student.photoPath,radius:19),
                 const SizedBox(width: 11),
                 Expanded(
                   child: Column(

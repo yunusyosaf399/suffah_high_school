@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -104,6 +105,7 @@ class _FinanceStudentPickerState extends State<FinanceStudentPicker> {
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       value: _selected.contains(student.id),
+                      secondary: StudentAvatar(studentId:student.id,name:student.fullName,photoPath:student.photoPath),
                       title: Text(student.fullName,
                         style: const TextStyle(fontSize: 13)),
                       subtitle: Text(

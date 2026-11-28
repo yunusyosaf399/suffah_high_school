@@ -168,6 +168,17 @@ class AdmissionStorage {
     };
   }
 
+  Future<Uint8List> downloadStudentPhoto(String studentId) async {
+    final response = await _client.get(
+      _endpoint('/v1/student-photo', {'studentId': studentId}),
+      headers: await _headers(),
+    ).timeout(const Duration(seconds: 20));
+    _verify(response);
+    return response.bodyBytes;
+  }
+
+  void close() => _client.close();
+
   Future<Uint8List> downloadFile(String path,{bool parentReadOnly=false}) async {
     final response = await _client.get(
       _endpoint(parentReadOnly?'/v1/parent-files':'/v1/files', {'path': path}),

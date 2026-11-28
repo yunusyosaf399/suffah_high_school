@@ -1,3 +1,4 @@
+import 'student_avatar.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -61,7 +62,7 @@ class ParentPortalPage extends StatelessWidget {
         const Text('Your linked children'),
         if(children.isEmpty)_notice('No child is linked to this account. Ask the school owner to verify and link your child.'),
         for(final child in children)Card(child:ListTile(
-          leading:const CircleAvatar(child:Icon(Icons.school_outlined)),title:Text(_value(child['name'])),subtitle:Text(child['needsSync']==true?'${child['id']} • Ask owner to sync parent records':_value(child['id'])),
+          leading:StudentAvatar(studentId:_value(child['id']),name:_value(child['name'])),title:Text(_value(child['name'])),subtitle:Text(child['needsSync']==true?'${child['id']} • Ask owner to sync parent records':_value(child['id'])),
           trailing:const Icon(Icons.chevron_right),onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>
             _ChildPortalPage(child:child,permissions:permissions))))),
         if(schoolPermission(permissions,'messages'))Card(child:ListTile(leading:const Icon(Icons.forum_outlined),
@@ -78,7 +79,7 @@ class _ChildPortalPage extends StatelessWidget {
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(_value(child['name']))),
     body:ListView(padding:const EdgeInsets.all(16),children:[
       Card(child:Padding(padding:const EdgeInsets.all(18),child:Row(children:[
-        const CircleAvatar(radius:28,child:Icon(Icons.school_outlined,size:28)),
+        StudentAvatar(studentId:_value(child['id']),name:_value(child['name']),radius:28),
         const SizedBox(width:14),
         Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text(_value(child['name']),style:Theme.of(context).textTheme.titleLarge),
