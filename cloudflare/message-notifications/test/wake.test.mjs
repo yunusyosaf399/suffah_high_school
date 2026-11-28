@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import worker,{available,blocked,cleanupThreadBatch} from '../src/index.js';
+import worker,{available,blocked,cleanupThreadBatch,callOutcome} from '../src/index.js';
 test('lease prevents concurrent dispatch and expires',()=>{
   const now=Date.now();
   assert.equal(available({fields:{pushPending:{booleanValue:true}}},now),true);
@@ -62,10 +62,10 @@ test('cleanup groups all chat record types into one commit and verifies empty be
     list:async({prefix})=>{assert.equal(prefix,'voice-messages/participant/');return {objects:empty?[]:[{key:prefix+'record.m4a'}],truncated:false};},
     delete:async(keys)=>audioDeletes.push(keys)
   }};
-  assert.deepEqual(await cleanupThreadBatch(env,'token',thread),{done:false,removed:5});
+  assert.deepEqual(await cleanupThreadBatch(env,'token',thread),{done:false,removed:6});
   assert.equal(commits.length,1);
-  assert.equal(commits[0].length,5);
-  assert.ok(commits[0].every(x=>x.startsWith(root+prefix+'/')||x.startsWith(root+'voice_jobs/')||x.startsWith(root+'message_alerts/')));
+  assert.equal(commits[0].length,6);
+  assert.ok(commits[0].every(x=>x.startsWith(root+prefix+'/')||x.startsWith(root+'voice_jobs/')||x.startsWith(root+'message_alerts/')||x.startsWith(root+'office_calls_v2/')));
   assert.deepEqual(audioDeletes,[['voice-messages/participant/record.m4a']]);
   empty=true;
   assert.deepEqual(await cleanupThreadBatch(env,'token',thread),{done:true,removed:1});
@@ -74,6 +74,19 @@ test('cleanup groups all chat record types into one commit and verifies empty be
 
 test('office call endpoints require authenticated school user',async()=>{
   for(const path of ['/v1/call-ice?uid=parent','/v1/call-wake?uid=parent&call=ABCDEFGHIJKLMNOPQRST']){
+    assert.equal((await worker.fetch(new Request('https://example.test'+path,{method:'POST'}),{},{})).status,403);
+  }
+});
+
+test('call history records completed duration or declined/missed outcome',()=>{
+  const t=n=>({timestampValue:new Date(n).toISOString()});
+  const end=Date.now();
+  assert.deepEqual(callOutcome({status:{stringValue:'ended'},mediaConnectedAt:t(end-65000),updatedAt:t(end)}),{status:'completed',seconds:65});
+  assert.deepEqual(callOutcome({status:{stringValue:'declined'},updatedAt:t(end)}),{status:'declined',seconds:0});
+  assert.deepEqual(callOutcome({status:{stringValue:'ringing'},historyDueAt:t(end-1000)},end),{status:'missed',seconds:0});
+});
+test('two-way call endpoints reject anonymous clients',async()=>{
+  for(const path of ['/v1/call-v2-wake?uid=parent&call=ABCDEFGHIJKLMNOPQRST','/v1/call-history?call=ABCDEFGHIJKLMNOPQRST']){
     assert.equal((await worker.fetch(new Request('https://example.test'+path,{method:'POST'}),{},{})).status,403);
   }
 });

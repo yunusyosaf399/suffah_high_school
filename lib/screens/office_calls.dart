@@ -15,8 +15,8 @@ class OfficeCalls {
   static bool _open=false;
   static DocumentReference<Map<String,dynamic>> ref(String id)=>FirebaseFirestore.instance.collection('office_calls_v2').doc(id);
   static bool get isOpen=>_open;
-  // A fresh expiry query cannot be crowded out by old ringing sessions.
-  // A single range field uses Firestore's automatic single-field index.
+  // Two equality filters use Firestore's automatic single-field indexes.
+  // Expired sessions are finalized by the Worker.
   static Query<Map<String,dynamic>> incoming(String target)=>FirebaseFirestore.instance.collection('office_calls_v2')
     .where('targetUid',isEqualTo:target).where('status',isEqualTo:'ringing').limit(100);
   static bool canPresent(AppLifecycleState? state,{required bool desktop}){
@@ -112,12 +112,13 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     });
     authSubscription=FirebaseAuth.instance.authStateChanges().listen((u){if(u?.uid!=me)unawaited(end('ended',write:false));});
     if(widget.incoming){
-      title='Incoming school call';status='Incoming voice call';
+      title=widget.targetUid=='office'?'Incoming school call':'School office';status='Incoming voice call';
       watch();unawaited(loadCaller());
       unawaited(callAudio.ring());
     }else{title=widget.name??'School office';unawaited(startCaller());}
   }
   Future<void> loadCaller()async{
+    if(widget.targetUid!='office')return;
     try{
       final d=(await FirebaseFirestore.instance.collection('users').doc(widget.callerUid).get()).data();
       if(mounted&&d!=null)setState(()=>title=d['displayName']?.toString()??'School user');
@@ -141,7 +142,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     if(!widget.incoming&&state=='answering')update('Answering…');
     if(!widget.incoming&&state=='connected'&&!remoteSet&&peer!=null&&data['answer'] is String){
       remoteSet=true;
-      try{await peer!.setRemoteDescription(RTCSessionDescription(data['answer'] as String,'answer'));update('Connecting audio…');armConnectionTimeout();}
+      try{await peer!.setRemoteDescription(RTCSessionDescription(data['answer'] as String,'answer'));if(connectedAt==null)update('Connecting audio…');armConnectionTimeout();}
       catch(_){await fail('Could not connect audio.');}
     }
     if(mounted&&!finished)setState((){});
@@ -302,13 +303,13 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     final other=widget.incoming?widget.callerUid:widget.targetUid;
     return PopScope(canPop:finished,onPopInvokedWithResult:(didPop,_){if(!didPop)unawaited(end('ended'));},child:Scaffold(
       backgroundColor:const Color(0xff102e28),
-      body:SafeArea(child:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:560),child:Padding(padding:const EdgeInsets.all(24),child:Column(children:[
+      body:SafeArea(child:LayoutBuilder(builder:(context,limits)=>SingleChildScrollView(child:Center(child:ConstrainedBox(constraints:BoxConstraints(maxWidth:560,minHeight:limits.maxHeight),child:Padding(padding:const EdgeInsets.all(24),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
         const Row(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.lock_outline,size:14,color:Colors.white54),SizedBox(width:8),Text('School voice call',style:TextStyle(color:Colors.white70))]),
-        const Spacer(),
+        const SizedBox(height:40),
         AccountPicture(uid:other=='office'?'':other,name:title,radius:64),
         const SizedBox(height:24),Text(title,style:const TextStyle(fontSize:28,fontWeight:FontWeight.w600,color:Colors.white),textAlign:TextAlign.center),
         const SizedBox(height:12),Text(connectedAt!=null&&!finished?elapsed:status,style:const TextStyle(color:Colors.white70,fontSize:16),textAlign:TextAlign.center),
-        const Spacer(flex:2),
+        const SizedBox(height:56),
         if(finished)FilledButton(onPressed:closing?null:()=>Navigator.pop(context),child:const Text('Close'))
         else if(ringing)Row(mainAxisAlignment:MainAxisAlignment.spaceEvenly,children:[
           action(Icons.call_end,'Decline',()=>end('declined'),color:const Color(0xffd13f43)),
@@ -320,6 +321,6 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
           action(Icons.call_end,'End call',()=>end('ended'),color:const Color(0xffd13f43)),
         ]),
         const SizedBox(height:24),const Text('Internet call · Audio is not recorded',style:TextStyle(color:Colors.white54,fontSize:12)),
-      ])))))));
+      ])))))))));
   }
 }

@@ -9,6 +9,8 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -65,7 +67,16 @@ class MainActivity : FlutterActivity() {
                     "startService" -> {
                         val intent = Intent(this, SchoolCallService::class.java)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
-                        result.success(true)
+                        val handler = Handler(Looper.getMainLooper())
+                        var attempts = 0
+                        val verify = object : Runnable {
+                            override fun run() {
+                                if (SchoolCallService.active) result.success(true)
+                                else if (++attempts >= 20) result.success(false)
+                                else handler.postDelayed(this, 100)
+                            }
+                        }
+                        handler.post(verify)
                     }
                     "stopService" -> { stopService(Intent(this, SchoolCallService::class.java)); result.success(true) }
                     else -> result.notImplemented()
@@ -91,6 +102,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() { tone?.stop(); super.onDestroy() }
 }
 class SchoolCallService : Service() {
+    companion object { @Volatile var active = false }
     private var wakeLock: PowerManager.WakeLock? = null
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -106,10 +118,11 @@ class SchoolCallService : Service() {
                 .setContentText("Call in progress — tap to return").setSmallIcon(android.R.drawable.sym_call_incoming)
                 .setContentIntent(open).setOngoing(true).setCategory(Notification.CATEGORY_CALL).build()
             startForeground(712, notification)
+            active = true
             if (wakeLock == null) wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "suffah:office-call").apply { acquire(60 * 60 * 1000L) }
         } catch (_: Exception) { stopSelf() }
         return START_NOT_STICKY
     }
-    override fun onDestroy() { wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; super.onDestroy() }
+    override fun onDestroy() { active = false; wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; super.onDestroy() }
 }

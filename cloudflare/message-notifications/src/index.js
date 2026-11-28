@@ -238,15 +238,16 @@ const CLEANUP_BATCH=40;
 export async function cleanupThreadBatch(env,token,thread){
   if(!/^[A-Za-z0-9_-]{1,128}$/.test(thread))throw Error('Invalid cleanup thread');
   const path='portal_threads/'+thread;
-  const [jobs,msgs,scheduled,alerts,viewers,objects]=await Promise.all([
+  const [jobs,msgs,scheduled,alerts,viewers,objects,calls]=await Promise.all([
     query(env,token,'voice_jobs',F('threadUid','EQUAL',S(thread)),CLEANUP_BATCH),
     listDocs(env,token,path+'/messages',CLEANUP_BATCH),
     listDocs(env,token,path+'/scheduled',CLEANUP_BATCH),
     query(env,token,'message_alerts',F('threadUid','EQUAL',S(thread)),CLEANUP_BATCH),
     listDocs(env,token,path+'/hidden',1),
     env.VOICE_FILES.list({prefix:'voice-messages/'+thread+'/',limit:100}),
+    query(env,token,'office_calls_v2',F('threadUid','EQUAL',S(thread)),CLEANUP_BATCH),
   ]);
-  const names=[...jobs,...msgs,...scheduled,...alerts].map(d=>d.name);
+  const names=[...jobs,...msgs,...scheduled,...alerts,...calls].map(d=>d.name);
   if(viewers.length){
     const items=await listDocs(env,token,path+'/hidden/'+id(viewers[0])+'/items',CLEANUP_BATCH);
     names.push(...(items.length?items.map(d=>d.name):[viewers[0].name]));
@@ -274,14 +275,15 @@ async function runChatCleanup(env,token){
     for(let step=0;step<3;step++){
       const thread=all?idOrNull((await listDocs(env,token,'portal_threads',1))[0]):job.fields.threadUid.stringValue;
       if(!thread){
-        const [jobs,alerts,objects]=await Promise.all([
+        const [jobs,alerts,objects,calls]=await Promise.all([
           listDocs(env,token,'voice_jobs',CLEANUP_BATCH),
           listDocs(env,token,'message_alerts',CLEANUP_BATCH),
           env.VOICE_FILES.list({prefix:'voice-messages/',limit:100}),
+          listDocs(env,token,'office_calls_v2',CLEANUP_BATCH),
         ]);
         const keys=[...new Set([...jobs.map(j=>voiceKey(j.fields.threadUid.stringValue,id(j))),...objects.objects.map(o=>o.key)])];
         if(keys.length)await env.VOICE_FILES.delete(keys);
-        const names=[...jobs,...alerts].map(d=>d.name);
+        const names=[...jobs,...alerts,...calls].map(d=>d.name);
         await deleteDocs(env,token,names);
         removed+=names.length;
         if(!names.length&&!keys.length&&!objects.truncated){complete=true;break;}
@@ -402,8 +404,11 @@ async function finalizeCall(env,token,d){
       createdAt:{timestampValue:f.createdAt.timestampValue},callStatus:S(outcome.status),durationSeconds:{integerValue:String(outcome.seconds)}
     }},currentDocument:{exists:false}});
   }
-  // Delete signaling atomically with the durable chat entry; never retain SDP.
-  writes.push({delete:d.name,currentDocument:{updateTime:d.updateTime}});
+  // Save history exactly once, clear SDP and leave a short terminal marker
+  // for the other device to observe. A later cron removes that marker.
+  const terminal=['ended','declined','missed'].includes(f.status?.stringValue)?f.status.stringValue:outcome.status==='completed'?'ended':'missed';
+  writes.push({update:{name:d.name,fields:{status:S(terminal),historySaved:B(true),purgeAt:{timestampValue:new Date(Date.now()+120000).toISOString()}}},
+    updateMask:{fieldPaths:['status','historySaved','purgeAt','historyDueAt','offer','answer']},currentDocument:{updateTime:d.updateTime}});
   await request(base(env)+':commit',token,{method:'POST',body:JSON.stringify({writes})});
 }
 async function callHistoryWake(req,env,callId){
@@ -414,8 +419,10 @@ async function callHistoryWake(req,env,callId){
   return new Response(null,{status:204});
 }
 async function cleanupCalls(env,token){
-  const due=await query(env,token,'office_calls_v2',F('historyDueAt','LESS_THAN_OR_EQUAL',{timestampValue:new Date().toISOString()}),3,[{field:{fieldPath:'historyDueAt'},direction:'ASCENDING'}]);
+  const due=await query(env,token,'office_calls_v2',F('historyDueAt','LESS_THAN_OR_EQUAL',{timestampValue:new Date().toISOString()}),2,[{field:{fieldPath:'historyDueAt'},direction:'ASCENDING'}]);
   for(const d of due)await finalizeCall(env,token,d);
+  const expired=await query(env,token,'office_calls_v2',F('purgeAt','LESS_THAN_OR_EQUAL',{timestampValue:new Date().toISOString()}),10);
+  await deleteDocs(env,token,expired.map(d=>d.name));
 }
 
 export default {
