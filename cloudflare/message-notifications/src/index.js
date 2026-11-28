@@ -141,8 +141,8 @@ async function optionalDoc(env,token,path){
 async function cleanupState(env,token){
   return optionalDoc(env,token,'/chat_cleanup/current');
 }
-function blocked(job,thread){
-  return job&&job.fields?.status?.stringValue!=='done'&&(job.fields?.scope?.stringValue==='all'||job.fields?.threadUid?.stringValue===thread);
+export function blocked(job,thread){
+  return !!job&&job.fields?.status?.stringValue!=='done'&&(job.fields?.scope?.stringValue==='all'||job.fields?.threadUid?.stringValue===thread);
 }
 async function voiceRequest(req,env,thread,message){
   const messagePath='/portal_threads/'+thread+'/messages/'+message;
@@ -216,7 +216,7 @@ async function cleanupVoice(env,token){
 // the write freeze prevents new messages being mixed into the deletion.
 const rootName=env=>'projects/'+env.FIREBASE_PROJECT_ID+'/databases/(default)/documents/';
 async function listDocs(env,token,path,limit=12){
-  const data=await request(base(env)+'/'+path+'?pageSize='+limit+'&showMissing=true',token);
+  const data=await request(base(env)+'/'+path+'?pageSize='+limit+'&showMissing=true'+(path==='voice_jobs'?'':'&mask.fieldPaths=createdAt'),token);
   return data.documents||[];
 }
 async function deleteDocs(env,token,names){

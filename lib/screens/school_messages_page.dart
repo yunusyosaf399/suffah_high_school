@@ -47,18 +47,24 @@ Future<bool> _confirmConversationDeletion(BuildContext context,SchoolMessageRepo
   }catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));return false;}
 }
 class _OwnerCleanupStatus extends StatefulWidget{
-  const _OwnerCleanupStatus({required this.repo});
+  const _OwnerCleanupStatus({required this.repo,required this.onCompleted});
   final SchoolMessageRepository repo;
+  final VoidCallback onCompleted;
   @override
   State<_OwnerCleanupStatus> createState()=>_OwnerCleanupStatusState();
 }
 class _OwnerCleanupStatusState extends State<_OwnerCleanupStatus>{
   late final stream=widget.repo.cleanupRequest.snapshots();
+  Object? lastCompletion;
   @override
   Widget build(BuildContext context)=>StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(stream:stream,builder:(context,s){
     final data=s.data?.data();
     if(data==null||s.hasError)return const SizedBox.shrink();
     final done=data['status']=='done';
+    if(done&&data['completedAt']!=null&&lastCompletion!=data['completedAt']){
+      lastCompletion=data['completedAt'];
+      WidgetsBinding.instance.addPostFrameCallback((_){if(mounted)widget.onCompleted();});
+    }
     return Material(color:Theme.of(context).colorScheme.surfaceContainerHighest,child:ListTile(
       leading:done?const Icon(Icons.check_circle_outline):const SizedBox(width:22,height:22,child:CircularProgressIndicator(strokeWidth:2)),
       title:Text(done?'Conversation deletion completed':'Deleting conversations…'),
@@ -82,7 +88,7 @@ class _ThreadListState extends State<_ThreadList>{
     FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true?IconButton(tooltip:'Delete all conversations',icon:const Icon(Icons.delete_sweep_outlined),onPressed:()=>_confirmConversationDeletion(context,repo)):const SizedBox.shrink()),
     _MessageProfileButton(uid:repo.currentUid)
   ]),body:Column(children:[
-    FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true?_OwnerCleanupStatus(repo:repo):const SizedBox.shrink()),
+    FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true?_OwnerCleanupStatus(repo:repo,onCompleted:()=>setState(()=>rows=repo.threads())):const SizedBox.shrink()),
     Padding(padding:const EdgeInsets.all(12),child:TextField(decoration:const InputDecoration(prefixIcon:Icon(Icons.search),hintText:'Search conversations'),onChanged:(v)=>setState(()=>query=v.toLowerCase()))),
     Expanded(child:FutureBuilder<Map<String,dynamic>>(future:rows,builder:(context,s){
       if(s.hasError)return Center(child:Text(schoolErrorMessage(s.error!)));
