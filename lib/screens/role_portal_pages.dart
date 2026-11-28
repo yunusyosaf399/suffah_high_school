@@ -1,4 +1,5 @@
 export 'school_messages_page.dart';
+import 'school_messages_page.dart';
 import 'student_avatar.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
