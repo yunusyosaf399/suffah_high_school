@@ -300,21 +300,37 @@ class _ConversationState extends State<_Conversation>{
     final sender=m['senderUid']?.toString()??'',name=mine?'You':m['fromSchool']==true?'School administration':widget.name??'Participant';
     final bg=color(p,mine?'outgoing':'incoming',mine?scheme.primaryContainer:scheme.surfaceContainerHighest),fg=readable(bg);
     final a=m['attachment'];
+    final callRecord=m['kind']=='call'&&!deleted;
     return VisibilityDetector(key:ValueKey('visible-${d.id}'),onVisibilityChanged:(v){
       if(mounted&&!mine&&!deleted&&v.visibleFraction>=0.5&&ModalRoute.of(context)?.isCurrent==true&&WidgetsBinding.instance.lifecycleState==AppLifecycleState.resumed&&(m['deliveredAt']==null||(m['kind']!='voice'&&m['readAt']==null)))unawaited(ack(d.id));
     },child:Padding(padding:const EdgeInsets.symmetric(vertical:4,horizontal:8),child:Row(mainAxisAlignment:mine?MainAxisAlignment.end:MainAxisAlignment.start,crossAxisAlignment:CrossAxisAlignment.end,children:[
       if(!mine)...[AccountPicture(uid:sender,name:name,radius:15),const SizedBox(width:6)],
-      Flexible(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:480),child:Material(color:bg,borderRadius:BorderRadius.circular(14),child:InkWell(borderRadius:BorderRadius.circular(14),onLongPress:()=>options(d.id,m),child:Padding(padding:const EdgeInsets.fromLTRB(12,8,8,6),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Flexible(child:ConstrainedBox(constraints:BoxConstraints(maxWidth:callRecord?220:480),child:Material(color:bg,borderRadius:BorderRadius.circular(14),child:InkWell(borderRadius:BorderRadius.circular(14),onLongPress:()=>options(d.id,m),child:Padding(padding:callRecord?const EdgeInsets.fromLTRB(10,5,10,6):const EdgeInsets.fromLTRB(12,8,8,6),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
         Row(mainAxisSize:MainAxisSize.min,children:[Flexible(child:Text(name,style:TextStyle(color:fg,fontSize:11,fontWeight:FontWeight.w600))),
-          IconButton(visualDensity:VisualDensity.compact,tooltip:'Message options',iconSize:16,color:fg,onPressed:()=>options(d.id,m),icon:const Icon(Icons.more_vert))]),
+          IconButton(visualDensity:VisualDensity.compact,constraints:callRecord?const BoxConstraints(minWidth:32,minHeight:28):null,padding:callRecord?EdgeInsets.zero:null,tooltip:'Message options',iconSize:16,color:fg,onPressed:()=>options(d.id,m),icon:const Icon(Icons.more_vert))]),
         if(deleted)Text('This message was deleted',style:TextStyle(color:fg,fontStyle:FontStyle.italic))
         else...[
-          if(m['kind']=='call')ListTile(contentPadding:EdgeInsets.zero,leading:Icon(m['callStatus']=='completed'?(mine?Icons.call_made:Icons.call_received):Icons.call_missed,color:m['callStatus']=='completed'?fg:Colors.redAccent),title:Text(m['callStatus']=='completed'?'Voice call':m['callStatus']=='declined'?'Declined call':'Missed call',style:TextStyle(color:fg,fontWeight:FontWeight.w600)),subtitle:Text(m['callStatus']=='completed'?'${(m['durationSeconds'] as num? ?? 0).toInt()~/60} min ${(m['durationSeconds'] as num? ?? 0).toInt()%60} sec':mine?'Outgoing call':'Incoming call',style:TextStyle(color:fg)),onTap:()=>OfficeCalls.dial(context,targetUid:widget.uid,name:widget.name)),
+          if(m['kind']=='call')InkWell(
+            borderRadius:BorderRadius.circular(10),
+            onTap:()=>OfficeCalls.dial(context,targetUid:widget.uid,name:widget.name),
+            child:Padding(padding:const EdgeInsets.symmetric(vertical:4),child:Row(mainAxisSize:MainAxisSize.min,children:[
+              Container(width:34,height:34,decoration:BoxDecoration(shape:BoxShape.circle,color:fg.withValues(alpha:.08)),
+                child:Icon(m['callStatus']=='completed'?(mine?Icons.call_made:Icons.call_received):Icons.call_missed,
+                  size:19,color:m['callStatus']=='completed'?fg:Colors.redAccent)),
+              const SizedBox(width:9),
+              Flexible(child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+                Text(m['callStatus']=='completed'?'Voice call':m['callStatus']=='declined'?'Declined call':'Missed call',
+                  style:TextStyle(color:fg,fontSize:13,fontWeight:FontWeight.w600)),
+                const SizedBox(height:2),
+                Text(m['callStatus']=='completed'?'${(m['durationSeconds'] as num? ?? 0).toInt()~/60} min ${(m['durationSeconds'] as num? ?? 0).toInt()%60} sec':mine?'Outgoing call':'Incoming call',
+                  style:TextStyle(color:fg.withValues(alpha:.8),fontSize:11)),
+              ])),
+            ]))),
           if((m['text']??'').toString().isNotEmpty)Text(m['text'].toString(),style:TextStyle(color:fg,fontSize:m['kind']=='sticker'?48:15)),
           if(m['kind']=='voice'&&a is Map)SchoolVoicePlayer(key:ValueKey(d.id),durationMs:(a['durationMs'] as num?)?.toInt()??0,load:()=>repo.voiceFile(widget.uid,d.id),onPlayed:mine?null:()=>ack(d.id,played:true),foreground:fg)
           else if(a is Map)TextButton.icon(style:TextButton.styleFrom(foregroundColor:fg),onPressed:()=>download(a),icon:const Icon(Icons.file_download_outlined),label:Flexible(child:Text((a['name']??'Attachment').toString(),overflow:TextOverflow.ellipsis))),
         ],
-        Row(mainAxisSize:MainAxisSize.min,children:[Text(stamp(m['createdAt']),style:TextStyle(color:fg,fontSize:10)),if(mine&&!deleted&&m['kind']!='call')...[const SizedBox(width:4),Tooltip(message:d.metadata.hasPendingWrites?'Sending':m['readAt']!=null?'Read / played':m['deliveredAt']!=null?'Delivered · unread':'Sent',child:Icon(d.metadata.hasPendingWrites?Icons.schedule:m['deliveredAt']!=null?Icons.done_all:Icons.done,size:16,color:m['readAt']!=null?Colors.lightBlueAccent:fg.withValues(alpha:.65)))]]),
+        Row(mainAxisSize:MainAxisSize.min,children:[Flexible(child:Text(stamp(m['createdAt']),style:TextStyle(color:fg,fontSize:10))),if(mine&&!deleted&&m['kind']!='call')...[const SizedBox(width:4),Tooltip(message:d.metadata.hasPendingWrites?'Sending':m['readAt']!=null?'Read / played':m['deliveredAt']!=null?'Delivered · unread':'Sent',child:Icon(d.metadata.hasPendingWrites?Icons.schedule:m['deliveredAt']!=null?Icons.done_all:Icons.done,size:16,color:m['readAt']!=null?Colors.lightBlueAccent:fg.withValues(alpha:.65)))]]),
       ])))))),
       if(mine)...[const SizedBox(width:6),AccountPicture(uid:sender,name:name,radius:15)]
     ])));
