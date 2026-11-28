@@ -647,6 +647,7 @@ service cloud.firestore {
     // Teacher-created assignments and homework are scoped to an active
     // teacher/class/subject assignment and the authenticated linked teacher.
     match /classwork/{workId} {
+      allow get,list: if request.auth != null && parentCurrentClassAccess(resource.data.classId);
       allow get, list: if canManageExams() || (isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_classwork'));
       allow create: if request.auth != null
         && request.resource.data.teacherUid == request.auth.uid
@@ -1227,6 +1228,7 @@ service cloud.firestore {
     }
 
     match /inventory_sales/{saleId} {
+      allow get,list: if resource.data.customerType == 'student' && parentFeature(resource.data.customerId,'parent_fees');
       allow get: if canManageInventory() || isPrincipal()
         || (inventoryRole('canteen_seller')
             && resource.data.sellerUid == request.auth.uid);
@@ -1642,6 +1644,11 @@ service cloud.firestore {
         && parentFeature(request.resource.data.studentId,'parent_exams')
         && childClass(request.resource.data.studentId,classId);
       allow list,delete: if false;
+    }
+    function parentCurrentClassAccess(classId) {
+      let grant=get(/databases/$(database)/documents/parent_class_grants/$(request.auth.uid)/classes/$(classId)).data;
+      return parentFeature(grant.studentId,'parent_exams') && admittedChild(grant.studentId)
+        && get(/databases/$(database)/documents/students/$(grant.studentId)).data.classId == classId;
     }
     function parentClassAccess(classId) {
       let grant=get(/databases/$(database)/documents/parent_class_grants/$(request.auth.uid)/classes/$(classId)).data;

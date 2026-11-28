@@ -81,7 +81,10 @@ class _ChildPortalPage extends StatelessWidget {
         ('profile','Profile','parent_profile',Icons.person_outline),
         ('fees','Fees and dues','parent_fees',Icons.receipt_long_outlined),
         ('attendance','Attendance','parent_attendance',Icons.fact_check_outlined),
-        ('exams','Examinations and results','parent_exams',Icons.assignment_outlined),
+        ('exams','Examinations and results','parent_exams',Icons.school_outlined),
+        ('tests','Class and monthly tests','parent_exams',Icons.quiz_outlined),
+        ('assignments','Assignments','parent_exams',Icons.assignment_outlined),
+        ('homework','Homework','parent_exams',Icons.menu_book_outlined),
         ('documents','Documents','parent_documents',Icons.folder_outlined),
       ]) if(schoolPermission(permissions,item.$3))Card(child:ListTile(
         leading:Icon(item.$4),title:Text(item.$2),trailing:const Icon(Icons.chevron_right),
@@ -103,24 +106,8 @@ class _ParentSection extends StatelessWidget {
             ('className','Class'),('dateOfBirth','Date of birth'),('gender','Gender'),('nationality','Nationality'),('admissionDate','Admission date'),('status','Status')])
             _entry(field.$2,p[field.$1])];
         }
-        if(section=='fees')return _bills(rows);
-        if(section=='attendance'){
-          final present=rows.where((r)=>r['status']=='present'||r['status']=='late').length;
-          final absent=rows.where((r)=>r['status']=='absent').length;
-          final leave=rows.where((r)=>r['status']=='leave').length;
-          return [
-            _notice('Recorded days: ${rows.length} • Present/late: $present • Absent: $absent • Leave: $leave'),
-            if(rows.isEmpty)_notice('No attendance records available.'),
-            for(final r in rows)Card(child:ListTile(title:Text(_value(r['date'])),trailing:Text(_value(r['status'])))),
-          ];
-        }
-        if(section=='exams')return [
-          if(rows.isEmpty)_notice('No examination records available.'),
-          for(final r in rows)Card(child:ListTile(
-            title:Text(_value(r['subject'])),subtitle:Text('${_value(r['sessionTitle']??r['title'])}\n${_value(r['examDate'])} • ${_clock(r['startMinute'])}–${_clock(r['endMinute'])} PKT\n'
-              '${r['schoolClosure']?.toString().isNotEmpty==true?'School closure: ${r['schoolClosure']}':r['cycleStatus']=='closed'?'Completed':r['resultStatus']=='released'?'Result declared':'Result pending'}'),
-            trailing:r['score'] is num?Text('${r['score']} / ${_value(r['maxMarks'])}'):const Text('—'))),
-        ];
+        if(section=='fees')return [ _ParentHistory(rows:rows,section:section) ];
+        if(['attendance','exams','tests','assignments','homework'].contains(section))return [_ParentHistory(rows:rows,section:section)];
         return [
           if(rows.isEmpty)_notice('No documents available.'),
           for(final file in rows)Card(child:ListTile(leading:const Icon(Icons.insert_drive_file_outlined),
@@ -129,6 +116,88 @@ class _ParentSection extends StatelessWidget {
         ];
       }));
 }
+class _ParentHistory extends StatefulWidget {
+  const _ParentHistory({required this.rows,required this.section});
+  final List<Map<String,dynamic>> rows;
+  final String section;
+  @override
+  State<_ParentHistory> createState()=>_ParentHistoryState();
+}
+class _ParentHistoryState extends State<_ParentHistory>{
+  String period='All';
+  String year='All';
+  String group='Daily';
+  String activity='All';
+  String category='All';
+  String date(Map<String,dynamic> r)=>(r['month']??r['date']??r['examDate']??r['dueDate']??'').toString();
+  String month(DateTime d)=>'${d.year}-${d.month.toString().padLeft(2,'0')}';
+  bool isCurrent(Map<String,dynamic> r,String today){
+    if(widget.section=='exams'||widget.section=='tests')return r['active']==true&&r['cycleStatus']!='closed'&&date(r).compareTo(today)>=0;
+    return r['active']==true&&date(r).compareTo(today)>=0;
+  }
+  Widget select(String label,String value,List<String> options,ValueChanged<String> update)=>Padding(
+    padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(
+      initialValue:options.contains(value)?value:options.first,isExpanded:true,
+      decoration:InputDecoration(labelText:label,border:const OutlineInputBorder()),
+      items:options.map((s)=>DropdownMenuItem(value:s,child:Text(s))).toList(),
+      onChanged:(s){if(s!=null)setState(()=>update(s));}));
+  @override
+  Widget build(BuildContext context){
+    final now=DateTime.now().toUtc().add(const Duration(hours:5));
+    final today='${month(now)}-${now.day.toString().padLeft(2,'0')}';
+    final fees=widget.section=='fees',attendance=widget.section=='attendance';
+    final exams=widget.section=='exams'||widget.section=='tests';
+    final years=widget.rows.map(date).where((d)=>d.length>=4).map((d)=>d.substring(0,4)).toSet().toList()..sort((a,b)=>b.compareTo(a));
+    final cats=widget.rows.map((r)=>(r['category']??'Other').toString()).toSet().toList()..sort();
+    final months=period=='This month'?1:period=='Last 6 months'?6:12;
+    final first=month(DateTime(now.year,now.month-months+1));
+    final rows=widget.rows.where((r){
+      final d=date(r);
+      if(year!='All'&&!d.startsWith(year))return false;
+      if((fees||attendance)&&period!='All'&&(d.length<7||d.substring(0,7).compareTo(first)<0||d.substring(0,7).compareTo(month(now))>0))return false;
+      if(fees&&category!='All'&&r['category']!=category)return false;
+      if(!fees&&!attendance&&activity!='All'&&(isCurrent(r,today)!=(activity=='Current')))return false;
+      return true;
+    }).toList();
+    final grouped=<String,List<Map<String,dynamic>>>{};
+    if(attendance)for(final r in rows){
+      final d=date(r),length=group=='Yearly'?4:group=='Monthly'?7:10;
+      final key=d.length>=length?d.substring(0,length):d;
+      grouped.putIfAbsent(key,()=>[]).add(r);
+    }
+    Widget attendanceCard(String title,List<Map<String,dynamic>> records){
+      final present=records.where((r)=>['present','late'].contains(r['status'])).length;
+      final absent=records.where((r)=>r['status']=='absent').length;
+      final leave=records.where((r)=>r['status']=='leave').length;
+      final rate=records.isEmpty?0.0:present/records.length;
+      return Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text(title,style:Theme.of(context).textTheme.titleMedium),
+        Text('Present / late: $present • Absent: $absent • Leave: $leave'),
+        const SizedBox(height:8),LinearProgressIndicator(value:rate),
+        Text('${(rate*100).toStringAsFixed(1)}% of recorded days present or late'),
+      ])));
+    }
+    return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+      if(fees||attendance)select('Period',period,['All','This month','Last 6 months','Last 12 months'],(s)=>period=s),
+      select('Year',year,['All',...years],(s)=>year=s),
+      if(fees)select('Fee or purchase type',category,['All',...cats],(s)=>category=s),
+      if(attendance)select('Attendance view',group,['Daily','Monthly','Yearly'],(s)=>group=s),
+      if(!fees&&!attendance)select('Activity',activity,['All','Current','History'],(s)=>activity=s),
+      if(fees)..._bills(rows),
+      if(attendance)...[
+        attendanceCard('Selected period',rows),
+        if(group=='Daily')for(final r in rows)Card(child:ListTile(title:Text(date(r)),trailing:Text(_value(r['status'])))),
+        if(group!='Daily')for(final e in grouped.entries)attendanceCard(e.key,e.value),
+      ],
+      if(!fees&&!attendance)for(final r in rows)Card(child:ListTile(
+        title:Text(_value(exams?r['subject']:r['title'])),
+        subtitle:Text(exams?'${_value(r['sessionTitle']??r['title'])}\n${date(r)} • ${_clock(r['startMinute'])}–${_clock(r['endMinute'])} PKT\n${r['resultStatus']=='released'?'Result declared':r['cycleStatus']=='closed'?'Completed':'Result pending'}':'${_value(r['subject'])} • Due ${date(r)}\n${_value(r['instructions'])}'),
+        trailing:exams&&r['score'] is num?Text('${r['score']} / ${_value(r['maxMarks'])}'):null,
+      )),
+      if(rows.isEmpty&&!fees)_notice('No records for the selected filters.'),
+    ]);
+  }
+}
 List<Widget> _bills(List<Map<String,dynamic>> rows){
   final total=rows.fold<num>(0,(sum,r)=>sum+_amount(r['amountMinor']));
   final paid=rows.fold<num>(0,(sum,r)=>sum+_amount(r['paidMinor']));
@@ -136,7 +205,7 @@ List<Widget> _bills(List<Map<String,dynamic>> rows){
     _notice('Total: ${_money(total)}\nPaid: ${_money(paid)}\nOutstanding: ${_money(total-paid)}'),
     if(rows.isEmpty)_notice('No bills recorded.'),
     for(final r in rows)Card(child:ListTile(title:Text('${_value(r['title'])} • ${_value(r['month'])}'),
-      subtitle:Text('${_value(r['status'])} • Paid: ${_money(r['paidMinor'])}\nOutstanding: ${_money(_amount(r['amountMinor'])-_amount(r['paidMinor']))}'),
+      subtitle:Text('${_value(r['category'])} • ${_value(r['status'])} • Paid: ${_money(r['paidMinor'])}\nOutstanding: ${_money(_amount(r['amountMinor'])-_amount(r['paidMinor']))}'),
       trailing:Text(_money(r['amountMinor'])))),
   ];
 }

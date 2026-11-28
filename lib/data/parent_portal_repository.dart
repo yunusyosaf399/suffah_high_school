@@ -56,7 +56,7 @@ class ParentPortalRepository {
     final a=await _account();
     if(!_ids(a).contains(id))throw StateError('This student is not linked to your account.');
     final key=const {'profile':'parent_profile','fees':'parent_fees','attendance':'parent_attendance',
-      'exams':'parent_exams','documents':'parent_documents'}[section];
+      'exams':'parent_exams','tests':'parent_exams','assignments':'parent_exams','homework':'parent_exams','documents':'parent_documents'}[section];
     if(key==null||_map(a['permissions'])[key]==false)throw StateError('This section is unavailable.');
     if(section=='profile'){
       final p=(await db.collection('parent_profiles').doc(id).get(server)).data();
@@ -75,31 +75,51 @@ class ParentPortalRepository {
         ((f['path'] as String).startsWith('student-documents/$id/')||(f['path'] as String).startsWith('student-photos/$id/'))).toList()};
     }
     if(section=='fees'){
-      final docs=await db.collection('finance_fee_bills').where('studentId',isEqualTo:id).limit(1001).get(server);
-      final rows=docs.docs.take(1000).map((d)=>parentPick(d.data(),['title','month','category','amountMinor','paidMinor','status','currency','dueDate'])).toList()
-        ..sort((a,b)=>(b['month']??'').toString().compareTo((a['month']??'').toString()));
-      return {'rows':rows,'truncated':docs.docs.length>1000};
+      final bills=await _all(db.collection('finance_fee_bills').where('studentId',isEqualTo:id));
+      final sales=await _all(db.collection('inventory_sales').where('customerType',isEqualTo:'student').where('customerId',isEqualTo:id));
+      final rows=<Map<String,dynamic>>[
+        for(final d in bills) parentPick(d.data(),['title','month','category','amountMinor','paidMinor','status','currency','dueDate']),
+        for(final d in sales) {
+          'title':'${d.data()['itemName']} × ${d.data()['quantity']}',
+          'category':d.data()['department']??'stationery',
+          'month':_month(d.data()['soldAt']),
+          'amountMinor':d.data()['totalMinor'],
+          'paidMinor':d.data()['paidMinor']??d.data()['totalMinor'],
+          'status':d.data()['paymentStatus']??'paid',
+          'currency':d.data()['currency'],
+        },
+      ]..sort((a,b)=>(b['month']??'').toString().compareTo((a['month']??'').toString()));
+      return {'rows':rows};
     }
     if(section=='attendance'){
-      final docs=await db.collection('parent_attendance').doc(id).collection('days').orderBy('date',descending:true).limit(1001).get(server);
-      return {'rows':docs.docs.take(1000).map((d)=>d.data()).where((d)=>d['status']!='unmarked').toList(),'truncated':docs.docs.length>1000};
+      final docs=await _all(db.collection('parent_attendance').doc(id).collection('days'));
+      final rows=docs.map((d)=>d.data()).where((d)=>d['status']!='unmarked').toList()
+        ..sort((a,b)=>(b['date']??'').toString().compareTo((a['date']??'').toString()));
+      return {'rows':rows};
     }
     final child=(await db.collection('parent_children').doc(id).get(server)).data();
     if(child==null)throw StateError('Ask the school owner to sync parent records.');
     final current=child['classId']?.toString()??'';
+    if(section=='assignments'||section=='homework'){
+      if(current.isEmpty)return {'rows':[]};
+      await db.collection('parent_class_grants').doc(uid).collection('classes').doc(current).set({'studentId':id});
+      final work=await _all(db.collection('classwork').where('classId',isEqualTo:current));
+      final rows=work.map((d)=>d.data()).where((d)=>d['kind']==(section=='assignments'?'assignment':'homework')).map((d)=>parentPick(d,['title','subject','instructions','dueDate','active','kind'])).toList()
+        ..sort((a,b)=>(b['dueDate']??'').toString().compareTo((a['dueDate']??'').toString()));
+      return {'rows':rows};
+    }
     final classes={current,...(child['historyClassIds'] as List? ?? []).whereType<String>()}..remove('');
     final rows=<Map<String,dynamic>>[];
     final cycles=<String,Map<String,dynamic>>{};
-    var truncated=false;
     for(final classId in classes){
       // Grants are not trusted claims: rules verify the linked child and
       // current or historical roster on every timetable read.
       await db.collection('parent_class_grants').doc(uid).collection('classes').doc(classId).set({'studentId':id});
-      final docs=await db.collection('parent_class_schedules').doc(classId).collection('papers').limit(1001).get(server);
-      if(docs.docs.length>1000)truncated=true;
-      for(final doc in docs.docs.take(1000)){
+      final docs=await _all(db.collection('parent_class_schedules').doc(classId).collection('papers'));
+      for(final doc in docs){
         final paper=doc.data();
-        if(paper['active']!=true)continue;
+        if(section=='tests' ? paper['kind']!='test' : paper['kind']=='test')continue;
+        if(paper['active']!=true&&paper['resultStatus']!='released')continue;
         Map<String,dynamic>? mark;
         if(paper['resultStatus']=='released'){
           try{
@@ -119,7 +139,22 @@ class ParentPortalRepository {
       }
     }
     rows.sort((a,b)=>(b['examDate']??'').toString().compareTo((a['examDate']??'').toString()));
-    return {'rows':rows,'truncated':truncated};
+    return {'rows':rows};
+  }
+
+  static String _month(dynamic value){
+    if(value is! Timestamp)return '';
+    final date=value.toDate().toUtc().add(const Duration(hours:5));
+    return '${date.year}-${date.month.toString().padLeft(2,'0')}';
+  }
+  static Future<List<QueryDocumentSnapshot<Map<String,dynamic>>>> _all(Query<Map<String,dynamic>> query)async{
+    final result=<QueryDocumentSnapshot<Map<String,dynamic>>>[];
+    final ordered=query.orderBy(FieldPath.documentId);
+    while(true){
+      final page=await (result.isEmpty?ordered:ordered.startAfterDocument(result.last)).limit(250).get(server);
+      result.addAll(page.docs);
+      if(page.docs.length<250)return result;
+    }
   }
 
   static Future<String> classLabel(FirebaseFirestore db,String id)async{
