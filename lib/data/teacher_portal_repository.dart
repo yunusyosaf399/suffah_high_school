@@ -169,6 +169,12 @@ class SchoolMessageRepository {
       tx.set(cleanupRequest,{'scope':threadUid==null?'all':'thread','threadUid':threadUid??'','status':'queued','requestedAt':FieldValue.serverTimestamp()});
     });
   }
+  Future<void> resumeConversationCleanup()async{
+    final token=await _voiceToken();
+    final endpoint=_voiceEndpoint('/v1/cleanup','','').replace(query:'');
+    final result=await http.post(endpoint,headers:{'Authorization':'Bearer $token'}).timeout(const Duration(seconds:40));
+    if(result.statusCode!=204)throw StateError('Cleanup service HTTP ${result.statusCode}. Check the Worker deployment.');
+  }
   Future<bool> isOwner()async=>(await _db.collection('users').doc(_uid).get(_server)).data()?['role']=='owner';
   DocumentReference<Map<String,dynamic>> get voiceSettings=>_db.collection('voice_settings').doc('global');
   Future<void> receipt(String? uid,String id,{bool read=false,bool played=false})async{

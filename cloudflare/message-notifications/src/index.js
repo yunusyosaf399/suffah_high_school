@@ -231,52 +231,73 @@ async function deleteVoiceJobs(env,token,jobs){
   if(keys.length)await env.VOICE_FILES.delete(keys);
   await deleteDocs(env,token,jobs.map(j=>j.name));
 }
+// Fetch independent collections together, then delete them in one Firestore
+// commit. A second pass verifies that nothing remains before removing a root.
+const CLEANUP_BATCH=40;
 async function cleanupThreadBatch(env,token,thread){
+  if(!/^[A-Za-z0-9_-]{1,128}$/.test(thread))throw Error('Invalid cleanup thread');
   const path='portal_threads/'+thread;
-  const jobs=await query(env,token,'voice_jobs',F('threadUid','EQUAL',S(thread)),12);
-  if(jobs.length){await deleteVoiceJobs(env,token,jobs);return false;}
-  const msgs=await listDocs(env,token,path+'/messages');
-  if(msgs.length){await deleteDocs(env,token,msgs.map(d=>d.name));return false;}
-  const scheduled=await listDocs(env,token,path+'/scheduled');
-  if(scheduled.length){await deleteDocs(env,token,scheduled.map(d=>d.name));return false;}
-  const alerts=await query(env,token,'message_alerts',F('threadUid','EQUAL',S(thread)),12);
-  if(alerts.length){await deleteDocs(env,token,alerts.map(d=>d.name));return false;}
-  const viewers=await listDocs(env,token,path+'/hidden',1);
+  const [jobs,msgs,scheduled,alerts,viewers,objects]=await Promise.all([
+    query(env,token,'voice_jobs',F('threadUid','EQUAL',S(thread)),CLEANUP_BATCH),
+    listDocs(env,token,path+'/messages',CLEANUP_BATCH),
+    listDocs(env,token,path+'/scheduled',CLEANUP_BATCH),
+    query(env,token,'message_alerts',F('threadUid','EQUAL',S(thread)),CLEANUP_BATCH),
+    listDocs(env,token,path+'/hidden',1),
+    env.VOICE_FILES.list({prefix:'voice-messages/'+thread+'/',limit:100}),
+  ]);
+  const names=[...jobs,...msgs,...scheduled,...alerts].map(d=>d.name);
   if(viewers.length){
-    const items=await listDocs(env,token,path+'/hidden/'+id(viewers[0])+'/items');
-    await deleteDocs(env,token,items.length?items.map(d=>d.name):[viewers[0].name]);
-    return false;
+    const items=await listDocs(env,token,path+'/hidden/'+id(viewers[0])+'/items',CLEANUP_BATCH);
+    names.push(...(items.length?items.map(d=>d.name):[viewers[0].name]));
   }
-  // Catch uncommitted objects without jobs, restricted to this exact prefix.
-  const objects=await env.VOICE_FILES.list({prefix:'voice-messages/'+thread+'/',limit:100});
-  if(objects.objects.length){await env.VOICE_FILES.delete(objects.objects.map(o=>o.key));return false;}
+  const keys=[...new Set([...jobs.map(j=>voiceKey(thread,id(j))),...objects.objects.map(o=>o.key)])];
+  if(keys.length)await env.VOICE_FILES.delete(keys);
+  if(names.length||keys.length){
+    await deleteDocs(env,token,names);
+    return {done:false,removed:names.length};
+  }
+  if(objects.truncated)throw Error('Incomplete audio listing');
   await deleteDocs(env,token,[rootName(env)+path]);
-  return true;
+  return {done:true,removed:1};
 }
 async function runChatCleanup(env,token){
   let job=await cleanupState(env,token);
   if(!job||job.fields?.status?.stringValue==='done')return false;
   if(Date.parse(job.fields?.leaseUntil?.timestampValue)>Date.now())return true;
   try{job=await updateCleanup(env,token,job,{status:S('running'),leaseUntil:{timestampValue:new Date(Date.now()+90000).toISOString()}});}
-  catch(e){if(/status (400|409|412)$/.test(e.message))return true;throw e;}
+  catch(e){if(/status (409|412)$/.test(e.message))return true;throw e;}
   const all=job.fields.scope.stringValue==='all';
-  let complete=false;
-  // Each invocation uses bounded REST and R2 calls, suitable for a free Worker.
-  for(let step=0;step<3;step++){
-    const thread=all?idOrNull((await listDocs(env,token,'portal_threads',1))[0]):job.fields.threadUid.stringValue;
-    if(!thread){
-      const jobs=await listDocs(env,token,'voice_jobs');
-      if(jobs.length){await deleteVoiceJobs(env,token,jobs);continue;}
-      const alerts=await listDocs(env,token,'message_alerts');
-      if(alerts.length){await deleteDocs(env,token,alerts.map(d=>d.name));continue;}
-      const objects=await env.VOICE_FILES.list({prefix:'voice-messages/',limit:100});
-      if(objects.objects.length){await env.VOICE_FILES.delete(objects.objects.map(o=>o.key));continue;}
-      complete=true;break;
+  let complete=false,removed=Number(job.fields.deletedRecords?.integerValue||0);
+  try{
+    // Three grouped passes stay within the Worker subrequest budget.
+    for(let step=0;step<3;step++){
+      const thread=all?idOrNull((await listDocs(env,token,'portal_threads',1))[0]):job.fields.threadUid.stringValue;
+      if(!thread){
+        const [jobs,alerts,objects]=await Promise.all([
+          listDocs(env,token,'voice_jobs',CLEANUP_BATCH),
+          listDocs(env,token,'message_alerts',CLEANUP_BATCH),
+          env.VOICE_FILES.list({prefix:'voice-messages/',limit:100}),
+        ]);
+        const keys=[...new Set([...jobs.map(j=>voiceKey(j.fields.threadUid.stringValue,id(j))),...objects.objects.map(o=>o.key)])];
+        if(keys.length)await env.VOICE_FILES.delete(keys);
+        const names=[...jobs,...alerts].map(d=>d.name);
+        await deleteDocs(env,token,names);
+        removed+=names.length;
+        if(!names.length&&!keys.length&&!objects.truncated){complete=true;break;}
+        continue;
+      }
+      const result=await cleanupThreadBatch(env,token,thread);
+      removed+=result.removed;
+      if(result.done&&!all){complete=true;break;}
     }
-    const done=await cleanupThreadBatch(env,token,thread);
-    if(done&&!all){complete=true;break;}
+    await updateCleanup(env,token,job,{status:S(complete?'done':'running'),deletedRecords:{integerValue:String(removed)},lastError:{nullValue:null},leaseUntil:{nullValue:null},...(complete?{completedAt:{timestampValue:new Date().toISOString()}}:{})});
+  }catch(e){
+    // Keep the request durable, expose a safe error code, and release the lease
+    // only if this invocation still owns it. Never unlock writes on failure.
+    const code=/Google API status \d+/.exec(e.message)?.[0]||'Cleanup operation failed';
+    try{await updateCleanup(env,token,job,{status:S('running'),deletedRecords:{integerValue:String(removed)},lastError:S(code),leaseUntil:{nullValue:null}});}catch(_){}
+    throw e;
   }
-  await updateCleanup(env,token,job,{status:S(complete?'done':'running'),leaseUntil:{nullValue:null},...(complete?{completedAt:{timestampValue:new Date().toISOString()}}:{})});
   return true;
 }
 function idOrNull(d){return d?id(d):null;}
@@ -284,6 +305,16 @@ function idOrNull(d){return d?id(d):null;}
 export default {
   async fetch(request,env,ctx){
     const url=new URL(request.url);
+    if(url.pathname==='/v1/cleanup'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405});
+      try{
+        // Firestore independently verifies this is the pinned owner.
+        const auth=await clientRead(request,env,'/chat_cleanup/current');
+        if(!auth||auth.uid!==owner)return new Response('Forbidden',{status:403});
+        await runChatCleanup(env,await access(env));
+        return new Response(null,{status:204});
+      }catch(e){console.error('Conversation cleanup failed',e.message);return new Response('Cleanup retry needed',{status:503});}
+    }
     if(url.pathname!=='/v1/voice'&&(request.method!=='POST'||url.pathname!=='/v1/wake'))return new Response('Not found',{status:404});
     const thread=url.searchParams.get('thread')||'',alert=url.searchParams.get('message')||'';
     if(!/^[A-Za-z0-9_-]{1,128}$/.test(thread)||! /^[A-Za-z0-9_-]{1,128}$/.test(alert))return new Response('Invalid request',{status:400});

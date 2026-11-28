@@ -56,11 +56,28 @@ class _OwnerCleanupStatus extends StatefulWidget{
 class _OwnerCleanupStatusState extends State<_OwnerCleanupStatus>{
   late final stream=widget.repo.cleanupRequest.snapshots();
   Object? lastCompletion;
+  Timer? retryTimer;
+  bool requesting=false;
+  String? retryError;
+  bool pending=false;
+  Future<void> advance()async{
+    if(!mounted||!pending||requesting)return;
+    setState(()=>requesting=true);
+    try{await widget.repo.resumeConversationCleanup();if(mounted)setState(()=>retryError=null);}
+    catch(e){if(mounted)setState(()=>retryError=schoolErrorMessage(e));}
+    finally{if(mounted)setState(()=>requesting=false);}
+  }
+  @override
+  void initState(){super.initState();retryTimer=Timer.periodic(const Duration(seconds:5),(_)=>unawaited(advance()));}
+  @override
+  void dispose(){retryTimer?.cancel();super.dispose();}
   @override
   Widget build(BuildContext context)=>StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(stream:stream,builder:(context,s){
     final data=s.data?.data();
-    if(data==null||s.hasError)return const SizedBox.shrink();
+    if(data==null||s.hasError){pending=false;return const SizedBox.shrink();}
     final done=data['status']=='done';
+    final wasPending=pending;pending=!done;
+    if(pending&&!wasPending)WidgetsBinding.instance.addPostFrameCallback((_){if(mounted)unawaited(advance());});
     if(done&&data['completedAt']!=null&&lastCompletion!=data['completedAt']){
       lastCompletion=data['completedAt'];
       WidgetsBinding.instance.addPostFrameCallback((_){if(mounted)widget.onCompleted();});
@@ -68,7 +85,8 @@ class _OwnerCleanupStatusState extends State<_OwnerCleanupStatus>{
     return Material(color:Theme.of(context).colorScheme.surfaceContainerHighest,child:ListTile(
       leading:done?const Icon(Icons.check_circle_outline):const SizedBox(width:22,height:22,child:CircularProgressIndicator(strokeWidth:2)),
       title:Text(done?'Conversation deletion completed':'Deleting conversations…'),
-      subtitle:Text(done?'Deleted messages are no longer available.':'The server removes records in batches. Sending is temporarily disabled in affected chats.'),
+      subtitle:Text(done?'Deleted messages are no longer available.':'${data['deletedRecords']??0} records removed. Sending is temporarily disabled in affected chats.\n${retryError??data['lastError']??'Continuing cleanup automatically.'}'),
+      trailing:done?null:TextButton(onPressed:requesting?null:advance,child:const Text('Retry now')),
     ));
   });
 }
