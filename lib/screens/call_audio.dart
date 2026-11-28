@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -61,31 +62,62 @@ class SchoolCallAudio {
       if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Call ringtone saved on this device.')));
     }catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not set ringtone: $e')));}
   }
+  static bool get windows=>!kIsWeb&&defaultTargetPlatform==TargetPlatform.windows;
   AudioPlayer? player;
+  Timer? windowsRepeat;
   bool disposed=false;
   int generation=0;
-  Future<void> ring({bool outgoing=false})async{
+  Future<void> audioTail=Future<void>.value();
+  Future<void> ordered(Future<void> Function() work){
+    final next=audioTail.then((_)=>work());
+    audioTail=next.then<void>((_){},onError:(Object _,StackTrace __){});
+    return next;
+  }
+  Future<void> ring({bool outgoing=false}){
     final run=++generation;
-    if(disposed)return;
+    return ordered(()async{
+    if(disposed||run!=generation)return;
     try{
       if(android&&!outgoing){await native.invokeMethod<void>('ring',{'uid':uid});if(disposed||run!=generation)await native.invokeMethod<void>('stopRing');return;}
       final prefs=await SharedPreferences.getInstance();
       final custom=outgoing?null:prefs.getString('school_ringtone_$uid');
       final path=custom!=null&&await File(custom).exists()?custom:await _toneFile(outgoing);
       if(disposed||run!=generation)return;
+      if(windows){
+        // Native WinMM ringtone avoids creating a second Flutter audio plugin
+        // player alongside the Windows WebRTC capture device.
+        final ok=await native.invokeMethod<bool>('ringFile',{'path':path});
+        if(ok!=true){await native.invokeMethod<bool>('ringFile',{'path':await _toneFile(outgoing)});}
+        if(disposed||run!=generation){await native.invokeMethod<void>('stopRing');return;}
+        windowsRepeat?.cancel();
+        windowsRepeat=Timer.periodic(const Duration(seconds:1),(_){
+          if(!disposed&&run==generation)unawaited(ordered(()async{
+            if(!disposed&&run==generation){try{await native.invokeMethod<void>('repeatRing');}catch(_){}}
+          }));
+        });
+        return;
+      }
       final p=player??=AudioPlayer();
       await p.setReleaseMode(ReleaseMode.loop);
       if(disposed||run!=generation)return;
       await p.play(DeviceFileSource(path),volume:outgoing ? 0.32 : 0.8);
       if(disposed||run!=generation)await p.stop();
-    }catch(_){if(!disposed&&run==generation)await SystemSound.play(SystemSoundType.alert);}
+    }catch(_){if(!disposed&&run==generation){try{await SystemSound.play(SystemSoundType.alert);}catch(_){}}}
+    });
   }
-  Future<void> stop()async{
+  Future<void> stop(){
     generation++;
-    try{await player?.stop();}catch(_){}
-    if(android){try{await native.invokeMethod<void>('stopRing');}catch(_){}}
+    windowsRepeat?.cancel();windowsRepeat=null;
+    return ordered(()async{
+      try{await player?.stop();}catch(_){}
+      if(android||windows){try{await native.invokeMethod<void>('stopRing');}catch(_){}}
+    });
   }
-  Future<void> dispose()async{disposed=true;await stop();try{await player?.dispose();}catch(_){}}
+  Future<void> dispose()async{
+    if(disposed)return;
+    disposed=true;await stop();
+    await ordered(()async{final p=player;player=null;try{await p?.dispose();}catch(_){}});
+  }
   static Future<String> _toneFile(bool outgoing)async{
     final dir=await getTemporaryDirectory();
     final f=File('${dir.path}/school-ring-${outgoing?'out':'in'}-v1.wav');

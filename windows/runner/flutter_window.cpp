@@ -1,6 +1,9 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <mmsystem.h>
+#include <flutter/standard_method_codec.h>
+#include <string>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -25,6 +28,64 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  call_audio_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "suffah/call_audio",
+      &flutter::StandardMethodCodec::GetInstance());
+  call_audio_channel_->SetMethodCallHandler(
+      [this](const auto& call, auto result) {
+        if (call.method_name() == "stopRing") {
+          StopCallRing();
+          result->Success();
+          return;
+        }
+        if (call.method_name() == "repeatRing") {
+          if (mci_ringtone_open_) {
+            wchar_t mode[32] = {};
+            if (mciSendStringW(L"status suffah_ring mode", mode, 32, nullptr) == 0 &&
+                std::wstring(mode) == L"stopped") {
+              mciSendStringW(L"play suffah_ring from 0", nullptr, 0, nullptr);
+            }
+          }
+          result->Success();
+          return;
+        }
+        if (call.method_name() != "ringFile") {
+          result->NotImplemented();
+          return;
+        }
+        StopCallRing();
+        const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+        if (!args) { result->Success(flutter::EncodableValue(false)); return; }
+        const auto it = args->find(flutter::EncodableValue("path"));
+        const auto* path = it == args->end() ? nullptr : std::get_if<std::string>(&it->second);
+        if (!path || path->empty() || path->size() > 4096) {
+          result->Success(flutter::EncodableValue(false)); return;
+        }
+        const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path->data(),
+            static_cast<int>(path->size()), nullptr, 0);
+        if (count <= 0) { result->Success(flutter::EncodableValue(false)); return; }
+        std::wstring file(count, L'\0');
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path->data(),
+            static_cast<int>(path->size()), file.data(), count);
+        if (file.find(L'"') != std::wstring::npos || file.find(L'\0') != std::wstring::npos) {
+          result->Success(flutter::EncodableValue(false)); return;
+        }
+        if (file.size() >= 4 && _wcsicmp(file.c_str() + file.size() - 4, L".wav") == 0) {
+          result->Success(flutter::EncodableValue(
+            PlaySoundW(file.c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_LOOP | SND_NODEFAULT) != FALSE));
+          return;
+        }
+        // Windows codecs determine which compressed ringtone formats work.
+        const auto command = L"open \"" + file + L"\" alias suffah_ring";
+        if (mciSendStringW(command.c_str(), nullptr, 0, nullptr) == 0) {
+          mci_ringtone_open_ = true;
+          if (mciSendStringW(L"play suffah_ring from 0", nullptr, 0, nullptr) == 0) {
+            result->Success(flutter::EncodableValue(true)); return;
+          }
+          StopCallRing();
+        }
+        result->Success(flutter::EncodableValue(false));
+      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -39,7 +100,18 @@ bool FlutterWindow::OnCreate() {
   return true;
 }
 
+void FlutterWindow::StopCallRing() {
+  PlaySoundW(nullptr, nullptr, 0);
+  if (mci_ringtone_open_) {
+    mciSendStringW(L"stop suffah_ring", nullptr, 0, nullptr);
+    mciSendStringW(L"close suffah_ring", nullptr, 0, nullptr);
+    mci_ringtone_open_ = false;
+  }
+}
+
 void FlutterWindow::OnDestroy() {
+  StopCallRing();
+  call_audio_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -63,7 +135,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
   switch (message) {
     case WM_FONTCHANGE:
-      flutter_controller_->engine()->ReloadSystemFonts();
+      if (flutter_controller_) flutter_controller_->engine()->ReloadSystemFonts();
       break;
   }
 

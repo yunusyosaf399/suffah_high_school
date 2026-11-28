@@ -96,6 +96,17 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   Timer? ticker,connectionTimer;
   final callAudio=SchoolCallAudio();
   bool serviceStarted=false;
+  // Serialize native peer operations and teardown. Closing a connection while
+  // setRemoteDescription/createAnswer is in flight can race native plugins.
+  Future<void> mediaTail=Future<void>.value();
+  Future<T> mediaOperation<T>(Future<T> Function() work){
+    final next=mediaTail.then((_)=>work());
+    mediaTail=next.then<void>((_){},onError:(Object _,StackTrace __){});
+    return next;
+  }
+  Future<void>? closingMedia;
+  void trace(String stage){debugPrint('Office call: $stage');}
+  void checkOpen(){if(finished||closing)throw StateError('Call closed.');}
   DateTime? connectedAt;
   Map<String,dynamic>? latest;
   String title='School office',status='Preparing call…';
@@ -142,8 +153,14 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     if(!widget.incoming&&state=='answering')update('Answering…');
     if(!widget.incoming&&state=='connected'&&!remoteSet&&peer!=null&&data['answer'] is String){
       remoteSet=true;
-      try{await peer!.setRemoteDescription(RTCSessionDescription(data['answer'] as String,'answer'));if(connectedAt==null)update('Connecting audio…');armConnectionTimeout();}
-      catch(_){await fail('Could not connect audio.');}
+      try{
+        await mediaOperation(()async{
+          checkOpen();
+          trace('applying remote answer');
+          await peer!.setRemoteDescription(RTCSessionDescription(data['answer'] as String,'answer'));
+        });
+        if(!finished){if(connectedAt==null)update('Connecting audio…');armConnectionTimeout();}
+      }catch(_){if(!finished)await fail('Could not connect audio.');}
     }
     if(mounted&&!finished)setState((){});
   }
@@ -159,16 +176,19 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     });}catch(_){}
   }
   Future<RTCPeerConnection> prepare()async{
+    trace('requesting ICE configuration');
     final ice=await OfficeCalls.ice();
-    if(finished||closing)throw StateError('Call closed.');
+    checkOpen();
+    trace('opening microphone');
     final stream=await navigator.mediaDevices.getUserMedia({'audio':true,'video':false});
-    if(finished||closing){for(final track in stream.getTracks()){await track.stop();}await stream.dispose();throw StateError('Call closed.');}
     microphone=stream;
+    checkOpen();
     if(mobile){serviceStarted=await SchoolCallAudio.startService();if(!serviceStarted)debugPrint('Call background service unavailable.');}
-    if(finished||closing){await closeMedia();throw StateError('Call closed.');}
+    checkOpen();
+    trace('creating peer connection');
     final pc=await createPeerConnection({'iceServers':ice,'sdpSemantics':'unified-plan'});
-    if(finished||closing){await pc.close();await pc.dispose();throw StateError('Call closed.');}
     peer=pc;
+    checkOpen();
     pc.onConnectionState=(state){
       if(finished)return;
       if(state==RTCPeerConnectionState.RTCPeerConnectionStateConnected){
@@ -179,8 +199,8 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
       else if(state==RTCPeerConnectionState.RTCPeerConnectionStateDisconnected){update('Connection interrupted…');connectionTimer?.cancel();connectionTimer=Timer(const Duration(seconds:20),(){if(!finished)unawaited(fail('Audio connection lost.'));});}
     };
     // Native WebRTC renders remote audio tracks; no video renderer is needed.
-    for(final track in stream.getAudioTracks()){await pc.addTrack(track,stream);}
-    return pc;
+    for(final track in stream.getAudioTracks()){checkOpen();await pc.addTrack(track,stream);}
+    trace('peer ready');return pc;
   }
   Future<String> gathered(RTCPeerConnection pc,RTCSessionDescription description)async{
     final complete=Completer<void>();
@@ -198,9 +218,14 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   Future<void> startCaller()async{
     try{
       update('Preparing microphone and network…');
-      final pc=await prepare();
-      update('Preparing call connection…');
-      final offer=await gathered(pc,await pc.createOffer({'offerToReceiveAudio':true,'offerToReceiveVideo':false}));
+      final offer=await mediaOperation(()async{
+        checkOpen();
+        final pc=await prepare();
+        checkOpen();
+        update('Preparing call connection…');
+        trace('creating local offer');
+        return gathered(pc,await pc.createOffer({'offerToReceiveAudio':true,'offerToReceiveVideo':false}));
+      });
       if(finished||closing)return;
       await FirebaseFirestore.instance.runTransaction((tx)async{
         final expiry=Timestamp.fromDate(DateTime.now().add(const Duration(seconds:60)));
@@ -227,9 +252,16 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
       });
       published=true;
       if(finished||closing){await finishRemote('ended');return;}
-      final pc=await prepare();
-      await pc.setRemoteDescription(RTCSessionDescription(offer,'offer'));
-      final answer=await gathered(pc,await pc.createAnswer({'offerToReceiveAudio':true,'offerToReceiveVideo':false}));
+      final answer=await mediaOperation(()async{
+        checkOpen();
+        final pc=await prepare();
+        checkOpen();
+        trace('applying remote offer');
+        await pc.setRemoteDescription(RTCSessionDescription(offer,'offer'));
+        checkOpen();
+        trace('creating local answer');
+        return gathered(pc,await pc.createAnswer({'offerToReceiveAudio':true,'offerToReceiveVideo':false}));
+      });
       if(finished||closing)return;
       await FirebaseFirestore.instance.runTransaction((tx)async{
         final d=(await tx.get(ref)).data();
@@ -250,21 +282,39 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
       unawaited(OfficeCalls.history(widget.callId));
     }catch(_){}
   }
-  Future<void> closeMedia()async{
-    final pc=peer;peer=null;final stream=microphone;microphone=null;
-    if(stream!=null){for(final track in stream.getTracks()){try{await track.stop();}catch(_){}}try{await stream.dispose();}catch(_){}}
-    if(pc!=null){try{await pc.close();await pc.dispose();}catch(_){}}
+  Future<void> closeMedia()=>closingMedia??=mediaOperation(()async{
+    trace('closing media');
     await callAudio.stop();
-    if(mobile){try{await Helper.setSpeakerphoneOn(false);}catch(_){}if(serviceStarted){await SchoolCallAudio.stopService();serviceStarted=false;}}
-  }
+    final pc=peer;peer=null;
+    final stream=microphone;microphone=null;
+    // Stop callbacks before disposing native objects. Keep the source alive
+    // until the peer has released its references to the audio tracks.
+    if(pc!=null){
+      pc.onConnectionState=null;
+      pc.onIceGatheringState=null;
+      try{await pc.close();}catch(_){trace('peer close failed');}
+      try{await pc.dispose();}catch(_){trace('peer dispose failed');}
+    }
+    if(stream!=null){
+      for(final track in stream.getTracks()){try{await track.stop();}catch(_){}}
+      try{await stream.dispose();}catch(_){trace('microphone dispose failed');}
+    }
+    if(mobile){
+      try{await Helper.setSpeakerphoneOn(false);}catch(_){}
+      if(serviceStarted){await SchoolCallAudio.stopService();serviceStarted=false;}
+    }
+    trace('media closed');
+  });
   Future<void> fail(String message)=>end('ended',message:message);
   Future<void> end(String state,{bool write=true,String? message})async{
     if(finished||closing)return;
     closing=true;
     connectionTimer?.cancel();
     if(mounted)setState((){finished=true;status=message??(state=='missed'?'No answer':state=='declined'?'Call declined':'Call ended');});
+    // Release remote ringing immediately even if a native operation is slow.
+    final remote=write&&(published||widget.incoming)?finishRemote(state):Future<void>.value();
     await closeMedia();
-    if(write&&(published||widget.incoming))await finishRemote(state);
+    await remote;
     if(mounted)setState(()=>closing=false);else closing=false;
   }
   @override
@@ -274,7 +324,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   void toggleMute(){
     if(microphone==null)return;
     setState(()=>muted=!muted);
-    for(final track in microphone!.getAudioTracks()){track.enabled=!muted;}
+    unawaited(mediaOperation(()async{if(finished)return;for(final track in microphone?.getAudioTracks()??<MediaStreamTrack>[]){track.enabled=!muted;}}).catchError((Object _){trace('mute update failed');}));
   }
   Future<void> toggleSpeaker()async{
     try{await Helper.setSpeakerphoneOn(!speaker);if(mounted)setState(()=>speaker=!speaker);}catch(_){}
@@ -283,8 +333,8 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   void dispose(){
     WidgetsBinding.instance.removeObserver(this);ticker?.cancel();connectionTimer?.cancel();
     unawaited(subscription?.cancel()??Future<void>.value());unawaited(authSubscription?.cancel()??Future<void>.value());
-    if(!finished){finished=true;if(published||widget.incoming)unawaited(finishRemote('ended'));unawaited(closeMedia());}
-    unawaited(callAudio.dispose());
+    if(!finished){finished=true;if(published||widget.incoming)unawaited(finishRemote('ended'));}
+    unawaited(closeMedia().whenComplete(callAudio.dispose));
     super.dispose();
   }
   String get elapsed{
