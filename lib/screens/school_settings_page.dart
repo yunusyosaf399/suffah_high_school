@@ -3,6 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+String? _signedInUid() {
+  try { return FirebaseAuth.instance.currentUser?.uid; }
+  catch (_) { return null; }
+}
+
 final schoolThemeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
 
 Future<void> loadSchoolTheme() async {
@@ -30,7 +35,7 @@ class SchoolSettingsPage extends StatelessWidget {
     body:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:640),
       child:ValueListenableBuilder<ThemeMode>(valueListenable:schoolThemeMode,builder:(context,mode,_)=>ListView(
         padding:const EdgeInsets.all(16),children:[
-          Card(child:ListTile(leading:AccountPicture(uid:FirebaseAuth.instance.currentUser?.uid??'',name:'Me'),
+          if(_signedInUid() case final String uid) Card(child:ListTile(leading:AccountPicture(uid:uid,name:'Me'),
             title:const Text('Account picture'),subtitle:const Text('Upload, replace or remove your profile picture'),
             onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const AccountPicturePage())))),
           Text('Appearance',style:Theme.of(context).textTheme.titleLarge),
