@@ -16,7 +16,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    runs-on: windows-latest
+    # VS 2026 rejects deprecated coroutine headers in audioplayers_windows.
+    # Keep this build on VS 2022 until upstream native plugins migrate.
+    runs-on: windows-2022
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
