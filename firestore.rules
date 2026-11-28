@@ -1707,6 +1707,27 @@ service cloud.firestore {
     match /{path=**}/marks/{markId} {
       allow list: if isOwner();
     }
+    match /{backupPath=**}/subjects/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/students/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/messages/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/days/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/items/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/papers/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/classes/{backupId} {
+      allow list: if isOwner();
+    }
     match /{other=**} {
       allow read, write: if false;
     }

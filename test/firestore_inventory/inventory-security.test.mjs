@@ -1083,3 +1083,15 @@ test('parent portal reads only linked child views, live fees, attendance and rel
   await assertFails(getDoc(doc(parent,'parent_profiles',child)));
   await assertFails(getDocs(collection(parent,'parent_attendance',child,'days')));
 });
+
+ test('owner can export nested records, other accounts cannot enumerate collection groups', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(),'parent_classwork_history','child-a','items','work-a'),{title:'Private'});
+    await setDoc(doc(context.firestore(),'portal_threads','parent-a','messages','message-a'),{text:'Private'});
+  });
+  for(const name of ['items','messages']){
+    await assertSucceeds(getDocs(collectionGroup(db(ownerId),name)));
+    await assertFails(getDocs(collectionGroup(db(sellerId),name)));
+    await assertFails(getDocs(collectionGroup(db(guestId),name)));
+  }
+ });

@@ -17,6 +17,7 @@ import 'student_documents_page.dart';
 import '../data/school_user_service.dart';
 import 'role_portal_pages.dart';
 import 'school_settings_page.dart';
+import 'backup_export_page.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({
@@ -62,6 +63,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     _DashboardModule('Canteen Sales', Icons.fastfood_outlined, 'Quick selling, stock & receipts', true),
     _DashboardModule('Stationery & Books', Icons.menu_book_outlined, 'Products, customer sales & credit', true),
     _DashboardModule('Documents', Icons.folder_copy_outlined, 'Student folders & certificates', true),
+    _DashboardModule('Backup & Export', Icons.download_for_offline_outlined, 'JSON, Excel and CSV', true),
   ];
 
   void _refresh() {
@@ -72,6 +74,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   }
 
   Future<void> _openModule(int index) async {
+    if(index==12 && widget.role=='owner'){
+      await Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const BackupExportPage()));
+      return;
+    }
     if(index==4 && !widget.examAccess)return;
     if(index==7 && widget.messageAccess){await Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const SchoolMessagesPage(admin:true)));return;}
     if (index == 0 || index == 1) {
@@ -152,7 +158,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     final scheme = Theme.of(context).colorScheme;
     final shownModules = widget.role == 'owner'
         ? _modules
-        : _modules.where((module) => module.title != 'Users' &&
+        : _modules.where((module) => module.title != 'Users' && module.title != 'Backup & Export' &&
             module.title != 'Canteen Sales' &&
             module.title != 'Stationery & Books' &&
             (module.title!='Examinations'||widget.examAccess) && (module.title!='Messages'||widget.messageAccess)).toList();

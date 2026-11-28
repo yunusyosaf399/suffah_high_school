@@ -17,6 +17,7 @@ dependencies:
   http: ^1.5.0
   shared_preferences: ^2.5.3
   pdfrx: 2.2.24
+  archive: ^4.7.1
   file_picker: ^10.3.10
   flutter_image_compress: ^2.5.1
 
