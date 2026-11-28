@@ -1578,6 +1578,50 @@ service cloud.firestore {
             && request.resource.data.threadUid.matches('^[A-Za-z0-9_-]{1,128}$')));
       allow list,delete: if false;
     }
+
+    // Voice-only office calls. One replaceable session per caller; accepting
+    // is an atomic claim, so two office devices cannot answer the same call.
+    function callCaller(uid) {
+      return request.auth != null && request.auth.uid == uid && eligibleMessageAccount(uid);
+    }
+    function newOfficeCall(uid) {
+      let d=request.resource.data;
+      return callCaller(uid) && d.keys().hasOnly(['callerUid','callId','status','offer','createdAt','updatedAt','expiresAt'])
+        && d.callerUid == uid && d.callId is string && d.callId.size() == 20
+        && d.status == 'ringing' && d.offer is string && d.offer.size() > 0 && d.offer.size() <= 60000
+        && d.createdAt == request.time && d.updatedAt == request.time
+        && d.expiresAt is timestamp && d.expiresAt > request.time
+        && d.expiresAt <= request.time + duration.value(90,'s');
+    }
+    function validOfficeCallUpdate(uid) {
+      let old=resource.data;
+      let d=request.resource.data;
+      let changed=d.diff(old).affectedKeys();
+      return d.updatedAt == request.time && (
+        (schoolMessageAdmin() && old.status == 'ringing' && old.expiresAt > request.time
+          && d.status == 'answering' && d.acceptedBy == request.auth.uid
+          && changed.hasOnly(['status','acceptedBy','updatedAt','expiresAt'])
+          && d.expiresAt > request.time && d.expiresAt <= request.time + duration.value(60,'m'))
+        || (schoolMessageAdmin() && old.status == 'answering' && old.acceptedBy == request.auth.uid
+          && old.expiresAt > request.time && d.status == 'connected'
+          && d.answer is string && d.answer.size() > 0 && d.answer.size() <= 60000
+          && changed.hasOnly(['status','answer','updatedAt']))
+        || ((callCaller(uid) || (schoolMessageAdmin() &&
+          (old.status == 'ringing' || old.get('acceptedBy','') == request.auth.uid)))
+          && old.status in ['ringing','answering','connected']
+          && d.status in ['ended','declined','missed']
+          && changed.hasOnly(['status','updatedAt']))
+      );
+    }
+    match /office_calls/{uid} {
+      allow get: if callCaller(uid) || schoolMessageAdmin();
+      allow list: if schoolMessageAdmin();
+      allow create: if newOfficeCall(uid);
+      allow update: if (newOfficeCall(uid) && (resource.data.status in ['ended','declined','missed']
+        || resource.data.expiresAt <= request.time)) || validOfficeCallUpdate(uid);
+      allow delete: if false;
+    }
+
     function validMessageThread(uid) {
       let d=request.resource.data;
       let u=get(/databases/$(database)/documents/users/$(uid)).data;

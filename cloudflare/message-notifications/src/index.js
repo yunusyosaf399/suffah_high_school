@@ -303,9 +303,55 @@ async function runChatCleanup(env,token){
 }
 function idOrNull(d){return d?id(d):null;}
 
+
+async function callIdentity(req,env,uid){
+  if(!/^[A-Za-z0-9_-]{1,128}$/.test(uid))return null;
+  const auth=await clientRead(req,env,'/users/'+uid);
+  if(!auth||auth.uid!==uid||!active(auth.doc))return null;
+  const role=auth.doc.fields?.role?.stringValue;
+  if(uid!==owner&&!['principal','parent','teacher'].includes(role))return null;
+  return auth;
+}
+async function callIce(req,env,uid){
+  if(!await callIdentity(req,env,uid))return new Response('Forbidden',{status:403});
+  const direct={iceServers:[{urls:['stun:stun.cloudflare.com:3478']}]};
+  if(!env.TURN_KEY_ID||!env.TURN_KEY_API_TOKEN)return Response.json(direct,{headers:{'Cache-Control':'no-store'}});
+  const result=await fetch('https://rtc.live.cloudflare.com/v1/turn/keys/'+encodeURIComponent(env.TURN_KEY_ID)+'/credentials/generate-ice-servers',{
+    method:'POST',headers:{Authorization:'Bearer '+env.TURN_KEY_API_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({ttl:3600}),redirect:'manual'
+  });
+  if(!result.ok)throw Error('TURN credential status '+result.status);
+  return Response.json(await result.json(),{headers:{'Cache-Control':'no-store'}});
+}
+async function callWake(req,env,uid,callId){
+  if(!/^[A-Za-z0-9_-]{20}$/.test(callId))return new Response('Invalid call',{status:400});
+  if(!await callIdentity(req,env,uid))return new Response('Forbidden',{status:403});
+  const auth=await clientRead(req,env,'/office_calls/'+uid);
+  const f=auth?.doc?.fields||{};
+  if(!auth||auth.uid!==uid||f.callId?.stringValue!==callId||f.status?.stringValue!=='ringing'||Date.parse(f.expiresAt?.timestampValue)<=Date.now())return new Response('Expired',{status:409});
+  const token=await access(env);
+  const principals=await query(env,token,'users',F('role','EQUAL',S('principal')),25);
+  const recipients=[...new Set([owner,...principals.filter(active).map(id)])];
+  const devices=await query(env,token,'push_devices',F('uid','IN',{arrayValue:{values:recipients.map(S)}}),12);
+  for(const device of devices){
+    const recipient=device.fields.uid?.stringValue;
+    if(!recipients.includes(recipient))continue;
+    const body={message:{token:id(device),notification:{title:'Suffah High School',body:'Incoming school office voice call — tap to answer'},data:{type:'office_call',recipientUid:recipient,callerUid:uid,callId},android:{priority:'HIGH',ttl:'45s',notification:{tag:'call-'+callId,sound:'default'}}}};
+    const res=await fetch('https://fcm.googleapis.com/v1/projects/'+encodeURIComponent(env.FIREBASE_PROJECT_ID)+'/messages:send',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body),redirect:'manual'});
+    if(!res.ok)console.warn('Call push status',res.status);
+  }
+  return new Response(null,{status:204});
+}
+
 export default {
   async fetch(request,env,ctx){
     const url=new URL(request.url);
+    if(url.pathname==='/v1/call-ice'||url.pathname==='/v1/call-wake'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405});
+      try{
+        const uid=url.searchParams.get('uid')||'';
+        return url.pathname==='/v1/call-ice'?await callIce(request,env,uid):await callWake(request,env,uid,url.searchParams.get('call')||'');
+      }catch(e){console.error('Office call service failed',e.message);return new Response('Call service unavailable',{status:503});}
+    }
     if(url.pathname==='/v1/cleanup'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405});
       try{

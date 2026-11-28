@@ -41,6 +41,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
           FIREBASE_NOTIFICATION_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_NOTIFICATION_SERVICE_ACCOUNT }}
+          TURN_KEY_ID: ${{ secrets.TURN_KEY_ID }}
+          TURN_KEY_API_TOKEN: ${{ secrets.TURN_KEY_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -54,5 +56,5 @@ jobs:
           umask 077
           secret_file="$(mktemp)"
           trap 'rm -f "$secret_file"' EXIT
-          python -c 'import os,json,sys; json.dump({"FCM_SERVICE_ACCOUNT": os.environ["FIREBASE_NOTIFICATION_SERVICE_ACCOUNT"]},sys.stdout)' > "$secret_file"
+          python -c 'import os,json,sys; json.dump({"FCM_SERVICE_ACCOUNT": os.environ["FIREBASE_NOTIFICATION_SERVICE_ACCOUNT"], **({k: os.environ[k] for k in ("TURN_KEY_ID", "TURN_KEY_API_TOKEN")} if os.environ.get("TURN_KEY_ID") and os.environ.get("TURN_KEY_API_TOKEN") else {})},sys.stdout)' > "$secret_file"
           npx wrangler deploy --secrets-file "$secret_file"

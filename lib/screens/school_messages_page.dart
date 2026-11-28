@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import '../data/teacher_portal_repository.dart';
 import '../data/school_errors.dart';
 import 'account_picture.dart';
+import 'office_calls.dart';
 
 typedef _Docs = QuerySnapshot<Map<String,dynamic>>;
 
@@ -323,6 +324,7 @@ class _ConversationState extends State<_Conversation>{
     return StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(stream:preferenceStream,builder:(context,pref){
       final p=pref.data?.data()??{};
       return Scaffold(appBar:AppBar(title:Text(widget.name??'School messages'),actions:[
+        if(widget.uid==null)IconButton(tooltip:'Call school office',onPressed:()=>OfficeCalls.dial(context),icon:const Icon(Icons.call_outlined)),
         IconButton(tooltip:'Scheduled messages',onPressed:queue,icon:const Icon(Icons.schedule)),
         IconButton(tooltip:'Chat colors',onPressed:()=>colors(p,scheme),icon:const Icon(Icons.palette_outlined)),
         FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true&&widget.uid!=null?IconButton(tooltip:'Delete conversation for everyone',icon:const Icon(Icons.delete_outline),onPressed:()async{if(await _confirmConversationDeletion(context,repo,uid:widget.uid,name:widget.name)&&context.mounted)Navigator.pop(context);}):const SizedBox.shrink()),

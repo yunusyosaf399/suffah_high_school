@@ -6,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'school_messages_page.dart';
+import 'office_calls.dart';
 import '../data/teacher_portal_repository.dart';
 
 typedef _Alerts=QuerySnapshot<Map<String,dynamic>>;
@@ -16,9 +17,20 @@ class MessageNotificationBell extends StatefulWidget {
   @override
   State<MessageNotificationBell> createState()=>_MessageNotificationBellState();
 }
-class _MessageNotificationBellState extends State<MessageNotificationBell>{
+class _MessageNotificationBellState extends State<MessageNotificationBell> with WidgetsBindingObserver{
   String? uid;
   Timer? cacheTimer;
+  StreamSubscription<_Alerts>? callSub;
+  List<QueryDocumentSnapshot<Map<String,dynamic>>> ringingCalls=[];
+  void showIncoming(){
+    if(!mounted||!widget.admin||WidgetsBinding.instance.lifecycleState!=AppLifecycleState.resumed)return;
+    for(final call in ringingCalls){
+      final data=call.data();
+      if(OfficeCalls.fresh(data)&&data['callId'] is String){unawaited(OfficeCalls.receive(context,call.id,data['callId'] as String));break;}
+    }
+  }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state){if(state==AppLifecycleState.resumed)showIncoming();}
   Stream<_Alerts>? stream;
   StreamSubscription<DocumentSnapshot<Map<String,dynamic>>>? readSub;
   StreamSubscription<String>? tokenSub;
@@ -32,10 +44,11 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
   DocumentReference<Map<String,dynamic>> get readRef=>FirebaseFirestore.instance.collection('message_alert_reads').doc(uid!);
   @override
   void initState(){
-    super.initState();
+    super.initState();WidgetsBinding.instance.addObserver(this);
     try{
       uid=FirebaseAuth.instance.currentUser?.uid;
       if(uid==null)return;
+      if(widget.admin)callSub=OfficeCalls.incoming.snapshots().listen((s){if(s.metadata.isFromCache)return;ringingCalls=s.docs;showIncoming();},onError:(Object e){});
       unawaited(VoiceCache.prune(uid!));
       cacheTimer=Timer.periodic(const Duration(minutes:1),(_){if(mounted&&uid!=null)unawaited(VoiceCache.prune(uid!));});
       Query<Map<String,dynamic>> q=FirebaseFirestore.instance.collection('message_alerts').where('fromSchool',isEqualTo:!widget.admin);
@@ -87,8 +100,13 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
   void openPush(RemoteMessage message){
     // The worker supplies no private content; the account dashboard and
     // conversation queries are independently authorized by Firestore.
-    if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||message.data['type']!='school_message')return;
-    if(message.data['recipientUid']!=uid)return;
+    if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||message.data['recipientUid']!=uid)return;
+    if(widget.admin&&message.data['type']=='office_call'){
+      final caller=message.data['callerUid'],call=message.data['callId'];
+      if(caller is String&&call is String)unawaited(OfficeCalls.receive(context,caller,call));
+      return;
+    }
+    if(message.data['type']!='school_message')return;
     openChat(widget.admin?message.data['threadUid']:null);
   }
   Future<void> openChat(String? thread)async{
@@ -99,6 +117,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
   }
   @override
   void dispose(){
+    WidgetsBinding.instance.removeObserver(this);callSub?.cancel();
     cacheTimer?.cancel();
     readSub?.cancel();tokenSub?.cancel();pushSub?.cancel();deliverySub?.cancel();
     super.dispose();
@@ -141,8 +160,11 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
     if(stream==null)return const SizedBox.shrink();
     return StreamBuilder<_Alerts>(stream:stream,builder:(context,s){
       final count=ready?(s.data?.docs.where((d)=>unread(d.data())).length??0):0;
-      return IconButton(tooltip:'Message notifications',onPressed:history,icon:Badge(
-        isLabelVisible:count>0,label:Text(count>=100?'99+':'$count'),child:const Icon(Icons.notifications_outlined)));
+      return Row(mainAxisSize:MainAxisSize.min,children:[
+        if(!widget.admin)IconButton(tooltip:'Call school office',onPressed:()=>OfficeCalls.dial(context),icon:const Icon(Icons.call_outlined)),
+        IconButton(tooltip:'Message notifications',onPressed:history,icon:Badge(
+          isLabelVisible:count>0,label:Text(count>=100?'99+':'$count'),child:const Icon(Icons.notifications_outlined))),
+      ]);
     });
   }
 }
