@@ -4,7 +4,6 @@ import 'message_notifications.dart';
 import 'student_avatar.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pdfrx/pdfrx.dart';
 import '../data/admission_storage.dart';
 import '../data/school_user_service.dart';
@@ -24,7 +23,7 @@ Widget _heading(BuildContext context,String title)=>Padding(padding:const EdgeIn
   child:Text(title,style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w700)));
 
 class _PortalLoad extends StatefulWidget{
-  const _PortalLoad({super.key,required this.load,required this.content});
+  const _PortalLoad({required this.load,required this.content});
   final Future<Map<String,dynamic>> Function() load;
   final List<Widget> Function(BuildContext,Map<String,dynamic>) content;
   @override
