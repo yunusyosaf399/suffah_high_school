@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'screens/incoming_call_notifications.dart';
 import 'screens/owner_dashboard.dart';
 import 'screens/examinations_page.dart';
 import 'data/school_user_service.dart';
@@ -22,6 +25,9 @@ Future<void> main() async {
 
     debugPrint('Firebase initialized successfully');
 
+    if(!kIsWeb&&defaultTargetPlatform==TargetPlatform.android){
+      FirebaseMessaging.onBackgroundMessage(schoolCallBackgroundMessage);
+    }
     await loadSchoolTheme();
     runApp(const SchoolApp());
 

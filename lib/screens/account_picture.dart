@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import '../data/teacher_portal_repository.dart';
 import 'school_voice_message.dart';
 import 'call_audio.dart';
+import 'incoming_call_notifications.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -99,6 +100,7 @@ class _AccountPicturePageState extends State<AccountPicturePage>{
       TextButton(onPressed:busy?null:()=>change(true),child:const Text('Remove picture')),
       if(busy)const CircularProgressIndicator(),
       if(widget.fromMessages)Card(child:ListTile(leading:const Icon(Icons.music_note),title:const Text('Call ringtone'),subtitle:const Text('Choose your own ringing sound'),trailing:const Icon(Icons.chevron_right),onTap:()=>SchoolCallAudio.choose(context))),
+      if(widget.fromMessages&&IncomingCallNotifications.android)Card(child:ListTile(leading:const Icon(Icons.phone_in_talk_outlined),title:const Text('Full-screen incoming calls'),subtitle:const Text('Allow Android to show calls when the phone is locked'),trailing:const Icon(Icons.settings_outlined),onTap:()=>IncomingCallNotifications.requestFullScreen(context))),
       if(widget.fromMessages&&messageRepo!=null)FutureBuilder<bool>(future:ownerAccess,builder:(context,access){
         if(access.data!=true)return const SizedBox.shrink();
         final repo=messageRepo!;

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'call_audio.dart';
+import 'incoming_call_notifications.dart';
 import 'account_picture.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
@@ -38,6 +39,7 @@ class OfficeCalls {
     _open=true;
     try{
       final data=(await ref(callId).get(const GetOptions(source:Source.server))).data();
+      await IncomingCallNotifications.cancel(callId);
       if(!context.mounted||!fresh(data)||data?['callId']!=callId||data?['callerUid']!=uid)return;
       await Navigator.of(context,rootNavigator:true).push<void>(MaterialPageRoute(builder:(_)=>_OfficeCallPage(callerUid:uid,callId:callId,incoming:true,targetUid:data!['targetUid'] as String)));
     }on FirebaseException catch(e){debugPrint('Office call verification failed: ${e.code}');}
@@ -133,6 +135,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     if(widget.incoming){
       title=widget.targetUid=='office'?'Incoming school call':'School office';status='Incoming voice call';
       watch();unawaited(loadCaller());
+      unawaited(IncomingCallNotifications.lockScreen(true));
       unawaited(callAudio.ring());
     }else{title=widget.name??'School office';unawaited(startCaller());}
   }
@@ -335,6 +338,8 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     if(mounted)setState((){finished=true;status=message??(state=='missed'?'No answer':state=='declined'?'Call declined':'Call ended');});
     // Release remote ringing immediately even if a native operation is slow.
     final remote=write&&(published||widget.incoming)?finishRemote(state):Future<void>.value();
+    unawaited(IncomingCallNotifications.cancel(widget.callId));
+    unawaited(IncomingCallNotifications.lockScreen(false));
     await closeMedia();
     await remote;
     if(mounted)setState(()=>closing=false);else closing=false;
@@ -357,6 +362,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     unawaited(subscription?.cancel()??Future<void>.value());unawaited(authSubscription?.cancel()??Future<void>.value());
     if(!finished){finished=true;if(published||widget.incoming)unawaited(finishRemote('ended'));}
     unawaited(closeMedia().whenComplete(callAudio.dispose));
+    if(widget.incoming)unawaited(IncomingCallNotifications.lockScreen(false));
     super.dispose();
   }
   String get elapsed{

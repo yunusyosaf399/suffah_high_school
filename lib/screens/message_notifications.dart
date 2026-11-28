@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'school_messages_page.dart';
 import 'office_calls.dart';
 import 'call_audio.dart';
+import 'incoming_call_notifications.dart';
 import '../data/teacher_portal_repository.dart';
 
 typedef _Alerts=QuerySnapshot<Map<String,dynamic>>;
@@ -85,7 +86,8 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   StreamSubscription<String>? tokenSub;
   StreamSubscription<_Alerts>? deliverySub;
   final Set<String> acknowledged={};
-  StreamSubscription<RemoteMessage>? pushSub;
+  StreamSubscription<RemoteMessage>? pushSub,foregroundPushSub;
+  StreamSubscription<Map<String,dynamic>>? localCallSub;
   Timestamp? readThrough;
   bool ready=false;
   bool opening=false;
@@ -132,6 +134,16 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   Future<void> register()async{
     try{
       final messaging=FirebaseMessaging.instance;
+      await IncomingCallNotifications.registerAccount(uid!);
+      if(!mounted)return;
+      localCallSub=IncomingCallNotifications.opened.stream.listen(openLocalCall);
+      await IncomingCallNotifications.initialize();
+      if(!mounted)return;
+      final launch=await IncomingCallNotifications.launchPayload();
+      if(launch!=null&&mounted)openLocalCall(launch);
+      foregroundPushSub=FirebaseMessaging.onMessage.listen((m){
+        if(m.data['type']=='office_call_v2')openLocalCall(m.data);
+      });
       final permission=await messaging.requestPermission(alert:true,badge:true,sound:true);
       if(!mounted||permission.authorizationStatus==AuthorizationStatus.denied)return;
       final token=await messaging.getToken();
@@ -147,10 +159,17 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   Future<void> saveToken(String token)async{
     try{
       if(!mounted||uid==null||FirebaseAuth.instance.currentUser?.uid!=uid)return;
+      final channel=await SchoolCallAudio.channelId();
+      if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid)return;
       await FirebaseFirestore.instance.collection('push_devices').doc(token).set({
-        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':await SchoolCallAudio.channelId(),
+        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':channel,'callFullscreen':true,
       });
     }catch(_){}
+  }
+  void openLocalCall(Map<String,dynamic> data){
+    if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||data['recipientUid']!=uid)return;
+    final caller=data['callerUid'],call=data['callId'];
+    if(caller is String&&call is String)unawaited(OfficeCalls.receive(context,caller,call));
   }
   void openPush(RemoteMessage message){
     // The worker supplies no private content; the account dashboard and
@@ -174,7 +193,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   void dispose(){
     WidgetsBinding.instance.removeObserver(this);callSub?.cancel();callPollTimer?.cancel();
     cacheTimer?.cancel();
-    readSub?.cancel();tokenSub?.cancel();pushSub?.cancel();deliverySub?.cancel();
+    readSub?.cancel();tokenSub?.cancel();pushSub?.cancel();foregroundPushSub?.cancel();localCallSub?.cancel();deliverySub?.cancel();
     super.dispose();
   }
   bool unread(Map<String,dynamic> data){
@@ -230,6 +249,7 @@ Future<void> signOutSchool()async{
   final account=FirebaseAuth.instance.currentUser?.uid;
   if(account!=null)await VoiceCache.clear(account);
   if(!kIsWeb&&defaultTargetPlatform==TargetPlatform.android){
+    await IncomingCallNotifications.clearAccount();
     try{
       final messaging=FirebaseMessaging.instance;
       final token=await messaging.getToken();

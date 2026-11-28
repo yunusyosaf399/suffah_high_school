@@ -45,6 +45,17 @@ class MainActivity : FlutterActivity() {
             try {
                 when (call.method) {
                     "channelId" -> result.success(ensureChannel(uid))
+                    "callLockScreen" -> {
+                        val enabled = call.argument<Boolean>("enabled") == true
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                            setShowWhenLocked(enabled); setTurnScreenOn(enabled)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            val flags = android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                            if (enabled) window.addFlags(flags) else window.clearFlags(flags)
+                        }
+                        result.success(true)
+                    }
                     "chooseRingtone" -> {
                         if (pending != null) { result.error("busy", "Picker already open", null); return@setMethodCallHandler }
                         pending = result
