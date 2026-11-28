@@ -273,7 +273,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
         if(!OfficeCalls.fresh(d)||d?['callId']!=widget.callId||d?['offer'] is! String||(d!['offer'] as String).isEmpty)throw StateError('This call is no longer ringing.');
         final expiry=Timestamp.fromDate(DateTime.now().add(const Duration(minutes:55)));
         tx.update(ref,{'status':'answering','acceptedBy':me,'updatedAt':FieldValue.serverTimestamp(),'expiresAt':expiry,'historyDueAt':expiry});
-        return d!['offer'] as String;
+        return d['offer'] as String;
       });
       published=true;
       if(finished||closing){await finishRemote('ended');return;}
