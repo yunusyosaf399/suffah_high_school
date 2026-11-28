@@ -27,6 +27,17 @@ class BackupDocument {
   final Map<String,dynamic> data;
 }
 
+class BackupReference {
+  const BackupReference(this.path);
+  final String path;
+}
+dynamic _portable(dynamic value){
+  if(value is DocumentReference)return BackupReference(value.path);
+  if(value is Map)return value.map((k,v)=>MapEntry(k.toString(),_portable(v)));
+  if(value is List)return value.map(_portable).toList();
+  return value;
+}
+
 /// Firestore types are explicit, including nested maps, to avoid collisions
 /// between real document fields and the backup type markers.
 Object encodeBackupValue(dynamic value){
@@ -38,6 +49,7 @@ Object encodeBackupValue(dynamic value){
   if(value is Timestamp)return {'timestampValue':{'seconds':value.seconds,'nanoseconds':value.nanoseconds}};
   if(value is GeoPoint)return {'geoPointValue':{'latitude':value.latitude,'longitude':value.longitude}};
   if(value is DocumentReference)return {'referenceValue':value.path};
+  if(value is BackupReference)return {'referenceValue':value.path};
   if(value is Blob)return {'bytesValue':base64Encode(value.bytes)};
   if(value is List)return {'arrayValue':value.map(encodeBackupValue).toList()};
   if(value is Map)return {'mapValue':value.map((k,v)=>MapEntry(k.toString(),encodeBackupValue(v)))};
@@ -62,7 +74,7 @@ class SchoolBackupRepository {
         requireOwner();
         final page=await (cursor==null?ordered:ordered.startAfterDocument(cursor)).limit(250)
           .get(const GetOptions(source:Source.server));
-        for(final d in page.docs){records[d.reference.path]=BackupDocument(d.reference.path,d.data());}
+        for(final d in page.docs){records[d.reference.path]=BackupDocument(d.reference.path,Map<String,dynamic>.from(_portable(d.data()) as Map));}
         progress(label,records.length);
         if(page.docs.length<250)break;
         cursor=page.docs.last;
@@ -105,6 +117,8 @@ Map<String,List<BackupDocument>> _tables(List<BackupDocument> docs){
 }
 List<String> _headers(List<BackupDocument> docs)=>['_documentPath',...({for(final d in docs)...d.data.keys}.toList()..sort())];
 List<String> _row(BackupDocument d,List<String> headers)=>[d.path,...headers.skip(1).map((h)=>_display(d.data[h]))];
+
+Uint8List encodeSchoolBackupJob((List<BackupDocument>,String) job)=>buildSchoolBackup(job.$1,job.$2);
 
 Uint8List buildSchoolBackup(List<BackupDocument> docs,String format,{DateTime? now}){
   if(format=='json'){

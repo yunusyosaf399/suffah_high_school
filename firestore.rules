@@ -1728,6 +1728,14 @@ service cloud.firestore {
     match /{backupPath=**}/classes/{backupId} {
       allow list: if isOwner();
     }
+    // Container documents may not exist even when nested records do.
+    // Explicitly permit the owner to enumerate the known container roots.
+    match /{backupCollection}/{backupId} {
+      allow list: if isOwner() && backupCollection in [
+        'class_rosters','parent_attendance','parent_class_grants',
+        'parent_classwork_history','parent_class_schedules'
+      ];
+    }
     match /{other=**} {
       allow read, write: if false;
     }

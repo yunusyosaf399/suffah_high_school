@@ -1095,3 +1095,10 @@ test('parent portal reads only linked child views, live fees, attendance and rel
     await assertFails(getDocs(collectionGroup(db(guestId),name)));
   }
  });
+
+ test('owner can enumerate empty or existing backup container roots', async () => {
+  for(const name of ['class_rosters','parent_attendance','parent_class_grants','parent_classwork_history','parent_class_schedules']){
+    await assertSucceeds(getDocs(collection(db(ownerId),name)));
+    await assertFails(getDocs(collection(db(sellerId),name)));
+  }
+ });

@@ -31,7 +31,7 @@ class _BackupExportPageState extends State<BackupExportPage>{
       setState(()=>status='Preparing file…');
       final chosen=format;
       // Encode on a separate isolate where the platform supports it.
-      final bytes=await compute((List<BackupDocument> rows)=>buildSchoolBackup(rows,chosen),documents);
+      final bytes=await compute(encodeSchoolBackupJob,(documents,chosen));
       repository.requireOwner();
       if(!mounted)return;
       final stamp=DateTime.now().toUtc().toIso8601String().replaceAll(':','-');
