@@ -367,14 +367,17 @@ async function callV2Wake(req,env,uid,callId){
   recipients=[...new Set(recipients)].filter(x=>x!==uid);
   if(!recipients.length)return new Response(null,{status:204});
   const devices=await query(env,token,'push_devices',F('uid','IN',{arrayValue:{values:recipients.map(S)}}),12);
-  for(const device of devices){
+  await Promise.all(devices.map(async device=>{
     const recipient=device.fields.uid?.stringValue;
-    if(!recipients.includes(recipient))continue;
+    if(!recipients.includes(recipient))return;
     const channel=device.fields.callChannel?.stringValue||'school_calls';
-    const body={message:{token:id(device),notification:{title:'Suffah High School',body:'Incoming voice call — tap to answer'},data:{type:'office_call_v2',recipientUid:recipient,callerUid:uid,callId},android:{priority:'HIGH',ttl:'45s',notification:{tag:'call-'+callId,channel_id:channel,sound:'default',notification_priority:'PRIORITY_HIGH'}}}};
+    const fullscreen=device.fields.callFullscreen?.booleanValue===true;
+    const data={type:'office_call_v2',recipientUid:recipient,callerUid:uid,callId,channel,expiresAt:f.expiresAt.timestampValue};
+    const android={priority:'HIGH',ttl:'45s',...(fullscreen?{}:{notification:{tag:'call-'+callId,channel_id:channel,sound:'default',notification_priority:'PRIORITY_HIGH'}})};
+    const body={message:{token:id(device),data,android,...(fullscreen?{}:{notification:{title:'Suffah High School',body:'Incoming voice call — tap to answer'}})}};
     const res=await fetch('https://fcm.googleapis.com/v1/projects/'+encodeURIComponent(env.FIREBASE_PROJECT_ID)+'/messages:send',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body),redirect:'manual'});
     if(!res.ok)console.warn('Call push status',res.status);
-  }
+  }));
   return new Response(null,{status:204});
 }
 export function callOutcome(f,now=Date.now()){

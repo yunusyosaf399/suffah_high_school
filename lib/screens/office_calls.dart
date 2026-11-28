@@ -59,15 +59,23 @@ class OfficeCalls {
     if(url.scheme!='https')throw StateError('Call service requires HTTPS.');
     return http.post(url.replace(path:path,queryParameters:query),headers:{'Authorization':'Bearer $token'}).timeout(const Duration(seconds:12));
   }
+  static String? _iceUid;
+  static DateTime? _iceUntil;
+  static List<dynamic>? _iceServers;
   static Future<List<dynamic>> ice()async{
     final uid=FirebaseAuth.instance.currentUser?.uid;
     if(uid==null)throw StateError('Sign in again.');
+    if(_iceUid==uid&&_iceServers!=null&&(_iceUntil?.isAfter(DateTime.now())??false))return _iceServers!;
     // Direct connection can work without TURN; relay is strongly recommended.
     try{
       final response=await _worker('/v1/call-ice',{'uid':uid});
       if(response.statusCode==200){
         final result=jsonDecode(response.body);
-        if(result is Map&&result['iceServers'] is List)return result['iceServers'] as List;
+        if(result is Map&&result['iceServers'] is List){
+          final servers=result['iceServers'] as List;
+          _iceUid=uid;_iceServers=servers;_iceUntil=DateTime.now().add(const Duration(minutes:15));
+          return servers;
+        }
       }
     }catch(_){}
     return [{'urls':['stun:stun.cloudflare.com:3478']}];
@@ -221,35 +229,45 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   }
   Future<void> startCaller()async{
     try{
-      update('Preparing microphone and network…');
+      // Publish the ringing invitation first. No SDP or microphone setup
+      // is needed to alert the recipient.
+      update('Calling…');
+      final expiry=Timestamp.fromDate(DateTime.now().add(const Duration(seconds:60)));
+      await ref.set({'callerUid':widget.callerUid,'targetUid':widget.targetUid,'threadUid':widget.targetUid=='office'?widget.callerUid:widget.targetUid,'callId':widget.callId,'status':'ringing','offer':'','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp(),'expiresAt':expiry,'historyDueAt':expiry});
+      published=true;
+      if(finished||closing){await finishRemote('ended');return;}
+      latest={'expiresAt':expiry};
+      trace('ringing invitation published');
+      update('Ringing…');watch();unawaited(callAudio.ring(outgoing:true));
+      unawaited(OfficeCalls.wake(widget.callerUid,widget.callId));
       final offer=await mediaOperation(()async{
-        checkOpen();
-        final pc=await prepare();
-        checkOpen();
-        update('Preparing call connection…');
+        checkOpen();final pc=await prepare();checkOpen();
         trace('creating local offer');
         return gathered(pc,await pc.createOffer({'offerToReceiveAudio':true,'offerToReceiveVideo':false}));
       });
       if(finished||closing)return;
-      await FirebaseFirestore.instance.runTransaction((tx)async{
-        final expiry=Timestamp.fromDate(DateTime.now().add(const Duration(seconds:60)));
-        if(closing||finished)throw StateError('Call closed.');
-        tx.set(ref,{'callerUid':widget.callerUid,'targetUid':widget.targetUid,'threadUid':widget.targetUid=='office'?widget.callerUid:widget.targetUid,'callId':widget.callId,'status':'ringing','offer':offer,'createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp(),'expiresAt':expiry,'historyDueAt':expiry});
-      });
-      published=true;
-      if(finished||closing){await finishRemote('ended');return;}
-      latest={'expiresAt':Timestamp.fromDate(DateTime.now().add(const Duration(seconds:60)))};
-      update('Ringing…');watch();unawaited(callAudio.ring(outgoing:true));
-      unawaited(OfficeCalls.wake(widget.callerUid,widget.callId));
+      await ref.update({'offer':offer,'updatedAt':FieldValue.serverTimestamp()});
+      trace('offer published');
     }catch(e){if(!finished&&!closing)await fail('Could not start call: $e');}
+  }
+  Future<void> waitForOffer()async{
+    if(latest?['offer'] is String&&(latest!['offer'] as String).isNotEmpty)return;
+    await ref.snapshots(includeMetadataChanges:true).firstWhere((s){
+      if(s.metadata.isFromCache||s.metadata.hasPendingWrites)return false;
+      final data=s.data();
+      if(data==null||data['status']!='ringing')throw StateError('Call is no longer ringing.');
+      return data['offer'] is String&&(data['offer'] as String).isNotEmpty;
+    }).timeout(const Duration(seconds:30));
+    checkOpen();
   }
   Future<void> accept()async{
     if(accepting||finished||closing)return;
-    setState((){accepting=true;status='Answering…';});await callAudio.stop();
+    setState((){accepting=true;status='Connecting…';});await callAudio.stop();
     try{
+      await waitForOffer();
       final offer=await FirebaseFirestore.instance.runTransaction<String>((tx)async{
         final d=(await tx.get(ref)).data();
-        if(!OfficeCalls.fresh(d)||d?['callId']!=widget.callId||d?['offer'] is! String)throw StateError('This call is no longer ringing.');
+        if(!OfficeCalls.fresh(d)||d?['callId']!=widget.callId||d?['offer'] is! String||(d!['offer'] as String).isEmpty)throw StateError('This call is no longer ringing.');
         final expiry=Timestamp.fromDate(DateTime.now().add(const Duration(minutes:55)));
         tx.update(ref,{'status':'answering','acceptedBy':me,'updatedAt':FieldValue.serverTimestamp(),'expiresAt':expiry,'historyDueAt':expiry});
         return d!['offer'] as String;

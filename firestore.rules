@@ -1638,7 +1638,7 @@ service cloud.firestore {
         && ((eligibleMessageAccount(request.auth.uid) && d.targetUid == 'office' && d.threadUid == request.auth.uid)
           || (schoolMessageAdmin() && d.targetUid == d.threadUid && eligibleMessageAccount(d.targetUid)))
         && chatWritable(d.threadUid) && d.status == 'ringing'
-        && d.offer is string && d.offer.size() > 0 && d.offer.size() <= 60000
+        && d.offer is string && d.offer.size() <= 60000
         && d.createdAt == request.time && d.updatedAt == request.time
         && d.expiresAt is timestamp && d.expiresAt > request.time
         && d.expiresAt <= request.time + duration.value(90,'s') && d.historyDueAt == d.expiresAt;
@@ -1648,7 +1648,11 @@ service cloud.firestore {
       let d=request.resource.data;
       let changed=d.diff(old).affectedKeys();
       return callV2Access(old) && d.updatedAt == request.time && (
-        (callV2Target(old) && old.status == 'ringing' && old.expiresAt > request.time
+        (old.callerUid == request.auth.uid && old.status == 'ringing' && old.expiresAt > request.time
+          && old.offer == '' && d.offer is string && d.offer.size() > 0 && d.offer.size() <= 60000
+          && changed.hasOnly(['offer','updatedAt']))
+        || (callV2Target(old) && old.status == 'ringing' && old.expiresAt > request.time
+          && old.offer is string && old.offer.size() > 0
           && d.status == 'answering' && d.acceptedBy == request.auth.uid
           && changed.hasOnly(['status','acceptedBy','updatedAt','expiresAt','historyDueAt'])
           && d.expiresAt > request.time && d.expiresAt <= request.time + duration.value(60,'m')
@@ -1763,7 +1767,8 @@ service cloud.firestore {
       // the same installation can replace its registration.
       allow create,update: if canReceiveMessageAlerts()
         && token.size() > 20 && token.size() <= 512
-        && request.resource.data.keys().hasOnly(['uid','updatedAt','callChannel'])
+        && request.resource.data.keys().hasOnly(['uid','updatedAt','callChannel','callFullscreen'])
+        && request.resource.data.get('callFullscreen',false) is bool
         && request.resource.data.get('callChannel','school_calls') is string
         && request.resource.data.get('callChannel','school_calls').matches('^school_calls[A-Za-z0-9_]{0,80}$')
         && request.resource.data.uid == request.auth.uid
