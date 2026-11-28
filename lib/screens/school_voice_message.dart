@@ -45,7 +45,7 @@ class _VoiceRecorderDialogState extends State<VoiceRecorderDialog>{
       final dir=await getTemporaryDirectory();
       path='${dir.path}/school-voice-${DateTime.now().microsecondsSinceEpoch}.m4a';
       await recorder.start(const RecordConfig(encoder:AudioEncoder.aacLc,bitRate:32000,sampleRate:24000,numChannels:1),path:path!);
-      clock.start();
+      clock.reset();clock.start();
       if(!mounted)return;
       setState(()=>recording=true);
       timer=Timer.periodic(const Duration(milliseconds:250),(_){
@@ -72,7 +72,7 @@ class _VoiceRecorderDialogState extends State<VoiceRecorderDialog>{
   Widget build(BuildContext context)=>AlertDialog(title:const Text('Record voice message'),content:Column(mainAxisSize:MainAxisSize.min,children:[
     Icon(recording?Icons.mic:Icons.mic_none,size:48,color:recording?Colors.red:null),
     Text(_time(clock.elapsedMilliseconds),style:Theme.of(context).textTheme.headlineMedium),
-    const Text('Maximum 5 minutes · sends when you confirm'),
+    const Text('Maximum 5 minutes · sends when you stop'),
     if(problem!=null)Text(problem!,style:TextStyle(color:Theme.of(context).colorScheme.error)),
   ]),actions:[TextButton(onPressed:working?null:()=>Navigator.pop(context),child:const Text('Cancel')),
     FilledButton.icon(onPressed:working?null:recording?stop:start,icon:Icon(recording?Icons.send:Icons.mic),label:Text(recording?'Stop and send':'Start recording'))]);
@@ -134,7 +134,7 @@ class _SchoolVoicePlayerState extends State<SchoolVoicePlayer>{
   Widget build(BuildContext context)=>SizedBox(width:245,child:Column(mainAxisSize:MainAxisSize.min,children:[
     Row(children:[
       IconButton(tooltip:playing?'Pause':'Play voice',onPressed:loading?null:toggle,icon:loading?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):Icon(playing?Icons.pause_circle_filled:Icons.play_circle_fill,color:widget.foreground)),
-      Expanded(child:Slider(value:position.clamp(0,widget.durationMs).toDouble(),max:widget.durationMs>0?widget.durationMs.toDouble():1,onChanged:loaded?(v)=>unawaited(player.seek(Duration(milliseconds:v.round()))):null)),
+      Expanded(child:Slider(value:position.clamp(0,widget.durationMs>0?widget.durationMs:1).toDouble(),max:widget.durationMs>0?widget.durationMs.toDouble():1,onChanged:loaded?(v)=>unawaited(player.seek(Duration(milliseconds:v.round()))):null)),
       TextButton(onPressed:()async{setState(()=>speed=speed==1?1.5:speed==1.5?2:1);try{if(loaded)await player.setPlaybackRate(speed);}catch(_){}},child:Text('${speed}x')),
     ]),
     Text('${_time(position)} / ${_time(widget.durationMs)}',style:TextStyle(color:widget.foreground,fontSize:11)),

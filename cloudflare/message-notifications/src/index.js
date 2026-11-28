@@ -144,7 +144,7 @@ async function voiceRequest(req,env,thread,message){
     const auth=await clientRead(req,env,messagePath);
     if(!auth||auth.doc.fields?.kind?.stringValue!=='voice'||auth.doc.fields?.deleted?.booleanValue===true)return new Response('Not found',{status:404});
     const token=await access(env),job=await optionalDoc(env,token,jobPath);
-    if(!job||job.fields.threadUid?.stringValue!==thread||Date.parse(job.fields.expiresAt?.timestampValue)<=Date.now())return new Response('Expired',{status:404});
+    if(!job||job.fields.ready?.booleanValue!==true||job.fields.threadUid?.stringValue!==thread||Date.parse(job.fields.expiresAt?.timestampValue)<=Date.now())return new Response('Expired',{status:404});
     const obj=await env.VOICE_FILES.get(voiceKey(thread,message));
     return obj?new Response(obj.body,{headers:{'Content-Type':'audio/mp4','Cache-Control':'private, no-store'}}):new Response('Not found',{status:404});
   }
@@ -162,17 +162,18 @@ async function voiceRequest(req,env,thread,message){
   if(size<12)return new Response('Invalid audio',{status:400});
   const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
   if(String.fromCharCode(...bytes.slice(4,8))!=='ftyp')return new Response('Invalid audio container',{status:415});
+  if(await optionalDoc(env,token,messagePath)||await optionalDoc(env,token,'/message_alerts/'+message))return new Response('Message already exists',{status:409});
   const settings=await optionalDoc(env,token,'/voice_settings/global');
   const mode=['played','7days','14days'].includes(settings?.fields?.mode?.stringValue)?settings.fields.mode.stringValue:'played';
   const now=Date.now(),expires=now+(mode==='7days'?7:14)*86400000;
   // Register before storing audio, so even a failed/abandoned upload is swept.
   // The unique message ID cannot overwrite an existing upload.
-  await request(base(env)+'/voice_jobs?documentId='+encodeURIComponent(message),token,{method:'POST',body:JSON.stringify({fields:{
-    threadUid:S(thread),senderUid:S(auth.uid),mode:S(mode),expiresAt:{timestampValue:new Date(expires).toISOString()},
+  const job=await request(base(env)+'/voice_jobs?documentId='+encodeURIComponent(message),token,{method:'POST',body:JSON.stringify({fields:{
+    threadUid:S(thread),senderUid:S(auth.uid),mode:S(mode),ready:B(false),expiresAt:{timestampValue:new Date(now+600000).toISOString()},
     createdAt:{timestampValue:new Date(now).toISOString()}
   }})});
-  try{await env.VOICE_FILES.put(voiceKey(thread,message),bytes,{httpMetadata:{contentType:'audio/mp4'}});}
-  catch(e){throw e;}
+  await env.VOICE_FILES.put(voiceKey(thread,message),bytes,{httpMetadata:{contentType:'audio/mp4'}});
+  await request(base(env)+jobPath+'?updateMask.fieldPaths=ready&updateMask.fieldPaths=expiresAt&currentDocument.updateTime='+encodeURIComponent(job.updateTime),token,{method:'PATCH',body:JSON.stringify({fields:{ready:B(true),expiresAt:{timestampValue:new Date(expires).toISOString()}}})});
   return new Response(null,{status:201});
 }
 async function purgeVoice(env,token,job){
@@ -181,8 +182,19 @@ async function purgeVoice(env,token,job){
   // Object deletion is idempotent. Keep the job if any operation fails.
   await env.VOICE_FILES.delete(voiceKey(thread,message));
   const prefix='projects/'+env.FIREBASE_PROJECT_ID+'/databases/(default)/documents/';
-  const names=['portal_threads/'+thread+'/messages/'+message,'message_alerts/'+message,'voice_jobs/'+message];
-  await request(base(env)+':commit',token,{method:'POST',body:JSON.stringify({writes:names.map(path=>({delete:prefix+path}))})});
+  const messagePath='portal_threads/'+thread+'/messages/'+message;
+  const alertPath='message_alerts/'+message;
+  const m=await optionalDoc(env,token,'/'+messagePath);
+  const a=await optionalDoc(env,token,'/'+alertPath);
+  const sender=job.fields.senderUid?.stringValue;
+  const isVoice=m?.fields?.senderUid?.stringValue===sender&&(m?.fields?.kind?.stringValue==='voice'||m?.fields?.voiceRetracted?.booleanValue===true);
+  const writes=[{delete:prefix+'voice_jobs/'+message,currentDocument:{updateTime:job.updateTime}}];
+  if(isVoice){
+    writes.push({delete:prefix+messagePath,currentDocument:{updateTime:m.updateTime}});
+    if(a?.fields?.threadUid?.stringValue===thread&&a?.fields?.senderUid?.stringValue===sender)
+      writes.push({delete:prefix+alertPath,currentDocument:{updateTime:a.updateTime}});
+  }
+  await request(base(env)+':commit',token,{method:'POST',body:JSON.stringify({writes})});
 }
 async function cleanupVoice(env,token){
   const due=await query(env,token,'voice_jobs',F('expiresAt','LESS_THAN_OR_EQUAL',{timestampValue:new Date().toISOString()}),5,[{field:{fieldPath:'expiresAt'},direction:'ASCENDING'}]);

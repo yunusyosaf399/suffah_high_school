@@ -135,7 +135,7 @@ class SchoolMessageRepository {
       if(data==null)return;
       final job=_db.collection('voice_jobs').doc(id);
       final exists=data['kind']=='voice'&&(await tx.get(job)).exists;
-      tx.update(ref,{'text':'','kind':'text','attachment':FieldValue.delete(),'deleted':true,'deletedAt':FieldValue.serverTimestamp()});
+      tx.update(ref,{'text':'','kind':'text','attachment':FieldValue.delete(),'deleted':true,'deletedAt':FieldValue.serverTimestamp(),if(data['kind']=='voice')'voiceRetracted':true});
       if(exists)tx.update(job,{'expiresAt':FieldValue.serverTimestamp()});
     });
   }

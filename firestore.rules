@@ -1664,7 +1664,7 @@ service cloud.firestore {
     }
     function voiceJob(messageId,uid) {
       let j=get(/databases/$(database)/documents/voice_jobs/$(messageId)).data;
-      return j.threadUid == uid && j.senderUid == request.auth.uid
+      return j.threadUid == uid && j.senderUid == request.auth.uid && j.ready == true
         && j.expiresAt > request.time;
     }
     match /voice_jobs/{messageId} {
@@ -1713,8 +1713,9 @@ service cloud.firestore {
         // Only original sender can replace content with a tombstone.
         allow update: if messageThreadAccess(uid) && resource.data.senderUid == request.auth.uid
           && resource.data.get('deleted',false) == false
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text','attachment','kind','deleted','deletedAt'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text','attachment','kind','deleted','deletedAt','voiceRetracted'])
           && request.resource.data.deleted == true && request.resource.data.deletedAt == request.time
+          && request.resource.data.get('voiceRetracted',false) == (resource.data.get('kind','text') == 'voice')
           && request.resource.data.text == '' && request.resource.data.kind == 'text'
           && !('attachment' in request.resource.data);
         allow delete: if false;

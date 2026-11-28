@@ -68,7 +68,10 @@ class _ConversationState extends State<_Conversation>{
   bool busy=false;
   final Set<String> acknowledging={};
   Future<void> ack(String id,{bool played=false})async{
-    if(!acknowledging.add(id))return;
+    if(!acknowledging.add(id)){
+      if(played){await Future<void>.delayed(const Duration(milliseconds:300));if(mounted)await ack(id,played:true);}
+      return;
+    }
     try{await repo.receipt(widget.uid,id,read:true,played:played);}catch(e){if(played)error(e);}
     finally{acknowledging.remove(id);}
   }
