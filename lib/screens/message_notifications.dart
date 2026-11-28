@@ -21,16 +21,64 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   String? uid;
   Timer? cacheTimer;
   StreamSubscription<_Alerts>? callSub;
+  Timer? callPollTimer;
   List<QueryDocumentSnapshot<Map<String,dynamic>>> ringingCalls=[];
+  String callReceiverStatus='Connecting to call receiver…';
+  bool callChecking=false;
+  bool get desktop=>!kIsWeb&&defaultTargetPlatform==TargetPlatform.windows;
+  bool get canReceiveCalls=>mounted&&widget.admin&&FirebaseAuth.instance.currentUser?.uid==uid
+    &&OfficeCalls.canPresent(WidgetsBinding.instance.lifecycleState,desktop:desktop);
+  void receiverStatus(String value){
+    if(mounted&&callReceiverStatus!=value)setState(()=>callReceiverStatus=value);
+  }
   void showIncoming(){
-    if(!mounted||!widget.admin||WidgetsBinding.instance.lifecycleState!=AppLifecycleState.resumed)return;
+    if(!canReceiveCalls||OfficeCalls.isOpen)return;
     for(final call in ringingCalls){
       final data=call.data();
-      if(OfficeCalls.fresh(data)&&data['callId'] is String){unawaited(OfficeCalls.receive(context,call.id,data['callId'] as String));break;}
+      if(OfficeCalls.fresh(data)&&data['callId'] is String){
+        WidgetsBinding.instance.addPostFrameCallback((_){
+          if(canReceiveCalls&&!OfficeCalls.isOpen)unawaited(OfficeCalls.receive(context,call.id,data['callId'] as String));
+        });
+        WidgetsBinding.instance.ensureVisualUpdate();
+        break;
+      }
     }
   }
+  void observeCalls(){
+    if(!mounted||!widget.admin)return;
+    final previous=callSub;
+    if(previous!=null)unawaited(previous.cancel());
+    callSub=OfficeCalls.incoming.snapshots(includeMetadataChanges:true).listen((s){
+      if(!mounted)return;
+      // Cache events are useful hints; receive() revalidates on the server
+      // before presenting a call. Metadata updates confirm connectivity.
+      ringingCalls=s.docs;
+      if(!s.metadata.isFromCache)receiverStatus('Office call receiver online');
+      showIncoming();
+    },onError:(Object e){
+      receiverStatus(e is FirebaseException?'Call receiver: ${e.code}':'Call receiver unavailable');
+      debugPrint('Office call listener failed.');
+    });
+  }
+  Future<void> checkCalls({bool manual=false})async{
+    if(!canReceiveCalls||callChecking||(!manual&&OfficeCalls.isOpen))return;
+    callChecking=true;
+    try{
+      final s=await OfficeCalls.incoming.get(const GetOptions(source:Source.server)).timeout(const Duration(seconds:12));
+      if(!mounted)return;
+      ringingCalls=s.docs;
+      receiverStatus('Office call receiver online');
+      showIncoming();
+      if(manual&&mounted&&!ringingCalls.any((d)=>OfficeCalls.fresh(d.data())))ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Call receiver is online. No incoming call right now.')));
+    }catch(e){
+      receiverStatus(e is FirebaseException?'Call receiver: ${e.code}':'Call receiver cannot reach server');
+      if(manual&&mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(callReceiverStatus)));
+    }finally{callChecking=false;}
+  }
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state){if(state==AppLifecycleState.resumed)showIncoming();}
+  void didChangeAppLifecycleState(AppLifecycleState state){
+    if(state==AppLifecycleState.resumed&&widget.admin){showIncoming();unawaited(checkCalls());}
+  }
   Stream<_Alerts>? stream;
   StreamSubscription<DocumentSnapshot<Map<String,dynamic>>>? readSub;
   StreamSubscription<String>? tokenSub;
@@ -48,7 +96,13 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
     try{
       uid=FirebaseAuth.instance.currentUser?.uid;
       if(uid==null)return;
-      if(widget.admin)callSub=OfficeCalls.incoming.snapshots().listen((s){if(s.metadata.isFromCache)return;ringingCalls=s.docs;showIncoming();},onError:(Object e){});
+      if(widget.admin){
+        observeCalls();
+        // Windows may miss native snapshot callbacks. A small server poll
+        // is a fallback while the office dashboard is running.
+        if(desktop)callPollTimer=Timer.periodic(const Duration(seconds:20),(_)=>unawaited(checkCalls()));
+        WidgetsBinding.instance.addPostFrameCallback((_){if(mounted)unawaited(checkCalls());});
+      }
       unawaited(VoiceCache.prune(uid!));
       cacheTimer=Timer.periodic(const Duration(minutes:1),(_){if(mounted&&uid!=null)unawaited(VoiceCache.prune(uid!));});
       Query<Map<String,dynamic>> q=FirebaseFirestore.instance.collection('message_alerts').where('fromSchool',isEqualTo:!widget.admin);
@@ -117,7 +171,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   }
   @override
   void dispose(){
-    WidgetsBinding.instance.removeObserver(this);callSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);callSub?.cancel();callPollTimer?.cancel();
     cacheTimer?.cancel();
     readSub?.cancel();tokenSub?.cancel();pushSub?.cancel();deliverySub?.cancel();
     super.dispose();
@@ -161,6 +215,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
     return StreamBuilder<_Alerts>(stream:stream,builder:(context,s){
       final count=ready?(s.data?.docs.where((d)=>unread(d.data())).length??0):0;
       return Row(mainAxisSize:MainAxisSize.min,children:[
+        if(widget.admin)IconButton(tooltip:callReceiverStatus,onPressed:()=>checkCalls(manual:true),icon:Icon(callReceiverStatus=='Office call receiver online'?Icons.phone_in_talk_outlined:Icons.phone_disabled_outlined)),
         if(!widget.admin)IconButton(tooltip:'Call school office',onPressed:()=>OfficeCalls.dial(context),icon:const Icon(Icons.call_outlined)),
         IconButton(tooltip:'Message notifications',onPressed:history,icon:Badge(
           isLabelVisible:count>0,label:Text(count>=100?'99+':'$count'),child:const Icon(Icons.notifications_outlined))),

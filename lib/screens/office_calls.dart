@@ -13,7 +13,16 @@ import 'package:http/http.dart' as http;
 class OfficeCalls {
   static bool _open=false;
   static DocumentReference<Map<String,dynamic>> ref(String uid)=>FirebaseFirestore.instance.collection('office_calls').doc(uid);
-  static Query<Map<String,dynamic>> get incoming=>FirebaseFirestore.instance.collection('office_calls').where('status',isEqualTo:'ringing').limit(25);
+  static bool get isOpen=>_open;
+  // A fresh expiry query cannot be crowded out by old ringing sessions.
+  // A single range field uses Firestore's automatic single-field index.
+  static Query<Map<String,dynamic>> get incoming=>FirebaseFirestore.instance.collection('office_calls')
+    .where('expiresAt',isGreaterThan:Timestamp.now()).orderBy('expiresAt').limit(100);
+  static bool canPresent(AppLifecycleState? state,{required bool desktop}){
+    return desktop
+      ? state!=AppLifecycleState.detached
+      : state==AppLifecycleState.resumed;
+  }
   static bool fresh(Map<String,dynamic>? data){
     final expiry=data?['expiresAt'];
     return data?['status']=='ringing'&&expiry is Timestamp&&expiry.toDate().isAfter(DateTime.now());
@@ -30,7 +39,8 @@ class OfficeCalls {
       final data=(await ref(uid).get(const GetOptions(source:Source.server))).data();
       if(!context.mounted||!fresh(data)||data?['callId']!=callId)return;
       await Navigator.of(context,rootNavigator:true).push<void>(MaterialPageRoute(builder:(_)=>_OfficeCallPage(callerUid:uid,callId:callId,incoming:true)));
-    }catch(_){/* A stale notification or a revoked permission cannot start a call. */}
+    }on FirebaseException catch(e){debugPrint('Office call verification failed: ${e.code}');}
+    catch(_){debugPrint('Office call presentation failed.');}
     finally{_open=false;}
   }
   static Future<void> _show(BuildContext context,{required String uid,required String callId,required bool incoming})async{
@@ -110,10 +120,10 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   }
   void update(String value){if(mounted&&!finished)setState(()=>status=value);}
   void watch(){
-    subscription=ref.snapshots().listen((snapshot){unawaited(handle(snapshot));},onError:(Object e){unawaited(fail('Call signaling unavailable.'));});
+    subscription=ref.snapshots(includeMetadataChanges:true).listen((snapshot){unawaited(handle(snapshot));},onError:(Object e){unawaited(fail('Call signaling unavailable.'));});
   }
   Future<void> handle(DocumentSnapshot<Map<String,dynamic>> snapshot)async{
-    if(finished||snapshot.metadata.isFromCache)return;
+    if(finished||snapshot.metadata.isFromCache||snapshot.metadata.hasPendingWrites)return;
     final data=snapshot.data();
     if(data==null||data['callId']!=widget.callId){if(published||widget.incoming)await end('ended',write:false);return;}
     latest=data;
@@ -171,7 +181,9 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   }
   Future<void> startCaller()async{
     try{
+      update('Preparing microphone and network…');
       final pc=await prepare();
+      update('Preparing call connection…');
       final offer=await gathered(pc,await pc.createOffer({'offerToReceiveAudio':true,'offerToReceiveVideo':false}));
       if(finished||closing)return;
       await FirebaseFirestore.instance.runTransaction((tx)async{
@@ -183,6 +195,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
       });
       published=true;
       if(finished||closing){await finishRemote('ended');return;}
+      latest={'expiresAt':Timestamp.fromDate(DateTime.now().add(const Duration(seconds:60)))};
       update('Calling school office…');watch();
       unawaited(OfficeCalls.wake(widget.callerUid,widget.callId));
     }catch(e){if(!finished&&!closing)await fail('Could not start call: $e');}
@@ -239,7 +252,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
-    if(state==AppLifecycleState.paused||state==AppLifecycleState.detached){unawaited(end('ended'));}
+    if(state==AppLifecycleState.detached||(mobile&&state==AppLifecycleState.paused)){unawaited(end('ended'));}
   }
   void toggleMute(){
     if(microphone==null)return;
