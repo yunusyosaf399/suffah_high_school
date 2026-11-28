@@ -18,6 +18,19 @@ class SchoolMessagesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context)=>admin?(threadUid==null?const _ThreadList():_Conversation(uid:threadUid,name:'School conversation')):const _Conversation();
 }
+class _MessageProfileButton extends StatelessWidget {
+  const _MessageProfileButton({required this.uid});
+  final String uid;
+  @override
+  Widget build(BuildContext context)=>Padding(
+    padding:const EdgeInsets.only(right:8),
+    child:IconButton(
+      tooltip:'My profile and message settings',
+      onPressed:()=>Navigator.of(context).push<void>(MaterialPageRoute(builder:(_)=>const AccountPicturePage(fromMessages:true))),
+      icon:AccountPicture(uid:uid,name:'Me',radius:17),
+    ),
+  );
+}
 class _ThreadList extends StatefulWidget{
   const _ThreadList();
   @override
@@ -27,12 +40,10 @@ class _ThreadListState extends State<_ThreadList>{
   final repo=SchoolMessageRepository();
   late Future<Map<String,dynamic>> rows=repo.threads();
   String query='';
-  late final Future<bool> owner=repo.isOwner();
   @override
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('School messages'),actions:[
-    FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true?IconButton(tooltip:'Voice retention',onPressed:()=>showVoiceRetention(context,repo),icon:const Icon(Icons.auto_delete_outlined)):const SizedBox.shrink()),
-    IconButton(tooltip:'My picture',onPressed:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const AccountPicturePage())),icon:const Icon(Icons.account_circle_outlined)),
-    IconButton(tooltip:'Refresh conversations',onPressed:()=>setState(()=>rows=repo.threads()),icon:const Icon(Icons.refresh))
+    IconButton(tooltip:'Refresh conversations',onPressed:()=>setState(()=>rows=repo.threads()),icon:const Icon(Icons.refresh)),
+    _MessageProfileButton(uid:repo.currentUid)
   ]),body:Column(children:[
     Padding(padding:const EdgeInsets.all(12),child:TextField(decoration:const InputDecoration(prefixIcon:Icon(Icons.search),hintText:'Search conversations'),onChanged:(v)=>setState(()=>query=v.toLowerCase()))),
     Expanded(child:FutureBuilder<Map<String,dynamic>>(future:rows,builder:(context,s){
@@ -215,7 +226,7 @@ class _ConversationState extends State<_Conversation>{
       return Scaffold(appBar:AppBar(title:Text(widget.name??'School messages'),actions:[
         IconButton(tooltip:'Scheduled messages',onPressed:queue,icon:const Icon(Icons.schedule)),
         IconButton(tooltip:'Chat colors',onPressed:()=>colors(p,scheme),icon:const Icon(Icons.palette_outlined)),
-        IconButton(tooltip:'My profile picture',onPressed:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const AccountPicturePage())),icon:const Icon(Icons.account_circle_outlined)),
+        _MessageProfileButton(uid:me),
       ]),body:SafeArea(child:Column(children:[
         Expanded(child:ColoredBox(color:color(p,'background',scheme.surface),child:StreamBuilder<_Docs>(stream:hidden,builder:(context,h){
           final hiddenIds=h.data?.docs.map((x)=>x.id).toSet()??<String>{};

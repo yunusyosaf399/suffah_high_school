@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import '../data/teacher_portal_repository.dart';
+import 'school_voice_message.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -43,12 +45,25 @@ class _PictureStreamState extends State<_PictureStream>{
     });
 }
 class AccountPicturePage extends StatefulWidget{
-  const AccountPicturePage({super.key});
+  const AccountPicturePage({super.key,this.fromMessages=false});
+  final bool fromMessages;
   @override
   State<AccountPicturePage> createState()=>_AccountPicturePageState();
 }
 class _AccountPicturePageState extends State<AccountPicturePage>{
   bool busy=false;
+  SchoolMessageRepository? messageRepo;
+  Future<bool>? ownerAccess;
+  @override
+  void initState(){
+    super.initState();
+    if(widget.fromMessages){
+      try{
+        messageRepo=SchoolMessageRepository();
+        ownerAccess=messageRepo!.isOwner();
+      }catch(_){}
+    }
+  }
   Future<void> change(bool remove)async{
     if(busy)return;
     setState(()=>busy=true);
@@ -75,12 +90,27 @@ class _AccountPicturePageState extends State<AccountPicturePage>{
     finally{if(mounted)setState(()=>busy=false);}
   }
   @override
-  Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Account picture')),
-    body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[
+  Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(widget.fromMessages?'Message profile':'Account picture')),
+    body:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(20),child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:520),child:Column(mainAxisSize:MainAxisSize.min,children:[
       AccountPicture(uid:FirebaseAuth.instance.currentUser?.uid??'',name:'Me',radius:60),
       const SizedBox(height:20),
       FilledButton.icon(onPressed:busy?null:()=>change(false),icon:const Icon(Icons.photo_library_outlined),label:const Text('Upload or replace picture')),
       TextButton(onPressed:busy?null:()=>change(true),child:const Text('Remove picture')),
       if(busy)const CircularProgressIndicator(),
-    ])));
+      if(widget.fromMessages&&messageRepo!=null)FutureBuilder<bool>(future:ownerAccess,builder:(context,access){
+        if(access.data!=true)return const SizedBox.shrink();
+        final repo=messageRepo!;
+        return Padding(padding:const EdgeInsets.only(top:24),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+          const Divider(),
+          Text('Message settings',style:Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height:8),
+          Card(child:StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(stream:repo.voiceSettings.snapshots(),builder:(context,s){
+            final mode=s.data?.data()?['mode'];
+            final description=s.hasError?'Settings unavailable':!s.hasData?'Loading…':mode=='7days'?'Delete after 7 days':mode=='14days'?'Delete after 14 days':'Delete after recipient finishes playback';
+            return ListTile(leading:const Icon(Icons.auto_delete_outlined),title:const Text('Automatic voice message deletion'),subtitle:Text(description),trailing:const Icon(Icons.chevron_right),onTap:()=>showVoiceRetention(context,repo));
+          })),
+          const Text('School-wide setting for new voice messages. Only the owner can change it.'),
+        ]));
+      }),
+    ])))));
 }

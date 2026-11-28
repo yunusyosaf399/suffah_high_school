@@ -143,6 +143,7 @@ class _SchoolVoicePlayerState extends State<SchoolVoicePlayer>{
 }
 Future<void> showVoiceRetention(BuildContext context,SchoolMessageRepository repo)async{
   try{
+    if(!await repo.isOwner())throw StateError('Only the owner can change message retention.');
     final current=(await repo.voiceSettings.get()).data()?['mode']??'played';
     if(!context.mounted)return;
     final choice=await showDialog<String>(context:context,builder:(ctx)=>SimpleDialog(title:const Text('Voice message retention'),children:[
@@ -150,6 +151,9 @@ Future<void> showVoiceRetention(BuildContext context,SchoolMessageRepository rep
       for(final item in const {'played':'After recipient finishes playback','7days':'After 7 days','14days':'After 14 days'}.entries)
         SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,item.key),child:Row(children:[Icon(current==item.key?Icons.check_circle:Icons.radio_button_unchecked),const SizedBox(width:8),Expanded(child:Text(item.value))])),
     ]));
-    if(choice!=null)await repo.voiceSettings.set({'mode':choice,'updatedAt':FieldValue.serverTimestamp()});
+    if(choice!=null){
+      await repo.voiceSettings.set({'mode':choice,'updatedAt':FieldValue.serverTimestamp()});
+      if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Voice deletion setting saved.')));
+    }
   }catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not change voice retention: $e')));}
 }
