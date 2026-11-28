@@ -1569,6 +1569,48 @@ service cloud.firestore {
         && d.get('name','') == u.get('displayName','')
         && d.role == u.role;
     }
+    function activeChatUser() {
+      return request.auth != null && (isOwner() ||
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('removed',false) == false));
+    }
+    match /account_pictures/{uid} {
+      allow get: if activeChatUser() && (request.auth.uid == uid || schoolMessageAdmin()
+        || (eligibleMessageAccount(request.auth.uid) && uid == 'tQt6vca2zuagZipvknBwcmSRcrc2')
+        || (eligibleMessageAccount(request.auth.uid) &&
+          get(/databases/$(database)/documents/users/$(uid)).data.role == 'principal'
+          && get(/databases/$(database)/documents/users/$(uid)).data.active == true
+          && get(/databases/$(database)/documents/users/$(uid)).data.get('removed',false) == false
+          && get(/databases/$(database)/documents/users/$(uid)).data.get('permissions',{}).get('messages',true) == true));
+      allow list: if isOwner();
+      allow create,update: if activeChatUser() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['image','updatedAt'])
+        && request.resource.data.image is bytes && request.resource.data.image.size() <= 102400
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if activeChatUser() && request.auth.uid == uid;
+    }
+    match /chat_preferences/{uid} {
+      allow read: if activeChatUser() && request.auth.uid == uid;
+      allow list: if isOwner();
+      allow create,update: if activeChatUser() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['background','outgoing','incoming'])
+        && request.resource.data.background is int && request.resource.data.outgoing is int
+        && request.resource.data.incoming is int
+        && request.resource.data.background >= 0 && request.resource.data.background <= 4294967295
+        && request.resource.data.outgoing >= 0 && request.resource.data.outgoing <= 4294967295
+        && request.resource.data.incoming >= 0 && request.resource.data.incoming <= 4294967295;
+      allow delete: if activeChatUser() && request.auth.uid == uid;
+    }
+    function validChatPayload(d) {
+      return d.text is string && d.text.size() <= 2000
+        && d.get('kind','text') in ['text','sticker','file']
+        && (d.get('kind','text') == 'file'
+          ? (d.attachment is map && d.attachment.keys().hasOnly(['name','bytes','contentType'])
+            && d.attachment.name is string && d.attachment.name.size() <= 120
+            && d.attachment.bytes is bytes && d.attachment.bytes.size() > 0 && d.attachment.bytes.size() <= 524288
+            && d.attachment.contentType in ['application/pdf','image/jpeg','image/png','image/webp','text/plain'])
+          : (!('attachment' in d) && d.text.size() > 0));
+    }
     match /portal_threads/{uid} {
       allow get: if schoolMessageAdmin() || messageThreadAccess(uid);
       allow list: if schoolMessageAdmin();
@@ -1577,14 +1619,39 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow get,list: if messageThreadAccess(uid);
         allow create: if messageThreadAccess(uid)
-          && request.resource.data.keys().hasOnly(['text','senderUid','fromSchool','createdAt'])
+          && request.resource.data.keys().hasOnly(['text','senderUid','fromSchool','createdAt','kind','attachment'])
           && request.resource.data.senderUid == request.auth.uid
           && request.resource.data.fromSchool == schoolMessageAdmin()
           && request.resource.data.createdAt == request.time
-          && request.resource.data.text is string
-          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+          && validChatPayload(request.resource.data)
           && getAfter(/databases/$(database)/documents/portal_threads/$(uid)).data.uid == uid;
-        allow update,delete: if false;
+        // Only original sender can replace content with a tombstone.
+        allow update: if messageThreadAccess(uid) && resource.data.senderUid == request.auth.uid
+          && resource.data.get('deleted',false) == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text','attachment','kind','deleted','deletedAt'])
+          && request.resource.data.deleted == true && request.resource.data.deletedAt == request.time
+          && request.resource.data.text == '' && request.resource.data.kind == 'text'
+          && !('attachment' in request.resource.data);
+        allow delete: if false;
+      }
+      match /hidden/{viewer}/items/{messageId} {
+        allow read,delete: if messageThreadAccess(uid) && request.auth.uid == viewer;
+        allow create,update: if messageThreadAccess(uid) && request.auth.uid == viewer
+          && request.resource.data.keys().hasOnly(['hiddenAt'])
+          && request.resource.data.hiddenAt == request.time;
+      }
+      match /scheduled/{messageId} {
+        allow get,list: if messageThreadAccess(uid) && resource.data.senderUid == request.auth.uid;
+        allow create: if messageThreadAccess(uid)
+          && request.resource.data.keys().hasOnly(['text','kind','senderUid','fromSchool','sendAt','createdAt'])
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.fromSchool == schoolMessageAdmin()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.sendAt is timestamp && request.resource.data.sendAt > request.time
+          && request.resource.data.sendAt < request.time + duration.value(366,'d')
+          && request.resource.data.kind in ['text','sticker'] && validChatPayload(request.resource.data);
+        allow delete: if messageThreadAccess(uid) && resource.data.senderUid == request.auth.uid;
+        allow update: if false;
       }
     }
 
@@ -1728,6 +1795,9 @@ service cloud.firestore {
     // Only the owner can run the cross-collection backfill. This does not
     // grant parents access to a collection-group of private marks.
     match /{path=**}/marks/{markId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/scheduled/{backupId} {
       allow list: if isOwner();
     }
     match /{backupPath=**}/subjects/{backupId} {

@@ -54,3 +54,35 @@ exports.schoolPortal=onRequest({region:'asia-south1',timeoutSeconds:120,memory:'
     res.status(503).json({error:'School portal data is unavailable. Contact the administrator.'});
   }
 });
+
+ // Scheduled chat delivery uses a deterministic message ID and one transaction.
+exports.deliverScheduledMessages = onSchedule({
+  schedule:'every 5 minutes',region:'asia-south1',timeoutSeconds:120,maxInstances:1,
+},async()=>{
+  const db=getFirestore();
+  const now=new Date();
+  const pending=await db.collectionGroup('scheduled').where('sendAt','<=',now).limit(100).get();
+  for(const item of pending.docs){
+    if(item.ref.parent.parent?.parent.id!=='portal_threads') continue;
+    await db.runTransaction(async tx=>{
+      const fresh=await tx.get(item.ref);
+      if(!fresh.exists)return;
+      const d=fresh.data(),thread=item.ref.parent.parent,target=thread.id;
+      if(!d.sendAt||d.sendAt.toMillis()>now.getTime())return;
+      const sender=(await tx.get(db.collection('users').doc(d.senderUid))).data()||{};
+      const receiver=(await tx.get(db.collection('users').doc(target))).data()||{};
+      const active=u=>u.active===true&&u.removed!==true&&u.permissions?.messages!==false;
+      const admin=d.senderUid==='tQt6vca2zuagZipvknBwcmSRcrc2'||(active(sender)&&sender.role==='principal');
+      const valid=active(receiver)&&['parent','teacher'].includes(receiver.role)
+        &&(admin||(d.senderUid===target&&active(sender)))&&d.fromSchool===admin
+        &&typeof d.text==='string'&&d.text.length>0&&d.text.length<=2000&&['text','sticker'].includes(d.kind);
+      if(valid){
+        tx.set(thread,{uid:target,name:receiver.displayName||'',role:receiver.role,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+        tx.create(thread.collection('messages').doc('scheduled_'+item.id),{
+          text:d.text,kind:d.kind,senderUid:d.senderUid,fromSchool:admin,createdAt:FieldValue.serverTimestamp()
+        });
+      }
+      tx.delete(item.ref);
+    });
+  }
+});

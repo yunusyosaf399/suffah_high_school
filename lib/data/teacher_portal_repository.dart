@@ -117,7 +117,19 @@ class SchoolMessageRepository {
       return {'text':m['text'],'fromSchool':m['fromSchool'],'date':date is Timestamp?date.toDate().toLocal().toString():''};
     }).toList(),'truncated':docs.docs.length==100};
   }
-  Future<void> send(String? threadUid,String text)async{
+  String get currentUid=>_uid;
+  DocumentReference<Map<String,dynamic>> thread(String? uid)=>_db.collection('portal_threads').doc(uid??_uid);
+  Stream<QuerySnapshot<Map<String,dynamic>>> watch(String? uid,int limit)=>thread(uid).collection('messages')
+    .orderBy('createdAt',descending:true).limit(limit).snapshots();
+  Stream<QuerySnapshot<Map<String,dynamic>>> hidden(String? uid)=>thread(uid).collection('hidden').doc(_uid).collection('items').snapshots();
+  Stream<QuerySnapshot<Map<String,dynamic>>> scheduled(String? uid)=>thread(uid).collection('scheduled').where('senderUid',isEqualTo:_uid).snapshots();
+  Future<void> hide(String? uid,String id)=>thread(uid).collection('hidden').doc(_uid).collection('items').doc(id)
+    .set({'hiddenAt':FieldValue.serverTimestamp()});
+  Future<void> retract(String? uid,String id)=>thread(uid).collection('messages').doc(id).update({
+    'text':'','kind':'text','attachment':FieldValue.delete(),'deleted':true,'deletedAt':FieldValue.serverTimestamp()
+  });
+  Future<void> cancel(String? uid,String id)=>thread(uid).collection('scheduled').doc(id).delete();
+  Future<void> send(String? threadUid,String text,{String kind='text',Map<String,dynamic>? attachment,DateTime? sendAt})async{
     final uid=_uid;
     final target=threadUid??uid;
     final self=(await _db.collection('users').doc(uid).get(_server)).data()??{};
@@ -132,9 +144,14 @@ class SchoolMessageRepository {
       if(existing==null||existing['role']==null)throw StateError('This conversation needs a new message from the participant before replying.');
       metadata={'name':existing['name']??'','role':existing['role']};
     }
+    if(sendAt!=null){
+      await thread.collection('scheduled').doc().set({'text':text.trim(),'kind':kind,'senderUid':uid,
+        'fromSchool':admin,'sendAt':Timestamp.fromDate(sendAt),'createdAt':FieldValue.serverTimestamp()});
+      return;
+    }
     final batch=_db.batch();
     batch.set(thread,{'uid':target,...metadata,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
-    batch.set(thread.collection('messages').doc(),{'text':text.trim(),'senderUid':uid,'fromSchool':admin,'createdAt':FieldValue.serverTimestamp()});
+    batch.set(thread.collection('messages').doc(),{'text':text.trim(),'kind':kind,if(attachment!=null)'attachment':attachment,'senderUid':uid,'fromSchool':admin,'createdAt':FieldValue.serverTimestamp()});
     await batch.commit();
   }
 }

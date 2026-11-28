@@ -1,3 +1,5 @@
+import 'account_picture.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +30,9 @@ class SchoolSettingsPage extends StatelessWidget {
     body:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:640),
       child:ValueListenableBuilder<ThemeMode>(valueListenable:schoolThemeMode,builder:(context,mode,_)=>ListView(
         padding:const EdgeInsets.all(16),children:[
+          Card(child:ListTile(leading:AccountPicture(uid:FirebaseAuth.instance.currentUser?.uid??'',name:'Me'),
+            title:const Text('Account picture'),subtitle:const Text('Upload, replace or remove your profile picture'),
+            onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const AccountPicturePage())))),
           Text('Appearance',style:Theme.of(context).textTheme.titleLarge),
           const Text('Choose how the school app looks on this device.'),
           const SizedBox(height:12),

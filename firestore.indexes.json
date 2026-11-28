@@ -33,6 +33,26 @@
           "queryScope": "COLLECTION"
         }
       ]
+    },
+    {
+      "collectionGroup": "scheduled",
+      "fieldPath": "sendAt",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "account_pictures",
+      "fieldPath": "image",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "messages",
+      "fieldPath": "attachment",
+      "indexes": []
     }
   ]
 }

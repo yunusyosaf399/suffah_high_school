@@ -6,7 +6,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   doc, setDoc, getDoc, getDocs, collection, updateDoc, runTransaction,
-  query, where, collectionGroup, serverTimestamp, Timestamp, writeBatch, arrayUnion,
+  query, where, collectionGroup, serverTimestamp, Timestamp, writeBatch, arrayUnion, Bytes, deleteField,
 } from 'firebase/firestore';
 
 const ownerId = 'tQt6vca2zuagZipvknBwcmSRcrc2';
@@ -1110,3 +1110,29 @@ test('parent portal reads only linked child views, live fees, attendance and rel
     await assertFails(getDocs(collection(db(guestId),name)));
   }
  });
+
+test('chat pictures, attachments, hidden messages and retraction are scoped',async()=>{
+  const teacher='chat-teacher',other='chat-other';
+  await environment.withSecurityRulesDisabled(async c=>{
+    for(const uid of [teacher,other])await setDoc(doc(c.firestore(),'users',uid),{role:'teacher',active:true,displayName:uid});
+  });
+  const own=db(teacher), outsider=db(other), admin=db(ownerId);
+  const pic={image:Bytes.fromUint8Array(new Uint8Array([1,2,3])),updatedAt:serverTimestamp()};
+  await assertSucceeds(setDoc(doc(own,'account_pictures',teacher),pic));
+  await assertFails(setDoc(doc(outsider,'account_pictures',teacher),pic));
+  await assertFails(getDoc(doc(outsider,'account_pictures',teacher)));
+  await assertSucceeds(getDoc(doc(admin,'account_pictures',teacher)));
+  const batch=writeBatch(own);
+  batch.set(doc(own,'portal_threads',teacher),{uid:teacher,name:teacher,role:'teacher',updatedAt:serverTimestamp()});
+  const ref=doc(own,'portal_threads',teacher,'messages','file');
+  batch.set(ref,{text:'',kind:'file',senderUid:teacher,fromSchool:false,createdAt:serverTimestamp(),attachment:{name:'sample.txt',contentType:'text/plain',bytes:Bytes.fromUint8Array(new Uint8Array([65]))}});
+  await assertSucceeds(batch.commit());
+  await assertFails(getDoc(doc(outsider,'portal_threads',teacher,'messages','file')));
+  await assertSucceeds(setDoc(doc(own,'portal_threads',teacher,'hidden',teacher,'items','file'),{hiddenAt:serverTimestamp()}));
+  await assertFails(getDoc(doc(admin,'portal_threads',teacher,'hidden',teacher,'items','file')));
+  const tombstone={text:'',kind:'text',attachment:deleteField(),deleted:true,deletedAt:serverTimestamp()};
+  await assertFails(updateDoc(doc(admin,'portal_threads',teacher,'messages','file'),tombstone));
+  await assertSucceeds(updateDoc(ref,tombstone));
+  await assertSucceeds(setDoc(doc(own,'portal_threads',teacher,'scheduled','later'),{text:'Later',kind:'text',senderUid:teacher,fromSchool:false,createdAt:serverTimestamp(),sendAt:Timestamp.fromMillis(Date.now()+600000)}));
+  await assertFails(getDoc(doc(outsider,'portal_threads',teacher,'scheduled','later')));
+});

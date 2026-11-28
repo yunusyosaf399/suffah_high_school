@@ -1,3 +1,4 @@
+import 'account_picture.dart';
 import 'student_avatar.dart';
 import 'dart:math';
 
@@ -216,11 +217,7 @@ class _UsersPageState extends State<UsersPage> {
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
                               onTap:user.isOwner?null:()=>Navigator.of(context).push<void>(MaterialPageRoute(builder:(_)=>UserAccessPage(account:user))),
-                              leading: CircleAvatar(
-                                child: Icon(user.isOwner
-                                    ? Icons.admin_panel_settings_outlined
-                                    : Icons.person_outline_rounded),
-                              ),
+                              leading: AccountPicture(uid:user.uid,name:user.name),
                               title: Text(user.name,
                                 maxLines: 1, overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(

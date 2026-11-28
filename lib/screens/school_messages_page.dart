@@ -1,0 +1,250 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
+import '../data/teacher_portal_repository.dart';
+import '../data/school_errors.dart';
+import 'account_picture.dart';
+
+typedef _Docs = QuerySnapshot<Map<String,dynamic>>;
+
+class SchoolMessagesPage extends StatelessWidget {
+  const SchoolMessagesPage({super.key,this.admin=false});
+  final bool admin;
+  @override
+  Widget build(BuildContext context)=>admin?const _ThreadList():const _Conversation();
+}
+class _ThreadList extends StatefulWidget{
+  const _ThreadList();
+  @override
+  State<_ThreadList> createState()=>_ThreadListState();
+}
+class _ThreadListState extends State<_ThreadList>{
+  final repo=SchoolMessageRepository();
+  late Future<Map<String,dynamic>> rows=repo.threads();
+  String query='';
+  @override
+  Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('School messages'),actions:[
+    IconButton(tooltip:'My picture',onPressed:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const AccountPicturePage())),icon:const Icon(Icons.account_circle_outlined)),
+    IconButton(tooltip:'Refresh conversations',onPressed:()=>setState(()=>rows=repo.threads()),icon:const Icon(Icons.refresh))
+  ]),body:Column(children:[
+    Padding(padding:const EdgeInsets.all(12),child:TextField(decoration:const InputDecoration(prefixIcon:Icon(Icons.search),hintText:'Search conversations'),onChanged:(v)=>setState(()=>query=v.toLowerCase()))),
+    Expanded(child:FutureBuilder<Map<String,dynamic>>(future:rows,builder:(context,s){
+      if(s.hasError)return Center(child:Text(schoolErrorMessage(s.error!)));
+      if(!s.hasData)return const Center(child:CircularProgressIndicator());
+      final items=(s.data!['rows'] as List).whereType<Map>().where((x)=>'${x['name']} ${x['role']}'.toLowerCase().contains(query)).toList();
+      if(items.isEmpty)return const Center(child:Text('No matching conversations.'));
+      return ListView.builder(itemCount:items.length,itemBuilder:(context,i){
+        final x=items[i],uid=x['uid'].toString(),name=x['name'].toString();
+        return ListTile(leading:AccountPicture(uid:uid,name:name),title:Text(name),subtitle:Text(x['role'].toString()),trailing:const Icon(Icons.chevron_right),
+          onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>_Conversation(uid:uid,name:name))));
+      });
+    }))
+  ]));
+}
+class _Conversation extends StatefulWidget{
+  const _Conversation({this.uid,this.name});
+  final String? uid,name;
+  @override
+  State<_Conversation> createState()=>_ConversationState();
+}
+class _ConversationState extends State<_Conversation>{
+  final repo=SchoolMessageRepository();
+  final text=TextEditingController();
+  final scroll=ScrollController();
+  late final String me=repo.currentUid;
+  int limit=60;
+  late Stream<_Docs> messages=repo.watch(widget.uid,limit);
+  late final Stream<_Docs> hidden=repo.hidden(widget.uid);
+  late final Stream<_Docs> scheduled=repo.scheduled(widget.uid);
+  late final preferences=FirebaseFirestore.instance.collection('chat_preferences').doc(me);
+  late final preferenceStream=preferences.snapshots();
+  bool busy=false;
+  static const emojis=['😀','😂','😊','❤️','👍','🙏','🎉','✅','📚','✏️','⭐','🤝','😢','👏','🌷','👋'];
+  void error(Object e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));}
+  @override
+  void dispose(){text.dispose();scroll.dispose();super.dispose();}
+  Future<void> send({String? value,String kind='text',Map<String,dynamic>? attachment,DateTime? at})async{
+    final content=value??text.text.trim();
+    if(busy||(content.isEmpty&&attachment==null))return;
+    setState(()=>busy=true);
+    try{
+      await repo.send(widget.uid,content,kind:kind,attachment:attachment,sendAt:at);
+      if(mounted){
+        if(value==null&&text.text.trim()==content)text.clear();
+        if(at!=null)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Message scheduled. Requires the school delivery service.')));
+        if(scroll.hasClients)scroll.animateTo(0,duration:const Duration(milliseconds:200),curve:Curves.easeOut);
+      }
+    }catch(e){error(e);}
+    finally{if(mounted)setState(()=>busy=false);}
+  }
+  Future<void> attach()async{
+    try{
+      final picked=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['pdf','png','jpg','jpeg','webp','txt'],withData:true);
+      final f=picked?.files.single;
+      if(f==null||!mounted)return;
+      final bytes=f.bytes;
+      if(bytes==null||bytes.isEmpty||bytes.length>524288)throw StateError('Choose a document no larger than 512 KB.');
+      const mime={'pdf':'application/pdf','png':'image/png','jpg':'image/jpeg','jpeg':'image/jpeg','webp':'image/webp','txt':'text/plain'};
+      final type=mime[f.extension?.toLowerCase()];
+      if(type==null)throw StateError('Unsupported document format.');
+      final name=f.name.replaceAll(RegExp(r'[\r\n]'),' ');
+      await send(kind:'file',attachment:{'name':name.length>120?name.substring(0,120):name,'bytes':Blob(bytes),'contentType':type});
+    }catch(e){error(e);}
+  }
+  Future<void> download(Map a)async{
+    try{
+      final blob=a['bytes'];
+      if(blob is! Blob)return;
+      final name=(a['name']??'document').toString().replaceAll(RegExp(r'[/\\\r\n]'),'_');
+      await FilePicker.platform.saveFile(dialogTitle:'Save attachment',fileName:name,bytes:blob.bytes);
+    }catch(e){error(e);}
+  }
+  Future<void> schedule()async{
+    if(text.text.trim().isEmpty){error(StateError('Write a message first.'));return;}
+    final now=DateTime.now();
+    final day=await showDatePicker(context:context,initialDate:now,firstDate:DateUtils.dateOnly(now),lastDate:now.add(const Duration(days:365)));
+    if(day==null||!mounted)return;
+    final time=await showTimePicker(context:context,initialTime:TimeOfDay.fromDateTime(now.add(const Duration(minutes:5))));
+    if(time==null||!mounted)return;
+    final at=DateTime(day.year,day.month,day.day,time.hour,time.minute);
+    if(!at.isAfter(DateTime.now())){error(StateError('Choose a future time.'));return;}
+    await send(at:at);
+  }
+  Future<void> queue()async{
+    await showModalBottomSheet<void>(context:context,builder:(context)=>SafeArea(child:StreamBuilder<_Docs>(stream:scheduled,builder:(context,s){
+      if(s.hasError)return Padding(padding:const EdgeInsets.all(20),child:Text(schoolErrorMessage(s.error!)));
+      if(!s.hasData)return const Center(child:CircularProgressIndicator());
+      final docs=s.data!.docs.toList()..sort((a,b)=>(a.data()['sendAt'] as Timestamp).compareTo(b.data()['sendAt'] as Timestamp));
+      return ListView(shrinkWrap:true,children:[
+        const ListTile(title:Text('Scheduled messages'),subtitle:Text('Delivery runs approximately every five minutes when deployed.')),
+        if(docs.isEmpty)const ListTile(title:Text('No pending messages')),
+        for(final d in docs)ListTile(title:Text(d.data()['text'].toString()),subtitle:Text(stamp(d.data()['sendAt'])),
+          trailing:IconButton(tooltip:'Cancel scheduled message',icon:const Icon(Icons.cancel_outlined),onPressed:()async{try{await repo.cancel(widget.uid,d.id);}catch(e){error(e);}}))
+      ]);
+    })));
+  }
+  String stamp(dynamic v){
+    if(v is! Timestamp)return 'Sending…';
+    final d=v.toDate().toLocal();
+    final l=MaterialLocalizations.of(context);
+    return '${l.formatShortDate(d)} · ${l.formatTimeOfDay(TimeOfDay.fromDateTime(d))}';
+  }
+  Future<void> picker(bool stickers)async{
+    await showModalBottomSheet<void>(context:context,builder:(ctx)=>SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:Wrap(spacing:8,runSpacing:8,children:[
+      for(final e in emojis)InkWell(onTap:(){
+        Navigator.pop(ctx);
+        if(stickers){send(value:e,kind:'sticker');}else{
+          final sel=text.selection;
+          final start=sel.isValid?sel.start:text.text.length;
+          final end=sel.isValid?sel.end:start;
+          final newText=text.text.replaceRange(start,end,e);
+          text.value=TextEditingValue(text:newText,selection:TextSelection.collapsed(offset:start+e.length));
+        }
+      },child:Padding(padding:const EdgeInsets.all(9),child:Text(e,style:TextStyle(fontSize:stickers?44:28))))
+    ]))));
+  }
+  Future<void> options(String id,Map<String,dynamic> m)async{
+    final action=await showModalBottomSheet<String>(context:context,builder:(ctx)=>SafeArea(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      ListTile(leading:const Icon(Icons.visibility_off_outlined),title:const Text('Delete for me'),onTap:()=>Navigator.pop(ctx,'hide')),
+      if(m['senderUid']==me&&m['deleted']!=true)ListTile(leading:const Icon(Icons.delete_outline),title:const Text('Delete for everyone'),onTap:()=>Navigator.pop(ctx,'retract'))
+    ])));
+    try{
+      if(action=='hide')await repo.hide(widget.uid,id);
+      if(action=='retract')await repo.retract(widget.uid,id);
+    }catch(e){error(e);}
+  }
+  Color readable(Color c)=>c.computeLuminance()>.42?Colors.black:Colors.white;
+  Color color(Map<String,dynamic> p,String key,Color fallback)=>p[key] is int?Color(p[key] as int):fallback;
+  Future<void> colors(Map<String,dynamic> p,ColorScheme scheme)async{
+    final result=await showDialog<Map<String,int>>(context:context,builder:(_)=>_ChatColors(initial:{
+      'background':color(p,'background',scheme.surface).toARGB32(),
+      'outgoing':color(p,'outgoing',scheme.primaryContainer).toARGB32(),
+      'incoming':color(p,'incoming',scheme.surfaceContainerHighest).toARGB32(),
+    }));
+    if(result!=null){try{await preferences.set(result);}catch(e){error(e);}}
+  }
+  Widget bubble(QueryDocumentSnapshot<Map<String,dynamic>> d,Map<String,dynamic> p,ColorScheme scheme){
+    final m=d.data(),mine=m['senderUid']==me,deleted=m['deleted']==true;
+    final sender=m['senderUid']?.toString()??'',name=mine?'You':m['fromSchool']==true?'School administration':widget.name??'Participant';
+    final bg=color(p,mine?'outgoing':'incoming',mine?scheme.primaryContainer:scheme.surfaceContainerHighest),fg=readable(bg);
+    final a=m['attachment'];
+    return Padding(padding:const EdgeInsets.symmetric(vertical:4,horizontal:8),child:Row(mainAxisAlignment:mine?MainAxisAlignment.end:MainAxisAlignment.start,crossAxisAlignment:CrossAxisAlignment.end,children:[
+      if(!mine)...[AccountPicture(uid:sender,name:name,radius:15),const SizedBox(width:6)],
+      Flexible(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:480),child:Material(color:bg,borderRadius:BorderRadius.circular(14),child:InkWell(borderRadius:BorderRadius.circular(14),onLongPress:()=>options(d.id,m),child:Padding(padding:const EdgeInsets.fromLTRB(12,8,8,6),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Row(mainAxisSize:MainAxisSize.min,children:[Flexible(child:Text(name,style:TextStyle(color:fg,fontSize:11,fontWeight:FontWeight.w600))),
+          IconButton(visualDensity:VisualDensity.compact,tooltip:'Message options',iconSize:16,color:fg,onPressed:()=>options(d.id,m),icon:const Icon(Icons.more_vert))]),
+        if(deleted)Text('This message was deleted',style:TextStyle(color:fg,fontStyle:FontStyle.italic))
+        else...[
+          if((m['text']??'').toString().isNotEmpty)Text(m['text'].toString(),style:TextStyle(color:fg,fontSize:m['kind']=='sticker'?48:15)),
+          if(a is Map)TextButton.icon(style:TextButton.styleFrom(foregroundColor:fg),onPressed:()=>download(a),icon:const Icon(Icons.file_download_outlined),label:Flexible(child:Text((a['name']??'Attachment').toString(),overflow:TextOverflow.ellipsis))),
+        ],
+        Text(stamp(m['createdAt']),style:TextStyle(color:fg,fontSize:10)),
+      ])))))),
+      if(mine)...[const SizedBox(width:6),AccountPicture(uid:sender,name:name,radius:15)]
+    ]));
+  }
+  @override
+  Widget build(BuildContext context){
+    final scheme=Theme.of(context).colorScheme;
+    return StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(stream:preferenceStream,builder:(context,pref){
+      final p=pref.data?.data()??{};
+      return Scaffold(appBar:AppBar(title:Text(widget.name??'School messages'),actions:[
+        IconButton(tooltip:'Scheduled messages',onPressed:queue,icon:const Icon(Icons.schedule)),
+        IconButton(tooltip:'Chat colors',onPressed:()=>colors(p,scheme),icon:const Icon(Icons.palette_outlined)),
+        IconButton(tooltip:'My profile picture',onPressed:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const AccountPicturePage())),icon:const Icon(Icons.account_circle_outlined)),
+      ]),body:SafeArea(child:Column(children:[
+        Expanded(child:ColoredBox(color:color(p,'background',scheme.surface),child:StreamBuilder<_Docs>(stream:hidden,builder:(context,h){
+          final hiddenIds=h.data?.docs.map((x)=>x.id).toSet()??<String>{};
+          return StreamBuilder<_Docs>(stream:messages,builder:(context,s){
+            if(s.hasError)return Center(child:Text(schoolErrorMessage(s.error!)));
+            if(h.hasError)return Center(child:Text(schoolErrorMessage(h.error!)));
+            if(!s.hasData||!h.hasData)return const Center(child:CircularProgressIndicator());
+            final docs=s.data!.docs.where((d)=>!hiddenIds.contains(d.id)).toList();
+            final more=s.data!.docs.length>=limit;
+            if(docs.isEmpty&&!more)return const Center(child:Text('No messages yet.'));
+            return ListView.builder(controller:scroll,reverse:true,padding:const EdgeInsets.symmetric(vertical:8),itemCount:docs.length+(more?1:0),itemBuilder:(context,i){
+              if(i==docs.length)return Center(child:TextButton(onPressed:()=>setState((){limit+=60;messages=repo.watch(widget.uid,limit);}),child:const Text('Load older messages')));
+              return bubble(docs[i],p,scheme);
+            });
+          });
+        }))),
+        if(busy)const LinearProgressIndicator(),
+        Padding(padding:const EdgeInsets.fromLTRB(6,4,6,8),child:Row(children:[
+          PopupMenuButton<String>(tooltip:'More message options',icon:const Icon(Icons.add_circle_outline),onSelected:(v){if(v=='file')attach();if(v=='sticker')picker(true);if(v=='schedule')schedule();},itemBuilder:(_)=>const [
+            PopupMenuItem(value:'file',child:Text('Attach document')),
+            PopupMenuItem(value:'sticker',child:Text('Send sticker')),
+            PopupMenuItem(value:'schedule',child:Text('Schedule message'))]),
+          IconButton(tooltip:'Emoji',onPressed:()=>picker(false),icon:const Icon(Icons.emoji_emotions_outlined)),
+          Expanded(child:TextField(controller:text,maxLength:2000,minLines:1,maxLines:4,decoration:const InputDecoration(hintText:'Message',counterText:'',isDense:true,border:OutlineInputBorder()))),
+          IconButton.filled(tooltip:'Send',onPressed:busy?null:()=>send(),icon:const Icon(Icons.send)),
+        ]))
+      ])));
+    });
+  }
+}
+class _ChatColors extends StatefulWidget{
+  const _ChatColors({required this.initial});
+  final Map<String,int> initial;
+  @override
+  State<_ChatColors> createState()=>_ChatColorsState();
+}
+class _ChatColorsState extends State<_ChatColors>{
+  late final values=Map<String,int>.from(widget.initial);
+  String selected='background';
+  @override
+  Widget build(BuildContext context){
+    final c=Color(values[selected]!);
+    return AlertDialog(title:const Text('Chat colors'),content:SizedBox(width:350,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      DropdownButton<String>(value:selected,items:const [DropdownMenuItem(value:'background',child:Text('Chat background')),DropdownMenuItem(value:'outgoing',child:Text('Sent message')),DropdownMenuItem(value:'incoming',child:Text('Received message'))],onChanged:(v)=>setState(()=>selected=v!)),
+      Container(height:44,decoration:BoxDecoration(color:c,borderRadius:BorderRadius.circular(8))),
+      for(final i in [0,1,2])...[
+        Align(alignment:Alignment.centerLeft,child:Text(['Red','Green','Blue'][i])),
+        Slider(min:0,max:255,divisions:255,value:((values[selected]!>>(16-i*8))&255).toDouble(),onChanged:(v)=>setState((){
+          final shift=16-i*8;values[selected]=(values[selected]!&~(255<<shift))|(v.round()<<shift)|0xff000000;
+        })),
+      ],
+      Wrap(spacing:8,runSpacing:8,children:[for(final v in [0xffeff3f1,0xffd9fdd3,0xffe7e5ff,0xffd8edff,0xffffe6d2,0xff263238,0xff005c4b,0xff455a64])
+        InkWell(onTap:()=>setState(()=>values[selected]=v),child:CircleAvatar(radius:16,backgroundColor:Color(v)))]),
+    ]))),actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(context,values),child:const Text('Save colors'))]);
+  }
+}

@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'school_user_service.dart';
 
 const backupCollections = <String>[
-  'users','classes','counters','students','student_photo_directory','staff','staff_contracts',
+  'users','account_pictures','chat_preferences','classes','counters','students','student_photo_directory','staff','staff_contracts',
   'exam_teacher_directory','attendance_class_assignments','attendance_teacher_links',
   'attendance_days','teacher_assignments','system_migrations','teacher_class_links',
   'class_rosters','classwork','exam_term_control','exam_term_cycles','examinations',
@@ -19,7 +19,7 @@ const backupCollections = <String>[
   'parent_profiles','parent_documents','parent_attendance','parent_class_grants',
   'parent_classwork_history','parent_class_schedules','parent_term_summaries',
 ];
-const backupGroups=['subjects','marks','students','messages','days','items','papers','classes'];
+const backupGroups=['subjects','marks','students','messages','days','items','papers','classes','scheduled'];
 
 class BackupDocument {
   const BackupDocument(this.path,this.data);

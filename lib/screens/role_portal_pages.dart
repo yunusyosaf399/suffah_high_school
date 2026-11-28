@@ -1,3 +1,4 @@
+export 'school_messages_page.dart';
 import 'student_avatar.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -332,67 +333,4 @@ class TeacherPersonalPage extends StatelessWidget{
         ]))),
       ];
     }));
-}
-class SchoolMessagesPage extends StatelessWidget {
-  const SchoolMessagesPage({super.key,this.admin=false});
-  final bool admin;
-  @override
-  Widget build(BuildContext context){
-    if(!admin)return const _ConversationPage();
-    return Scaffold(appBar:AppBar(title:const Text('School messages')),
-      body:_PortalLoad(load:()=>SchoolMessageRepository().threads(),content:(context,data){
-        final rows=portalRows(data['rows']);
-        return [
-          if(rows.isEmpty)_notice('No active parent or teacher messaging accounts.'),
-          for(final row in rows)Card(child:ListTile(title:Text(_value(row['name'])),subtitle:Text(_value(row['role'])),
-            leading:const Icon(Icons.forum_outlined),onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>
-              _ConversationPage(uid:row['uid'].toString(),name:row['name'].toString()))))),
-        ];
-      }));
-  }
-}
-class _ConversationPage extends StatefulWidget {
-  const _ConversationPage({this.uid,this.name});
-  final String? uid,name;
-  @override
-  State<_ConversationPage> createState()=>_ConversationPageState();
-}
-class _ConversationPageState extends State<_ConversationPage>{
-  final _text=TextEditingController();
-  final _client=SchoolMessageRepository();
-  bool _sending=false;
-  int _revision=0;
-  @override
-  void dispose(){_text.dispose();super.dispose();}
-  Future<void> _send()async{
-    final text=_text.text.trim();
-    if(text.isEmpty||_sending)return;
-    setState(()=>_sending=true);
-    try{
-      await _client.send(widget.uid,text);
-      if(mounted){_text.clear();setState(()=>_revision++);}
-    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));}
-    finally{if(mounted)setState(()=>_sending=false);}
-  }
-  @override
-  Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(widget.name??'School messages'),
-    actions:[IconButton(tooltip:'Refresh messages',onPressed:()=>setState(()=>_revision++),icon:const Icon(Icons.refresh))]),
-    body:SafeArea(child:Column(children:[
-      Expanded(child:_PortalLoad(key:ValueKey(_revision),load:()=>_client.messages(widget.uid),content:(context,data){
-        final rows=portalRows(data['rows']);
-        return [
-          if(rows.isEmpty)_notice('No messages yet.'),
-          for(final row in rows)Align(alignment:(row['fromSchool']==true)==(widget.uid!=null)?Alignment.centerRight:Alignment.centerLeft,
-            child:Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
-              Text(row['fromSchool']==true?'School administration':widget.name??'You',style:const TextStyle(fontWeight:FontWeight.w700)),
-              Text(_value(row['text'])),Text(_value(row['date']),style:Theme.of(context).textTheme.bodySmall),
-            ])))),
-        ];
-      })),
-      Padding(padding:const EdgeInsets.all(12),child:Row(children:[
-        Expanded(child:TextField(controller:_text,maxLength:2000,maxLines:3,minLines:1,
-          decoration:const InputDecoration(hintText:'Write a message'))),
-        IconButton(tooltip:'Send',onPressed:_sending?null:_send,icon:const Icon(Icons.send)),
-      ])),
-    ])));
 }
