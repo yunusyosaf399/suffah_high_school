@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -158,5 +160,24 @@ class SchoolMessageRepository {
       'createdAt':FieldValue.serverTimestamp(),'pushPending':true,
     });
     await batch.commit();
+    unawaited(_wakeNotification(target,message.id,uid));
   }
+  // Push is best-effort. A successful message write must never appear failed
+  // because the notification service is offline; cron retries queued events.
+  Future<void> _wakeNotification(String threadId,String messageId,String senderUid)async{
+    try{
+      final user=_auth.currentUser;
+      if(user==null||user.uid!=senderUid)return;
+      final token=await user.getIdToken();
+      if(token==null||_auth.currentUser?.uid!=senderUid)return;
+      const configured=String.fromEnvironment('NOTIFICATION_WORKER_URL',
+        defaultValue:'https://suffah-message-notifications.blog-younas.workers.dev');
+      final endpoint=Uri.tryParse(configured);
+      if(endpoint==null||endpoint.scheme!='https'||endpoint.host.isEmpty)return;
+      await http.post(endpoint.replace(path:'/v1/wake',queryParameters:{
+        'thread':threadId,'message':messageId,
+      }),headers:{'Authorization':'Bearer $token'}).timeout(const Duration(seconds:8));
+    }catch(_){/* The queued event is still available to cron. */}
+  }
+
 }

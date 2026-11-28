@@ -1,7 +1,7 @@
 name = "suffah-message-notifications"
 main = "src/index.js"
 compatibility_date = "2026-11-23"
-workers_dev = false
+workers_dev = true
 [vars]
 FIREBASE_PROJECT_ID = "suffah-high-school"
 [triggers]

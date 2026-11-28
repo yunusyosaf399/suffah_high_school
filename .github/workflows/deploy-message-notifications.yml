@@ -50,6 +50,7 @@ jobs:
           fi
           npm install --no-audit --no-fund
           node --check src/index.js
+          node --test test/*.test.mjs
           umask 077
           secret_file="$(mktemp)"
           trap 'rm -f "$secret_file"' EXIT
