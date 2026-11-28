@@ -192,12 +192,22 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   }
   Future<void> sendNotificationReply(String thread,String id,String text)async{
     try{
-      if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||text.length>4000)throw StateError('Reply unavailable. Open the conversation.');
+      if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||text.length>2000)throw StateError('Reply unavailable. Open the conversation.');
       // Re-read the original alert under the same role permissions; an old
       // notification must not send into a removed/reassigned conversation.
       final alert=(await FirebaseFirestore.instance.collection('message_alerts').doc(id).get(const GetOptions(source:Source.server))).data();
       if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||alert==null||alert['threadUid']!=thread||alert['fromSchool']!=!widget.admin)throw StateError('Original message is unavailable.');
       final account=uid!;
+      // The main activity is exported for ordinary Android launch intents.
+      // Never treat an arbitrary delivered intent as proof of a user send.
+      final confirmed=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+        title:const Text('Send reply?'),content:Text(text),actions:[
+          TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancel')),
+          FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Send')),
+        ],
+      ));
+      if(confirmed!=true){handledReplies.remove(id);return;}
+      if(!mounted||FirebaseAuth.instance.currentUser?.uid!=account||OfficeCalls.isOpen)throw StateError('Open the conversation to reply.');
       final repo=SchoolMessageRepository();
       final replyId='reply_${id}_$account';
       final existing=(await repo.thread(thread).collection('messages').doc(replyId).get(const GetOptions(source:Source.server))).data();

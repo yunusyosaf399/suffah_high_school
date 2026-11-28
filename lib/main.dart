@@ -111,7 +111,7 @@ class _AuthGateState extends State<AuthGate> {
   String? _profileUid;
   void _accessChanged(String access){
     if(_lastAccess!=null && _lastAccess!=access){
-      WidgetsBinding.instance.addPostFrameCallback((_){if(mounted)Navigator.of(context).popUntil((route)=>route.isFirst);});
+      WidgetsBinding.instance.addPostFrameCallback((_)async{await IncomingCallNotifications.lockScreen(false);if(mounted)Navigator.of(context).popUntil((route)=>route.isFirst);});
     }
     _lastAccess=access;
   }
