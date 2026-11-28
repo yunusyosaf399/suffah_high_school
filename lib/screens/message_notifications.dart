@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'school_messages_page.dart';
 import 'office_calls.dart';
+import 'call_audio.dart';
 import '../data/teacher_portal_repository.dart';
 
 typedef _Alerts=QuerySnapshot<Map<String,dynamic>>;
@@ -26,7 +27,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   String callReceiverStatus='Connecting to call receiver…';
   bool callChecking=false;
   bool get desktop=>!kIsWeb&&defaultTargetPlatform==TargetPlatform.windows;
-  bool get canReceiveCalls=>mounted&&widget.admin&&FirebaseAuth.instance.currentUser?.uid==uid
+  bool get canReceiveCalls=>mounted&&FirebaseAuth.instance.currentUser?.uid==uid
     &&OfficeCalls.canPresent(WidgetsBinding.instance.lifecycleState,desktop:desktop);
   void receiverStatus(String value){
     if(mounted&&callReceiverStatus!=value)setState(()=>callReceiverStatus=value);
@@ -35,9 +36,9 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
     if(!canReceiveCalls||OfficeCalls.isOpen)return;
     for(final call in ringingCalls){
       final data=call.data();
-      if(OfficeCalls.fresh(data)&&data['callId'] is String){
+      if(OfficeCalls.fresh(data)&&data['callId'] is String&&data['callerUid'] is String){
         WidgetsBinding.instance.addPostFrameCallback((_){
-          if(canReceiveCalls&&!OfficeCalls.isOpen)unawaited(OfficeCalls.receive(context,call.id,data['callId'] as String));
+          if(canReceiveCalls&&!OfficeCalls.isOpen)unawaited(OfficeCalls.receive(context,data['callerUid'] as String,data['callId'] as String));
         });
         WidgetsBinding.instance.ensureVisualUpdate();
         break;
@@ -45,10 +46,10 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
     }
   }
   void observeCalls(){
-    if(!mounted||!widget.admin)return;
+    if(!mounted||uid==null)return;
     final previous=callSub;
     if(previous!=null)unawaited(previous.cancel());
-    callSub=OfficeCalls.incoming.snapshots(includeMetadataChanges:true).listen((s){
+    callSub=OfficeCalls.incoming(widget.admin?'office':uid!).snapshots(includeMetadataChanges:true).listen((s){
       if(!mounted)return;
       // Cache events are useful hints; receive() revalidates on the server
       // before presenting a call. Metadata updates confirm connectivity.
@@ -64,7 +65,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
     if(!canReceiveCalls||callChecking||(!manual&&OfficeCalls.isOpen))return;
     callChecking=true;
     try{
-      final s=await OfficeCalls.incoming.get(const GetOptions(source:Source.server)).timeout(const Duration(seconds:12));
+      final s=await OfficeCalls.incoming(widget.admin?'office':uid!).get(const GetOptions(source:Source.server)).timeout(const Duration(seconds:12));
       if(!mounted)return;
       ringingCalls=s.docs;
       receiverStatus('Office call receiver online');
@@ -77,7 +78,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
-    if(state==AppLifecycleState.resumed&&widget.admin){showIncoming();unawaited(checkCalls());}
+    if(state==AppLifecycleState.resumed){showIncoming();unawaited(checkCalls());}
   }
   Stream<_Alerts>? stream;
   StreamSubscription<DocumentSnapshot<Map<String,dynamic>>>? readSub;
@@ -96,7 +97,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
     try{
       uid=FirebaseAuth.instance.currentUser?.uid;
       if(uid==null)return;
-      if(widget.admin){
+      {
         observeCalls();
         // Windows may miss native snapshot callbacks. A small server poll
         // is a fallback while the office dashboard is running.
@@ -147,7 +148,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
     try{
       if(!mounted||uid==null||FirebaseAuth.instance.currentUser?.uid!=uid)return;
       await FirebaseFirestore.instance.collection('push_devices').doc(token).set({
-        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),
+        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':await SchoolCallAudio.channelId(),
       });
     }catch(_){}
   }
@@ -155,7 +156,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
     // The worker supplies no private content; the account dashboard and
     // conversation queries are independently authorized by Firestore.
     if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||message.data['recipientUid']!=uid)return;
-    if(widget.admin&&message.data['type']=='office_call'){
+    if(message.data['type']=='office_call_v2'){
       final caller=message.data['callerUid'],call=message.data['callId'];
       if(caller is String&&call is String)unawaited(OfficeCalls.receive(context,caller,call));
       return;

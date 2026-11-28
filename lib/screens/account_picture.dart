@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import '../data/teacher_portal_repository.dart';
 import 'school_voice_message.dart';
+import 'call_audio.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -97,6 +98,7 @@ class _AccountPicturePageState extends State<AccountPicturePage>{
       FilledButton.icon(onPressed:busy?null:()=>change(false),icon:const Icon(Icons.photo_library_outlined),label:const Text('Upload or replace picture')),
       TextButton(onPressed:busy?null:()=>change(true),child:const Text('Remove picture')),
       if(busy)const CircularProgressIndicator(),
+      if(widget.fromMessages)Card(child:ListTile(leading:const Icon(Icons.music_note),title:const Text('Call ringtone'),subtitle:const Text('Choose your own ringing sound'),trailing:const Icon(Icons.chevron_right),onTap:()=>SchoolCallAudio.choose(context))),
       if(widget.fromMessages&&messageRepo!=null)FutureBuilder<bool>(future:ownerAccess,builder:(context,access){
         if(access.data!=true)return const SizedBox.shrink();
         final repo=messageRepo!;

@@ -309,11 +309,12 @@ class _ConversationState extends State<_Conversation>{
           IconButton(visualDensity:VisualDensity.compact,tooltip:'Message options',iconSize:16,color:fg,onPressed:()=>options(d.id,m),icon:const Icon(Icons.more_vert))]),
         if(deleted)Text('This message was deleted',style:TextStyle(color:fg,fontStyle:FontStyle.italic))
         else...[
+          if(m['kind']=='call')ListTile(contentPadding:EdgeInsets.zero,leading:Icon(m['callStatus']=='completed'?(mine?Icons.call_made:Icons.call_received):Icons.call_missed,color:m['callStatus']=='completed'?fg:Colors.redAccent),title:Text(m['callStatus']=='completed'?'Voice call':m['callStatus']=='declined'?'Declined call':'Missed call',style:TextStyle(color:fg,fontWeight:FontWeight.w600)),subtitle:Text(m['callStatus']=='completed'?'${(m['durationSeconds'] as num? ?? 0).toInt()~/60} min ${(m['durationSeconds'] as num? ?? 0).toInt()%60} sec':mine?'Outgoing call':'Incoming call',style:TextStyle(color:fg)),onTap:()=>OfficeCalls.dial(context,targetUid:widget.uid,name:widget.name)),
           if((m['text']??'').toString().isNotEmpty)Text(m['text'].toString(),style:TextStyle(color:fg,fontSize:m['kind']=='sticker'?48:15)),
           if(m['kind']=='voice'&&a is Map)SchoolVoicePlayer(key:ValueKey(d.id),durationMs:(a['durationMs'] as num?)?.toInt()??0,load:()=>repo.voiceFile(widget.uid,d.id),onPlayed:mine?null:()=>ack(d.id,played:true),foreground:fg)
           else if(a is Map)TextButton.icon(style:TextButton.styleFrom(foregroundColor:fg),onPressed:()=>download(a),icon:const Icon(Icons.file_download_outlined),label:Flexible(child:Text((a['name']??'Attachment').toString(),overflow:TextOverflow.ellipsis))),
         ],
-        Row(mainAxisSize:MainAxisSize.min,children:[Text(stamp(m['createdAt']),style:TextStyle(color:fg,fontSize:10)),if(mine&&!deleted)...[const SizedBox(width:4),Tooltip(message:d.metadata.hasPendingWrites?'Sending':m['readAt']!=null?'Read / played':m['deliveredAt']!=null?'Delivered · unread':'Sent',child:Icon(d.metadata.hasPendingWrites?Icons.schedule:m['deliveredAt']!=null?Icons.done_all:Icons.done,size:16,color:m['readAt']!=null?Colors.lightBlueAccent:fg.withValues(alpha:.65)))]]),
+        Row(mainAxisSize:MainAxisSize.min,children:[Text(stamp(m['createdAt']),style:TextStyle(color:fg,fontSize:10)),if(mine&&!deleted&&m['kind']!='call')...[const SizedBox(width:4),Tooltip(message:d.metadata.hasPendingWrites?'Sending':m['readAt']!=null?'Read / played':m['deliveredAt']!=null?'Delivered · unread':'Sent',child:Icon(d.metadata.hasPendingWrites?Icons.schedule:m['deliveredAt']!=null?Icons.done_all:Icons.done,size:16,color:m['readAt']!=null?Colors.lightBlueAccent:fg.withValues(alpha:.65)))]]),
       ])))))),
       if(mine)...[const SizedBox(width:6),AccountPicture(uid:sender,name:name,radius:15)]
     ])));
@@ -324,7 +325,7 @@ class _ConversationState extends State<_Conversation>{
     return StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(stream:preferenceStream,builder:(context,pref){
       final p=pref.data?.data()??{};
       return Scaffold(appBar:AppBar(title:Text(widget.name??'School messages'),actions:[
-        if(widget.uid==null)IconButton(tooltip:'Call school office',onPressed:()=>OfficeCalls.dial(context),icon:const Icon(Icons.call_outlined)),
+        IconButton(tooltip:widget.uid==null?'Call school office':'Call participant',onPressed:()=>OfficeCalls.dial(context,targetUid:widget.uid,name:widget.name),icon:const Icon(Icons.call_outlined)),
         IconButton(tooltip:'Scheduled messages',onPressed:queue,icon:const Icon(Icons.schedule)),
         IconButton(tooltip:'Chat colors',onPressed:()=>colors(p,scheme),icon:const Icon(Icons.palette_outlined)),
         FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true&&widget.uid!=null?IconButton(tooltip:'Delete conversation for everyone',icon:const Icon(Icons.delete_outline),onPressed:()async{if(await _confirmConversationDeletion(context,repo,uid:widget.uid,name:widget.name)&&context.mounted)Navigator.pop(context);}):const SizedBox.shrink()),

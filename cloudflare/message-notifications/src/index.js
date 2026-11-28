@@ -346,9 +346,86 @@ async function callWake(req,env,uid,callId){
   return new Response(null,{status:204});
 }
 
+
+async function callV2Wake(req,env,uid,callId){
+  if(!/^[A-Za-z0-9_-]{20}$/.test(callId))return new Response('Invalid call',{status:400});
+  if(!await callIdentity(req,env,uid))return new Response('Forbidden',{status:403});
+  const auth=await clientRead(req,env,'/office_calls_v2/'+callId);
+  const f=auth?.doc?.fields||{};
+  if(!auth||auth.uid!==uid||f.callerUid?.stringValue!==uid||f.status?.stringValue!=='ringing'||Date.parse(f.expiresAt?.timestampValue)<=Date.now())return new Response('Expired',{status:409});
+  if(f.pushNotified?.booleanValue===true)return new Response(null,{status:204});
+  const token=await access(env);
+  try{await request(base(env)+'/office_calls_v2/'+callId+'?updateMask.fieldPaths=pushNotified&currentDocument.updateTime='+encodeURIComponent(auth.doc.updateTime),token,{method:'PATCH',body:JSON.stringify({fields:{pushNotified:B(true)}})});}catch(e){if(/status (409|412)$/.test(e.message))return new Response(null,{status:204});throw e;}
+  const target=f.targetUid.stringValue;
+  let recipients=[target];
+  if(target==='office'){
+    const principals=await query(env,token,'users',F('role','EQUAL',S('principal')),25);
+    recipients=[owner,...principals.filter(active).map(id)];
+  }
+  recipients=[...new Set(recipients)].filter(x=>x!==uid);
+  if(!recipients.length)return new Response(null,{status:204});
+  const devices=await query(env,token,'push_devices',F('uid','IN',{arrayValue:{values:recipients.map(S)}}),12);
+  for(const device of devices){
+    const recipient=device.fields.uid?.stringValue;
+    if(!recipients.includes(recipient))continue;
+    const channel=device.fields.callChannel?.stringValue||'school_calls';
+    const body={message:{token:id(device),notification:{title:'Suffah High School',body:'Incoming voice call — tap to answer'},data:{type:'office_call_v2',recipientUid:recipient,callerUid:uid,callId},android:{priority:'HIGH',ttl:'45s',notification:{tag:'call-'+callId,channel_id:channel,sound:'default',notification_priority:'PRIORITY_HIGH'}}}};
+    const res=await fetch('https://fcm.googleapis.com/v1/projects/'+encodeURIComponent(env.FIREBASE_PROJECT_ID)+'/messages:send',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body),redirect:'manual'});
+    if(!res.ok)console.warn('Call push status',res.status);
+  }
+  return new Response(null,{status:204});
+}
+export function callOutcome(f,now=Date.now()){
+  const connected=Date.parse(f.mediaConnectedAt?.timestampValue);
+  const due=Date.parse(f.historyDueAt?.timestampValue);
+  const terminal=['ended','declined','missed'].includes(f.status?.stringValue);
+  const end=terminal?Date.parse(f.updatedAt?.timestampValue):Math.min(now,due);
+  if(Number.isFinite(connected)&&Number.isFinite(end)&&end>=connected)return {status:'completed',seconds:Math.min(3600,Math.floor((end-connected)/1000))};
+  return {status:f.status?.stringValue==='declined'?'declined':'missed',seconds:0};
+}
+async function finalizeCall(env,token,d){
+  const f=d.fields||{},callId=id(d),thread=f.threadUid?.stringValue,caller=f.callerUid?.stringValue;
+  if(!/^[A-Za-z0-9_-]{20}$/.test(callId)||! /^[A-Za-z0-9_-]{1,128}$/.test(thread||'')||!caller)return;
+  if(!f.historyDueAt||Date.parse(f.historyDueAt.timestampValue)>Date.now())return;
+  const root=rootName(env),outcome=callOutcome(f);
+  const cleanup=await cleanupState(env,token);
+  const cutoff=Date.parse(cleanup?.fields?.completedAt?.timestampValue||cleanup?.fields?.requestedAt?.timestampValue);
+  const affected=cleanup&&(cleanup.fields.scope?.stringValue==='all'||cleanup.fields.threadUid?.stringValue===thread);
+  const skip=affected&&(blocked(cleanup,thread)||Date.parse(f.createdAt?.timestampValue)<=cutoff);
+  const writes=[];
+  if(!skip){
+    const participant=await user(env,token,thread);
+    const existing=await optionalDoc(env,token,'/portal_threads/'+thread);
+    if(!existing&&participant)writes.push({update:{name:root+'portal_threads/'+thread,fields:{uid:S(thread),name:participant.fields.displayName||S(''),role:participant.fields.role,updatedAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}});
+    writes.push({update:{name:root+'portal_threads/'+thread+'/messages/'+callId,fields:{
+      text:S(''),kind:S('call'),senderUid:S(caller),fromSchool:B(f.targetUid.stringValue!=='office'),
+      createdAt:{timestampValue:f.createdAt.timestampValue},callStatus:S(outcome.status),durationSeconds:{integerValue:String(outcome.seconds)}
+    }},currentDocument:{exists:false}});
+  }
+  // Delete signaling atomically with the durable chat entry; never retain SDP.
+  writes.push({delete:d.name,currentDocument:{updateTime:d.updateTime}});
+  await request(base(env)+':commit',token,{method:'POST',body:JSON.stringify({writes})});
+}
+async function callHistoryWake(req,env,callId){
+  if(!/^[A-Za-z0-9_-]{20}$/.test(callId))return new Response('Invalid call',{status:400});
+  const auth=await clientRead(req,env,'/office_calls_v2/'+callId);
+  if(!auth)return new Response('Forbidden',{status:403});
+  await finalizeCall(env,await access(env),auth.doc);
+  return new Response(null,{status:204});
+}
+async function cleanupCalls(env,token){
+  const due=await query(env,token,'office_calls_v2',F('historyDueAt','LESS_THAN_OR_EQUAL',{timestampValue:new Date().toISOString()}),3,[{field:{fieldPath:'historyDueAt'},direction:'ASCENDING'}]);
+  for(const d of due)await finalizeCall(env,token,d);
+}
+
 export default {
   async fetch(request,env,ctx){
     const url=new URL(request.url);
+    if(url.pathname==='/v1/call-v2-wake'||url.pathname==='/v1/call-history'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405});
+      try{return url.pathname==='/v1/call-v2-wake'?await callV2Wake(request,env,url.searchParams.get('uid')||'',url.searchParams.get('call')||''):await callHistoryWake(request,env,url.searchParams.get('call')||'');}
+      catch(e){console.error('Call history or wake failed',e.message);return new Response('Retry later',{status:503});}
+    }
     if(url.pathname==='/v1/call-ice'||url.pathname==='/v1/call-wake'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405});
       try{
@@ -390,5 +467,6 @@ export default {
       if(job)await dispatch(env,token,job);
     }catch(e){console.error('Message push processing failed',e.message);}
     try{await cleanupVoice(env,await access(env));}catch(e){console.error('Voice cleanup failed',e.message);}
+    try{await cleanupCalls(env,await access(env));}catch(e){console.error('Call history cleanup failed',e.message);}
   },
 };
