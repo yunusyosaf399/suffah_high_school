@@ -86,6 +86,7 @@ async function authenticateWake(request,env,thread,alert){
 async function deliver(env,token,d){
   const f=d.fields||{},thread=f.threadUid?.stringValue,sender=f.senderUid?.stringValue,fromSchool=f.fromSchool?.booleanValue;
   if(!thread||!sender||typeof fromSchool!=='boolean'||Date.now()-Date.parse(f.createdAt?.timestampValue)>86400000){await mark(env,token,d);return;}
+  if(blocked(await cleanupState(env,token),thread))return;
   const participant=await user(env,token,thread);
   const role=participant?.fields?.role?.stringValue;
   if(!active(participant)||!['parent','teacher'].includes(role)){await mark(env,token,d);return;}
@@ -137,6 +138,12 @@ async function optionalDoc(env,token,path){
   try{return await request(base(env)+path,token);}
   catch(e){if(e.message==='Google API status 404')return null;throw e;}
 }
+async function cleanupState(env,token){
+  return optionalDoc(env,token,'/chat_cleanup/current');
+}
+function blocked(job,thread){
+  return job&&job.fields?.status?.stringValue!=='done'&&(job.fields?.scope?.stringValue==='all'||job.fields?.threadUid?.stringValue===thread);
+}
 async function voiceRequest(req,env,thread,message){
   const messagePath='/portal_threads/'+thread+'/messages/'+message;
   const jobPath='/voice_jobs/'+message;
@@ -152,6 +159,7 @@ async function voiceRequest(req,env,thread,message){
   const auth=await clientRead(req,env,'/portal_threads/'+thread);
   if(!auth)return new Response('Forbidden',{status:403});
   const token=await access(env),source=await user(env,token,auth.uid),target=await user(env,token,thread);
+  if(blocked(await cleanupState(env,token),thread))return new Response('Conversation is being deleted',{status:409});
   const school=auth.uid===owner||source?.fields?.role?.stringValue==='principal';
   if(!active(source)||!active(target)||!['parent','teacher'].includes(target.fields.role?.stringValue)||(!school&&auth.uid!==thread))return new Response('Forbidden',{status:403});
   if(req.headers.get('Content-Type')!=='audio/mp4')return new Response('Invalid audio',{status:415});
@@ -173,7 +181,9 @@ async function voiceRequest(req,env,thread,message){
     createdAt:{timestampValue:new Date(now).toISOString()}
   }})});
   await env.VOICE_FILES.put(voiceKey(thread,message),bytes,{httpMetadata:{contentType:'audio/mp4'}});
+  try{if(blocked(await cleanupState(env,token),thread))throw Error('Conversation cleanup in progress');
   await request(base(env)+jobPath+'?updateMask.fieldPaths=ready&updateMask.fieldPaths=expiresAt&currentDocument.updateTime='+encodeURIComponent(job.updateTime),token,{method:'PATCH',body:JSON.stringify({fields:{ready:B(true),expiresAt:{timestampValue:new Date(expires).toISOString()}}})});
+  }catch(e){await env.VOICE_FILES.delete(voiceKey(thread,message));throw e;}
   return new Response(null,{status:201});
 }
 async function purgeVoice(env,token,job){
@@ -201,6 +211,76 @@ async function cleanupVoice(env,token){
   for(const job of due)await purgeVoice(env,token,job);
 }
 
+
+// Owner creates one durable cleanup request. Server processes bounded batches;
+// the write freeze prevents new messages being mixed into the deletion.
+const rootName=env=>'projects/'+env.FIREBASE_PROJECT_ID+'/databases/(default)/documents/';
+async function listDocs(env,token,path,limit=12){
+  const data=await request(base(env)+'/'+path+'?pageSize='+limit+'&showMissing=true',token);
+  return data.documents||[];
+}
+async function deleteDocs(env,token,names){
+  if(names.length)await request(base(env)+':commit',token,{method:'POST',body:JSON.stringify({writes:names.map(name=>({delete:name}))})});
+}
+async function updateCleanup(env,token,job,fields){
+  const mask=Object.keys(fields).map(k=>'updateMask.fieldPaths='+encodeURIComponent(k)).join('&');
+  return request(base(env)+'/chat_cleanup/current?'+mask+'&currentDocument.updateTime='+encodeURIComponent(job.updateTime),token,{method:'PATCH',body:JSON.stringify({fields})});
+}
+async function deleteVoiceJobs(env,token,jobs){
+  const keys=jobs.map(j=>voiceKey(j.fields.threadUid.stringValue,id(j)));
+  if(keys.length)await env.VOICE_FILES.delete(keys);
+  await deleteDocs(env,token,jobs.map(j=>j.name));
+}
+async function cleanupThreadBatch(env,token,thread){
+  const path='portal_threads/'+thread;
+  const jobs=await query(env,token,'voice_jobs',F('threadUid','EQUAL',S(thread)),12);
+  if(jobs.length){await deleteVoiceJobs(env,token,jobs);return false;}
+  const msgs=await listDocs(env,token,path+'/messages');
+  if(msgs.length){await deleteDocs(env,token,msgs.map(d=>d.name));return false;}
+  const scheduled=await listDocs(env,token,path+'/scheduled');
+  if(scheduled.length){await deleteDocs(env,token,scheduled.map(d=>d.name));return false;}
+  const alerts=await query(env,token,'message_alerts',F('threadUid','EQUAL',S(thread)),12);
+  if(alerts.length){await deleteDocs(env,token,alerts.map(d=>d.name));return false;}
+  const viewers=await listDocs(env,token,path+'/hidden',1);
+  if(viewers.length){
+    const items=await listDocs(env,token,path+'/hidden/'+id(viewers[0])+'/items');
+    await deleteDocs(env,token,items.length?items.map(d=>d.name):[viewers[0].name]);
+    return false;
+  }
+  // Catch uncommitted objects without jobs, restricted to this exact prefix.
+  const objects=await env.VOICE_FILES.list({prefix:'voice-messages/'+thread+'/',limit:100});
+  if(objects.objects.length){await env.VOICE_FILES.delete(objects.objects.map(o=>o.key));return false;}
+  await deleteDocs(env,token,[rootName(env)+path]);
+  return true;
+}
+async function runChatCleanup(env,token){
+  let job=await cleanupState(env,token);
+  if(!job||job.fields?.status?.stringValue==='done')return false;
+  if(Date.parse(job.fields?.leaseUntil?.timestampValue)>Date.now())return true;
+  try{job=await updateCleanup(env,token,job,{status:S('running'),leaseUntil:{timestampValue:new Date(Date.now()+90000).toISOString()}});}
+  catch(e){if(/status (400|409|412)$/.test(e.message))return true;throw e;}
+  const all=job.fields.scope.stringValue==='all';
+  let complete=false;
+  // Each invocation uses bounded REST and R2 calls, suitable for a free Worker.
+  for(let step=0;step<3;step++){
+    const thread=all?idOrNull((await listDocs(env,token,'portal_threads',1))[0]):job.fields.threadUid.stringValue;
+    if(!thread){
+      const jobs=await listDocs(env,token,'voice_jobs');
+      if(jobs.length){await deleteVoiceJobs(env,token,jobs);continue;}
+      const alerts=await listDocs(env,token,'message_alerts');
+      if(alerts.length){await deleteDocs(env,token,alerts.map(d=>d.name));continue;}
+      const objects=await env.VOICE_FILES.list({prefix:'voice-messages/',limit:100});
+      if(objects.objects.length){await env.VOICE_FILES.delete(objects.objects.map(o=>o.key));continue;}
+      complete=true;break;
+    }
+    const done=await cleanupThreadBatch(env,token,thread);
+    if(done&&!all){complete=true;break;}
+  }
+  await updateCleanup(env,token,job,{status:S(complete?'done':'running'),leaseUntil:{nullValue:null},...(complete?{completedAt:{timestampValue:new Date().toISOString()}}:{})});
+  return true;
+}
+function idOrNull(d){return d?id(d):null;}
+
 export default {
   async fetch(request,env,ctx){
     const url=new URL(request.url);
@@ -219,6 +299,7 @@ export default {
     }catch(e){console.error('Wake request failed',e.message);return new Response('Retry via queue',{status:503});}
   },
   async scheduled(_event,env){
+    try{if(await runChatCleanup(env,await access(env)))return;}catch(e){console.error('Conversation cleanup failed',e.message);return;}
     try{
       const token=await access(env);
       // Skip leased events without blocking the next available queued event.

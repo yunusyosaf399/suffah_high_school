@@ -156,6 +156,15 @@ class SchoolMessageRepository {
       if(exists)tx.update(job,{'expiresAt':FieldValue.serverTimestamp()});
     });
   }
+  DocumentReference<Map<String,dynamic>> get cleanupRequest=>_db.collection('chat_cleanup').doc('current');
+  Future<void> deleteConversations(String? threadUid)async{
+    if(!await isOwner())throw StateError('Only the owner can delete conversations.');
+    await _db.runTransaction((tx)async{
+      final existing=(await tx.get(cleanupRequest)).data();
+      if(existing!=null&&existing['status']!='done')throw StateError('Another conversation deletion is in progress.');
+      tx.set(cleanupRequest,{'scope':threadUid==null?'all':'thread','threadUid':threadUid??'','status':'queued','requestedAt':FieldValue.serverTimestamp()});
+    });
+  }
   Future<bool> isOwner()async=>(await _db.collection('users').doc(_uid).get(_server)).data()?['role']=='owner';
   DocumentReference<Map<String,dynamic>> get voiceSettings=>_db.collection('voice_settings').doc('global');
   Future<void> receipt(String? uid,String id,{bool read=false,bool played=false})async{

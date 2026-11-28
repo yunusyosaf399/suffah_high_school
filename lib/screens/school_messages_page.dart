@@ -90,9 +90,8 @@ class _ConversationState extends State<_Conversation>{
     try{await repo.receipt(widget.uid,id,read:true,played:played);}catch(e){if(played)error(e);}
     finally{acknowledging.remove(id);}
   }
-  Future<void> recordVoice()async{
-    final clip=await showDialog<VoiceClip>(context:context,barrierDismissible:false,builder:(_)=>const VoiceRecorderDialog());
-    if(clip==null||!mounted||pendingVoice!=null)return;
+  Future<void> recordVoice(VoiceClip clip)async{
+    if(!mounted||pendingVoice!=null)return;
     setState((){pendingVoice=clip;pendingVoiceId=repo.reserveMessageId(widget.uid);voiceFailure=null;});
     await uploadVoice();
   }
@@ -286,16 +285,14 @@ class _ConversationState extends State<_Conversation>{
           });
         }))),
         if(busy)const LinearProgressIndicator(),
-        Padding(padding:const EdgeInsets.fromLTRB(6,4,6,8),child:Row(children:[
+        InlineVoiceComposer(controller:text,enabled:!busy&&pendingVoice==null,onSendText:()=>send(),onVoice:recordVoice,onError:error,leading:[
           PopupMenuButton<String>(tooltip:'More message options',icon:const Icon(Icons.add_circle_outline),onSelected:(v){if(v=='file')attach();if(v=='sticker')picker(true);if(v=='schedule')schedule();},itemBuilder:(_)=>const [
             PopupMenuItem(value:'file',child:Text('Attach document')),
             PopupMenuItem(value:'sticker',child:Text('Send sticker')),
             PopupMenuItem(value:'schedule',child:Text('Schedule message'))]),
           IconButton(tooltip:'Emoji',onPressed:()=>picker(false),icon:const Icon(Icons.emoji_emotions_outlined)),
-          Expanded(child:TextField(controller:text,maxLength:2000,minLines:1,maxLines:4,decoration:const InputDecoration(hintText:'Message',counterText:'',isDense:true,border:OutlineInputBorder()))),
-          IconButton(tooltip:'Record voice message',onPressed:busy||pendingVoice!=null?null:recordVoice,icon:const Icon(Icons.mic)),
-          IconButton.filled(tooltip:'Send',onPressed:busy?null:()=>send(),icon:const Icon(Icons.send)),
-        ]))
+        ])
+
       ])));
     });
   }
