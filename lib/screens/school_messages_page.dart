@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:typed_data';
+import 'package:visibility_detector/visibility_detector.dart';
+import 'school_voice_message.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -23,8 +27,10 @@ class _ThreadListState extends State<_ThreadList>{
   final repo=SchoolMessageRepository();
   late Future<Map<String,dynamic>> rows=repo.threads();
   String query='';
+  late final Future<bool> owner=repo.isOwner();
   @override
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('School messages'),actions:[
+    FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true?IconButton(tooltip:'Voice retention',onPressed:()=>showVoiceRetention(context,repo),icon:const Icon(Icons.auto_delete_outlined)):const SizedBox.shrink()),
     IconButton(tooltip:'My picture',onPressed:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>const AccountPicturePage())),icon:const Icon(Icons.account_circle_outlined)),
     IconButton(tooltip:'Refresh conversations',onPressed:()=>setState(()=>rows=repo.threads()),icon:const Icon(Icons.refresh))
   ]),body:Column(children:[
@@ -60,16 +66,27 @@ class _ConversationState extends State<_Conversation>{
   late final preferences=FirebaseFirestore.instance.collection('chat_preferences').doc(me);
   late final preferenceStream=preferences.snapshots();
   bool busy=false;
+  final Set<String> acknowledging={};
+  Future<void> ack(String id,{bool played=false})async{
+    if(!acknowledging.add(id))return;
+    try{await repo.receipt(widget.uid,id,read:true,played:played);}catch(e){if(played)error(e);}
+    finally{acknowledging.remove(id);}
+  }
+  Future<void> recordVoice()async{
+    final clip=await showDialog<VoiceClip>(context:context,barrierDismissible:false,builder:(_)=>const VoiceRecorderDialog());
+    if(clip==null||!mounted)return;
+    await send(value:'',kind:'voice',attachment:{'durationMs':clip.durationMs,'contentType':'audio/mp4'},voice:clip.bytes);
+  }
   static const emojis=['😀','😂','😊','❤️','👍','🙏','🎉','✅','📚','✏️','⭐','🤝','😢','👏','🌷','👋'];
   void error(Object e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));}
   @override
   void dispose(){text.dispose();scroll.dispose();super.dispose();}
-  Future<void> send({String? value,String kind='text',Map<String,dynamic>? attachment,DateTime? at})async{
+  Future<void> send({String? value,String kind='text',Map<String,dynamic>? attachment,DateTime? at,Uint8List? voice})async{
     final content=value??text.text.trim();
     if(busy||(content.isEmpty&&attachment==null))return;
     setState(()=>busy=true);
     try{
-      await repo.send(widget.uid,content,kind:kind,attachment:attachment,sendAt:at);
+      await repo.send(widget.uid,content,kind:kind,attachment:attachment,sendAt:at,voice:voice);
       if(mounted){
         if(value==null&&text.text.trim()==content)text.clear();
         if(at!=null)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Message scheduled. Requires the school delivery service.')));
@@ -169,7 +186,9 @@ class _ConversationState extends State<_Conversation>{
     final sender=m['senderUid']?.toString()??'',name=mine?'You':m['fromSchool']==true?'School administration':widget.name??'Participant';
     final bg=color(p,mine?'outgoing':'incoming',mine?scheme.primaryContainer:scheme.surfaceContainerHighest),fg=readable(bg);
     final a=m['attachment'];
-    return Padding(padding:const EdgeInsets.symmetric(vertical:4,horizontal:8),child:Row(mainAxisAlignment:mine?MainAxisAlignment.end:MainAxisAlignment.start,crossAxisAlignment:CrossAxisAlignment.end,children:[
+    return VisibilityDetector(key:ValueKey('visible-${d.id}'),onVisibilityChanged:(v){
+      if(mounted&&!mine&&!deleted&&v.visibleFraction>=0.5&&ModalRoute.of(context)?.isCurrent==true&&WidgetsBinding.instance.lifecycleState==AppLifecycleState.resumed&&(m['deliveredAt']==null||(m['kind']!='voice'&&m['readAt']==null)))unawaited(ack(d.id));
+    },child:Padding(padding:const EdgeInsets.symmetric(vertical:4,horizontal:8),child:Row(mainAxisAlignment:mine?MainAxisAlignment.end:MainAxisAlignment.start,crossAxisAlignment:CrossAxisAlignment.end,children:[
       if(!mine)...[AccountPicture(uid:sender,name:name,radius:15),const SizedBox(width:6)],
       Flexible(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:480),child:Material(color:bg,borderRadius:BorderRadius.circular(14),child:InkWell(borderRadius:BorderRadius.circular(14),onLongPress:()=>options(d.id,m),child:Padding(padding:const EdgeInsets.fromLTRB(12,8,8,6),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
         Row(mainAxisSize:MainAxisSize.min,children:[Flexible(child:Text(name,style:TextStyle(color:fg,fontSize:11,fontWeight:FontWeight.w600))),
@@ -177,12 +196,13 @@ class _ConversationState extends State<_Conversation>{
         if(deleted)Text('This message was deleted',style:TextStyle(color:fg,fontStyle:FontStyle.italic))
         else...[
           if((m['text']??'').toString().isNotEmpty)Text(m['text'].toString(),style:TextStyle(color:fg,fontSize:m['kind']=='sticker'?48:15)),
-          if(a is Map)TextButton.icon(style:TextButton.styleFrom(foregroundColor:fg),onPressed:()=>download(a),icon:const Icon(Icons.file_download_outlined),label:Flexible(child:Text((a['name']??'Attachment').toString(),overflow:TextOverflow.ellipsis))),
+          if(m['kind']=='voice'&&a is Map)SchoolVoicePlayer(key:ValueKey(d.id),durationMs:(a['durationMs'] as num?)?.toInt()??0,load:()=>repo.voiceBytes(widget.uid,d.id),onPlayed:mine?null:()=>ack(d.id,played:true),foreground:fg)
+          else if(a is Map)TextButton.icon(style:TextButton.styleFrom(foregroundColor:fg),onPressed:()=>download(a),icon:const Icon(Icons.file_download_outlined),label:Flexible(child:Text((a['name']??'Attachment').toString(),overflow:TextOverflow.ellipsis))),
         ],
-        Text(stamp(m['createdAt']),style:TextStyle(color:fg,fontSize:10)),
+        Row(mainAxisSize:MainAxisSize.min,children:[Text(stamp(m['createdAt']),style:TextStyle(color:fg,fontSize:10)),if(mine&&!deleted)...[const SizedBox(width:4),Tooltip(message:d.metadata.hasPendingWrites?'Sending':m['readAt']!=null?'Read / played':m['deliveredAt']!=null?'Delivered · unread':'Sent',child:Icon(d.metadata.hasPendingWrites?Icons.schedule:m['deliveredAt']!=null?Icons.done_all:Icons.done,size:16,color:m['readAt']!=null?Colors.lightBlueAccent:fg.withValues(alpha:.65)))]]),
       ])))))),
       if(mine)...[const SizedBox(width:6),AccountPicture(uid:sender,name:name,radius:15)]
-    ]));
+    ])));
   }
   @override
   Widget build(BuildContext context){
@@ -217,6 +237,7 @@ class _ConversationState extends State<_Conversation>{
             PopupMenuItem(value:'schedule',child:Text('Schedule message'))]),
           IconButton(tooltip:'Emoji',onPressed:()=>picker(false),icon:const Icon(Icons.emoji_emotions_outlined)),
           Expanded(child:TextField(controller:text,maxLength:2000,minLines:1,maxLines:4,decoration:const InputDecoration(hintText:'Message',counterText:'',isDense:true,border:OutlineInputBorder()))),
+          IconButton(tooltip:'Record voice message',onPressed:busy?null:recordVoice,icon:const Icon(Icons.mic)),
           IconButton.filled(tooltip:'Send',onPressed:busy?null:()=>send(),icon:const Icon(Icons.send)),
         ]))
       ])));

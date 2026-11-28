@@ -20,6 +20,10 @@ dependencies:
   archive: ^4.7.1
   file_picker: ^10.3.10
   flutter_image_compress: ^2.5.1
+  record: ^6.1.2
+  audioplayers: ^6.5.1
+  path_provider: ^2.1.5
+  visibility_detector: ^0.4.0+2
 
 dev_dependencies:
   flutter_test:

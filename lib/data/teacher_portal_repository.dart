@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -127,11 +128,55 @@ class SchoolMessageRepository {
   Stream<QuerySnapshot<Map<String,dynamic>>> scheduled(String? uid)=>thread(uid).collection('scheduled').where('senderUid',isEqualTo:_uid).snapshots();
   Future<void> hide(String? uid,String id)=>thread(uid).collection('hidden').doc(_uid).collection('items').doc(id)
     .set({'hiddenAt':FieldValue.serverTimestamp()});
-  Future<void> retract(String? uid,String id)=>thread(uid).collection('messages').doc(id).update({
-    'text':'','kind':'text','attachment':FieldValue.delete(),'deleted':true,'deletedAt':FieldValue.serverTimestamp()
-  });
+  Future<void> retract(String? uid,String id) async {
+    final ref=thread(uid).collection('messages').doc(id);
+    await _db.runTransaction((tx)async{
+      final data=(await tx.get(ref)).data();
+      if(data==null)return;
+      final job=_db.collection('voice_jobs').doc(id);
+      final exists=data['kind']=='voice'&&(await tx.get(job)).exists;
+      tx.update(ref,{'text':'','kind':'text','attachment':FieldValue.delete(),'deleted':true,'deletedAt':FieldValue.serverTimestamp()});
+      if(exists)tx.update(job,{'expiresAt':FieldValue.serverTimestamp()});
+    });
+  }
+  Future<bool> isOwner()async=>(await _db.collection('users').doc(_uid).get(_server)).data()?['role']=='owner';
+  DocumentReference<Map<String,dynamic>> get voiceSettings=>_db.collection('voice_settings').doc('global');
+  Future<void> receipt(String? uid,String id,{bool read=false,bool played=false})async{
+    final ref=thread(uid).collection('messages').doc(id);
+    final me=_uid;
+    await _db.runTransaction((tx)async{
+      final m=(await tx.get(ref)).data();
+      if(m==null||m['senderUid']==me||m['deleted']==true)return;
+      final changes=<String,dynamic>{};
+      if(m['deliveredAt']==null)changes['deliveredAt']=FieldValue.serverTimestamp();
+      final markRead=(read&&(m['kind']!='voice'||played)&&m['readAt']==null);
+      final job=_db.collection('voice_jobs').doc(id);
+      final j=markRead&&m['kind']=='voice'?(await tx.get(job)).data():null;
+      if(markRead)changes['readAt']=FieldValue.serverTimestamp();
+      if(changes.isNotEmpty)tx.update(ref,changes);
+      if(j?['mode']=='played')tx.update(job,{'expiresAt':FieldValue.serverTimestamp()});
+    });
+  }
+  Uri _voiceEndpoint(String path,String threadId,String messageId){
+    const configured=String.fromEnvironment('NOTIFICATION_WORKER_URL',
+      defaultValue:'https://suffah-message-notifications.blog-younas.workers.dev');
+    final endpoint=Uri.parse(configured);
+    if(endpoint.scheme!='https')throw StateError('Voice service requires HTTPS.');
+    return endpoint.replace(path:path,queryParameters:{'thread':threadId,'message':messageId});
+  }
+  Future<String> _voiceToken()async{
+    final token=await _auth.currentUser?.getIdToken();
+    if(token==null)throw StateError('Sign in again.');
+    return token;
+  }
+  Future<Uint8List> voiceBytes(String? uid,String id)async{
+    final result=await http.get(_voiceEndpoint('/v1/voice',uid??_uid,id),
+      headers:{'Authorization':'Bearer ${await _voiceToken()}'}).timeout(const Duration(seconds:30));
+    if(result.statusCode!=200)throw StateError('Voice message expired or is unavailable.');
+    return result.bodyBytes;
+  }
   Future<void> cancel(String? uid,String id)=>thread(uid).collection('scheduled').doc(id).delete();
-  Future<void> send(String? threadUid,String text,{String kind='text',Map<String,dynamic>? attachment,DateTime? sendAt})async{
+  Future<void> send(String? threadUid,String text,{String kind='text',Map<String,dynamic>? attachment,DateTime? sendAt,Uint8List? voice})async{
     final uid=_uid;
     final target=threadUid??uid;
     final self=(await _db.collection('users').doc(uid).get(_server)).data()??{};
@@ -151,9 +196,17 @@ class SchoolMessageRepository {
         'fromSchool':admin,'sendAt':Timestamp.fromDate(sendAt),'createdAt':FieldValue.serverTimestamp()});
       return;
     }
+    final message=thread.collection('messages').doc();
+    if(kind=='voice'){
+      if(voice==null||voice.isEmpty||voice.length>3000000)throw StateError('Recording is too large.');
+      await thread.set({'uid':target,...metadata,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
+      final result=await http.put(_voiceEndpoint('/v1/voice',target,message.id),
+        headers:{'Authorization':'Bearer ${await _voiceToken()}','Content-Type':'audio/mp4'},
+        body:voice).timeout(const Duration(seconds:45));
+      if(result.statusCode!=201)throw StateError('Voice upload failed. Try again.');
+    }
     final batch=_db.batch();
     batch.set(thread,{'uid':target,...metadata,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
-    final message=thread.collection('messages').doc();
     batch.set(message,{'text':text.trim(),'kind':kind,if(attachment!=null)'attachment':attachment,'senderUid':uid,'fromSchool':admin,'createdAt':FieldValue.serverTimestamp()});
     batch.set(_db.collection('message_alerts').doc(message.id),{
       'threadUid':target,'senderUid':uid,'fromSchool':admin,

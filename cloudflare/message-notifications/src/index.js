@@ -118,13 +118,85 @@ async function requestDocument(env,token,alert){
   try{return await request(base(env)+'/message_alerts/'+encodeURIComponent(alert),token);}
   catch(e){if(e.message==='Google API status 404')return null;throw e;}
 }
+
+// The bearer token must be accepted by Firestore before its subject is used.
+function signedSubject(bearer){
+  try {const part=bearer.slice(7).split('.')[1];return JSON.parse(atob(part.replace(/-/g,'+').replace(/_/g,'/'))).sub;}
+  catch(_){return null;}
+}
+async function clientRead(req,env,path){
+  const bearer=req.headers.get('Authorization')||'';
+  if(!/^Bearer [^\s]+$/.test(bearer))return null;
+  const res=await fetch(base(env)+path,{headers:{Authorization:bearer},redirect:'manual'});
+  if(!res.ok)return null;
+  const uid=signedSubject(bearer);
+  return typeof uid==='string'&&uid?{uid,doc:await res.json()}:null;
+}
+const voiceKey=(thread,message)=>'voice-messages/'+thread+'/'+message+'.m4a';
+async function optionalDoc(env,token,path){
+  try{return await request(base(env)+path,token);}
+  catch(e){if(e.message==='Google API status 404')return null;throw e;}
+}
+async function voiceRequest(req,env,thread,message){
+  const messagePath='/portal_threads/'+thread+'/messages/'+message;
+  const jobPath='/voice_jobs/'+message;
+  if(req.method==='GET'){
+    const auth=await clientRead(req,env,messagePath);
+    if(!auth||auth.doc.fields?.kind?.stringValue!=='voice'||auth.doc.fields?.deleted?.booleanValue===true)return new Response('Not found',{status:404});
+    const token=await access(env),job=await optionalDoc(env,token,jobPath);
+    if(!job||job.fields.threadUid?.stringValue!==thread||Date.parse(job.fields.expiresAt?.timestampValue)<=Date.now())return new Response('Expired',{status:404});
+    const obj=await env.VOICE_FILES.get(voiceKey(thread,message));
+    return obj?new Response(obj.body,{headers:{'Content-Type':'audio/mp4','Cache-Control':'private, no-store'}}):new Response('Not found',{status:404});
+  }
+  if(req.method!=='PUT')return new Response('Method not allowed',{status:405});
+  const auth=await clientRead(req,env,'/portal_threads/'+thread);
+  if(!auth)return new Response('Forbidden',{status:403});
+  const token=await access(env),source=await user(env,token,auth.uid),target=await user(env,token,thread);
+  const school=auth.uid===owner||source?.fields?.role?.stringValue==='principal';
+  if(!active(source)||!active(target)||!['parent','teacher'].includes(target.fields.role?.stringValue)||(!school&&auth.uid!==thread))return new Response('Forbidden',{status:403});
+  if(req.headers.get('Content-Type')!=='audio/mp4')return new Response('Invalid audio',{status:415});
+  // Stream with a hard cap rather than accepting an unbounded body.
+  const reader=req.body?.getReader();if(!reader)return new Response('Empty audio',{status:400});
+  let size=0;const chunks=[];
+  while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>3000000){await reader.cancel();return new Response('Too large',{status:413});}chunks.push(value);}
+  if(size<12)return new Response('Invalid audio',{status:400});
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+  if(String.fromCharCode(...bytes.slice(4,8))!=='ftyp')return new Response('Invalid audio container',{status:415});
+  const settings=await optionalDoc(env,token,'/voice_settings/global');
+  const mode=['played','7days','14days'].includes(settings?.fields?.mode?.stringValue)?settings.fields.mode.stringValue:'played';
+  const now=Date.now(),expires=now+(mode==='7days'?7:14)*86400000;
+  // Register before storing audio, so even a failed/abandoned upload is swept.
+  // The unique message ID cannot overwrite an existing upload.
+  await request(base(env)+'/voice_jobs?documentId='+encodeURIComponent(message),token,{method:'POST',body:JSON.stringify({fields:{
+    threadUid:S(thread),senderUid:S(auth.uid),mode:S(mode),expiresAt:{timestampValue:new Date(expires).toISOString()},
+    createdAt:{timestampValue:new Date(now).toISOString()}
+  }})});
+  try{await env.VOICE_FILES.put(voiceKey(thread,message),bytes,{httpMetadata:{contentType:'audio/mp4'}});}
+  catch(e){throw e;}
+  return new Response(null,{status:201});
+}
+async function purgeVoice(env,token,job){
+  const thread=job.fields.threadUid?.stringValue,message=id(job);
+  if(!/^[A-Za-z0-9_-]{1,128}$/.test(thread||'')||! /^[A-Za-z0-9_-]{1,128}$/.test(message))throw Error('Invalid voice job');
+  // Object deletion is idempotent. Keep the job if any operation fails.
+  await env.VOICE_FILES.delete(voiceKey(thread,message));
+  const prefix='projects/'+env.FIREBASE_PROJECT_ID+'/databases/(default)/documents/';
+  const names=['portal_threads/'+thread+'/messages/'+message,'message_alerts/'+message,'voice_jobs/'+message];
+  await request(base(env)+':commit',token,{method:'POST',body:JSON.stringify({writes:names.map(path=>({delete:prefix+path}))})});
+}
+async function cleanupVoice(env,token){
+  const due=await query(env,token,'voice_jobs',F('expiresAt','LESS_THAN_OR_EQUAL',{timestampValue:new Date().toISOString()}),5,[{field:{fieldPath:'expiresAt'},direction:'ASCENDING'}]);
+  for(const job of due)await purgeVoice(env,token,job);
+}
+
 export default {
   async fetch(request,env,ctx){
     const url=new URL(request.url);
-    if(request.method!=='POST'||url.pathname!=='/v1/wake')return new Response('Not found',{status:404});
+    if(url.pathname!=='/v1/voice'&&(request.method!=='POST'||url.pathname!=='/v1/wake'))return new Response('Not found',{status:404});
     const thread=url.searchParams.get('thread')||'',alert=url.searchParams.get('message')||'';
     if(!/^[A-Za-z0-9_-]{1,128}$/.test(thread)||! /^[A-Za-z0-9_-]{1,128}$/.test(alert))return new Response('Invalid request',{status:400});
     try{
+      if(url.pathname==='/v1/voice')return await voiceRequest(request,env,thread,alert);
       const uid=await authenticateWake(request,env,thread,alert);
       if(!uid)return new Response('Forbidden',{status:403});
       const token=await access(env);
@@ -142,5 +214,6 @@ export default {
       const job=jobs.find(d=>available(d));
       if(job)await dispatch(env,token,job);
     }catch(e){console.error('Message push processing failed',e.message);}
+    try{await cleanupVoice(env,await access(env));}catch(e){console.error('Voice cleanup failed',e.message);}
   },
 };

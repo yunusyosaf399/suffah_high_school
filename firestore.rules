@@ -1603,13 +1603,18 @@ service cloud.firestore {
     }
     function validChatPayload(d) {
       return d.text is string && d.text.size() <= 2000
-        && d.get('kind','text') in ['text','sticker','file']
+        && d.get('kind','text') in ['text','sticker','file','voice']
         && (d.get('kind','text') == 'file'
           ? (d.attachment is map && d.attachment.keys().hasOnly(['name','bytes','contentType'])
             && d.attachment.name is string && d.attachment.name.size() <= 120
             && d.attachment.bytes is bytes && d.attachment.bytes.size() > 0 && d.attachment.bytes.size() <= 524288
             && d.attachment.contentType in ['application/pdf','image/jpeg','image/png','image/webp','text/plain'])
-          : (!('attachment' in d) && d.text.size() > 0));
+          : (d.get('kind','text') == 'voice'
+            ? (d.text == '' && d.attachment is map
+              && d.attachment.keys().hasOnly(['durationMs','contentType'])
+              && d.attachment.durationMs is int && d.attachment.durationMs > 0
+              && d.attachment.durationMs <= 300000 && d.attachment.contentType == 'audio/mp4')
+            : (!('attachment' in d) && d.text.size() > 0)));
     }
     function canReceiveMessageAlerts() {
       return request.auth != null && (schoolMessageAdmin() || eligibleMessageAccount(request.auth.uid));
@@ -1649,6 +1654,46 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
       allow list: if false;
     }
+    match /voice_settings/global {
+      allow get: if canReceiveMessageAlerts();
+      allow create,update: if isOwner()
+        && request.resource.data.keys().hasOnly(['mode','updatedAt'])
+        && request.resource.data.mode in ['played','7days','14days']
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+    function voiceJob(messageId,uid) {
+      let j=get(/databases/$(database)/documents/voice_jobs/$(messageId)).data;
+      return j.threadUid == uid && j.senderUid == request.auth.uid
+        && j.expiresAt > request.time;
+    }
+    match /voice_jobs/{messageId} {
+      allow get: if messageThreadAccess(resource.data.threadUid);
+      allow list,create,delete: if false;
+      allow update: if messageThreadAccess(resource.data.threadUid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])
+        && request.resource.data.expiresAt == request.time
+        && (
+          (resource.data.mode == 'played'
+            && getAfter(/databases/$(database)/documents/portal_threads/$(resource.data.threadUid)/messages/$(messageId)).data.get('readAt',null) == request.time
+            && getAfter(/databases/$(database)/documents/portal_threads/$(resource.data.threadUid)/messages/$(messageId)).data.senderUid != request.auth.uid)
+          || (resource.data.senderUid == request.auth.uid
+            && getAfter(/databases/$(database)/documents/portal_threads/$(resource.data.threadUid)/messages/$(messageId)).data.get('deleted',false) == true)
+        );
+    }
+    function validMessageReceipt(uid) {
+      let old=resource.data;
+      let next=request.resource.data;
+      return messageThreadAccess(uid) && old.senderUid != request.auth.uid
+        && old.fromSchool != schoolMessageAdmin()
+        && old.get('deleted',false) == false
+        && next.diff(old).affectedKeys().hasOnly(['deliveredAt','readAt'])
+        && (next.get('deliveredAt',null) == old.get('deliveredAt',null)
+          || (old.get('deliveredAt',null) == null && next.deliveredAt == request.time))
+        && (next.get('readAt',null) == old.get('readAt',null)
+          || (old.get('readAt',null) == null && next.readAt == request.time
+            && next.get('deliveredAt',null) != null));
+    }
     match /portal_threads/{uid} {
       allow get: if schoolMessageAdmin() || messageThreadAccess(uid);
       allow list: if schoolMessageAdmin();
@@ -1662,7 +1707,9 @@ service cloud.firestore {
           && request.resource.data.fromSchool == schoolMessageAdmin()
           && request.resource.data.createdAt == request.time
           && validChatPayload(request.resource.data)
+          && (request.resource.data.get('kind','text') != 'voice' || voiceJob(messageId,uid))
           && getAfter(/databases/$(database)/documents/portal_threads/$(uid)).data.uid == uid;
+        allow update: if validMessageReceipt(uid);
         // Only original sender can replace content with a tombstone.
         allow update: if messageThreadAccess(uid) && resource.data.senderUid == request.auth.uid
           && resource.data.get('deleted',false) == false

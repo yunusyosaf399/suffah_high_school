@@ -6,3 +6,7 @@ workers_dev = true
 FIREBASE_PROJECT_ID = "suffah-high-school"
 [triggers]
 crons = ["* * * * *"]
+
+[[r2_buckets]]
+binding = "VOICE_FILES"
+bucket_name = "suffah-school-files"

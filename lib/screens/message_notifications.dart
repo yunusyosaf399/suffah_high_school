@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'school_messages_page.dart';
+import '../data/teacher_portal_repository.dart';
 
 typedef _Alerts=QuerySnapshot<Map<String,dynamic>>;
 
@@ -19,6 +20,8 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
   Stream<_Alerts>? stream;
   StreamSubscription<DocumentSnapshot<Map<String,dynamic>>>? readSub;
   StreamSubscription<String>? tokenSub;
+  StreamSubscription<_Alerts>? deliverySub;
+  final Set<String> acknowledged={};
   StreamSubscription<RemoteMessage>? pushSub;
   Timestamp? readThrough;
   bool ready=false;
@@ -34,6 +37,11 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
       Query<Map<String,dynamic>> q=FirebaseFirestore.instance.collection('message_alerts').where('fromSchool',isEqualTo:!widget.admin);
       if(!widget.admin)q=q.where('threadUid',isEqualTo:uid);
       stream=q.orderBy('createdAt',descending:true).limit(100).snapshots();
+      deliverySub=stream!.listen((s){
+        for(final d in s.docs){
+          if(acknowledged.add(d.id))unawaited(ackDelivery(d.id,d.data()));
+        }
+      },onError:(Object e){});
       readSub=readRef.snapshots().listen((s){
         if(!mounted)return;
         final t=s.data()?['readThrough'];
@@ -41,6 +49,13 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
       },onError:(Object e){if(mounted)setState(()=>ready=true);});
       if(mobile)unawaited(register());
     }catch(_){}
+  }
+  Future<void> ackDelivery(String id,Map<String,dynamic> data)async{
+    try{
+      if(!mounted||uid==null||FirebaseAuth.instance.currentUser?.uid!=uid)return;
+      final thread=data['threadUid'];if(thread is! String)return;
+      await SchoolMessageRepository().receipt(thread,id);
+    }catch(_){acknowledged.remove(id);}
   }
   Future<void> register()async{
     try{
@@ -80,7 +95,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
   }
   @override
   void dispose(){
-    readSub?.cancel();tokenSub?.cancel();pushSub?.cancel();
+    readSub?.cancel();tokenSub?.cancel();pushSub?.cancel();deliverySub?.cancel();
     super.dispose();
   }
   bool unread(Map<String,dynamic> data){
