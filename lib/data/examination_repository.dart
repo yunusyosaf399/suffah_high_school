@@ -103,6 +103,17 @@ List<ExamPaperDraft> shuffleExamPapers(List<ExamPaperDraft> papers,{Random? rand
 }
 
 
+Map<String,List<ExamPaperDraft>> groupExamPapersByClass(List<ExamPaperDraft> papers) {
+  final groups=<String,List<ExamPaperDraft>>{};
+  for(final paper in papers) {
+    groups.putIfAbsent(paper.assignment.classId,()=>[]).add(paper);
+  }
+  return groups;
+}
+
+List<ExamPaperDraft> shuffleClassSchedules(List<ExamPaperDraft> papers,{Random? random}) =>
+    [for(final group in groupExamPapersByClass(papers).values) ...shuffleExamPapers(group,random:random)];
+
 String? validateExamSchedule({
   required String kind, required String category, required String title,
   required DateTime start, required DateTime end,
@@ -184,6 +195,54 @@ class ExaminationRepository {
     if(!cycle.exists) throw StateError('The examination control record is incomplete.');
     final data=cycle.data()!;
     return data['status']=='active'?{...data,'id':cycle.id}:null;
+  }
+
+  // Keep the existing security-checked class transaction. A whole-school
+  // schedule may exceed Firestore's atomic rule lookup/write budgets.
+  // The selected class plan is locked by the first transaction; remaining
+  // classes can be resumed in the same annual cycle, never a second term.
+  Future<void> publishClassSchedules({
+    required String role, required String category, required String title,
+    required DateTime start, required DateTime end, required int academicYear,
+    required List<ExamPaperDraft> papers, required List<String> plannedClassIds,
+    required Map<String,String> excludedDates, required bool skipSunday,
+    String? activeCycleId, void Function(String classId)? onClassPublished,
+  }) async {
+    final groups=groupExamPapersByClass(papers);
+    if(groups.isEmpty) throw ArgumentError('Select at least one class.');
+    final plan=plannedClassIds.toSet();
+    if(!plan.containsAll(groups.keys) ||
+       (activeCycleId==null && !groups.keys.toSet().containsAll(plan))) {
+      throw StateError('The reviewed papers must cover the selected classes.');
+    }
+    for(final entry in groups.entries) {
+      final label=entry.value.first.assignment.className;
+      final error=validateExamSchedule(kind:'term',category:category,title:title,
+        start:start,end:end,papers:entry.value);
+      if(error!=null) throw ArgumentError('${label.isEmpty?entry.key:label}: $error');
+      if(entry.value.any((p)=>excludedDates.containsKey(examDateKey(p.date)) ||
+          (skipSunday && p.date.weekday==DateTime.sunday))) {
+        throw ArgumentError('A paper is scheduled on an excluded date.');
+      }
+    }
+    // Preflight every selected roster before making the first write.
+    // The individual transactions also validate their own roster.
+    for(final entry in groups.entries) {
+      final roster=await db.collection('class_rosters').doc(entry.key).collection('students')
+        .where('active',isEqualTo:true).limit(1001).get(const GetOptions(source:Source.server));
+      if(roster.docs.isEmpty || roster.docs.length>1000) {
+        final label=entry.value.first.assignment.className;
+        throw StateError('Sync the student roster for ${label.isEmpty?entry.key:label} (1–1000 active students). No new class schedules were published.');
+      }
+    }
+    var cycle=activeCycleId;
+    for(final entry in groups.entries) {
+      await publishSchedule(role:role,kind:'term',category:category,title:title,start:start,end:end,
+        papers:entry.value,academicYear:academicYear,activeCycleId:cycle,
+        plannedClassIds:plannedClassIds,excludedDates:excludedDates,skipSunday:skipSunday);
+      cycle=termCycleId(academicYear,category);
+      onClassPublished?.call(entry.key);
+    }
   }
 
   Future<void> publishSchedule({required String role, required String kind,
