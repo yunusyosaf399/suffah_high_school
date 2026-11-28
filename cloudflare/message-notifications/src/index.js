@@ -328,7 +328,11 @@ async function callWake(req,env,uid,callId){
   const auth=await clientRead(req,env,'/office_calls/'+uid);
   const f=auth?.doc?.fields||{};
   if(!auth||auth.uid!==uid||f.callId?.stringValue!==callId||f.status?.stringValue!=='ringing'||Date.parse(f.expiresAt?.timestampValue)<=Date.now())return new Response('Expired',{status:409});
+  if(f.pushNotified?.booleanValue===true)return new Response(null,{status:204});
   const token=await access(env);
+  // Only the service account can claim a push dispatch, preventing repeated
+  // wake requests for the same call from ringing all office devices again.
+  try{await request(base(env)+'/office_calls/'+uid+'?updateMask.fieldPaths=pushNotified&currentDocument.updateTime='+encodeURIComponent(auth.doc.updateTime),token,{method:'PATCH',body:JSON.stringify({fields:{pushNotified:B(true)}})});}catch(e){if(/status (409|412)$/.test(e.message))return new Response(null,{status:204});throw e;}
   const principals=await query(env,token,'users',F('role','EQUAL',S('principal')),25);
   const recipients=[...new Set([owner,...principals.filter(active).map(id)])];
   const devices=await query(env,token,'push_devices',F('uid','IN',{arrayValue:{values:recipients.map(S)}}),12);

@@ -1610,7 +1610,8 @@ service cloud.firestore {
           (old.status == 'ringing' || old.get('acceptedBy','') == request.auth.uid)))
           && old.status in ['ringing','answering','connected']
           && d.status in ['ended','declined','missed']
-          && changed.hasOnly(['status','updatedAt']))
+          && changed.hasOnly(['status','updatedAt','offer','answer'])
+          && !('offer' in d) && !('answer' in d))
       );
     }
     match /office_calls/{uid} {

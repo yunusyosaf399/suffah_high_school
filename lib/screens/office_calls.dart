@@ -150,7 +150,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
         connectionTimer?.cancel();
         if(mounted)setState((){connectedAt??=DateTime.now();status='Connected';});
       }else if(state==RTCPeerConnectionState.RTCPeerConnectionStateFailed){unawaited(fail('Audio connection failed.')); }
-      else if(state==RTCPeerConnectionState.RTCPeerConnectionStateDisconnected){update('Connection interrupted…');}
+      else if(state==RTCPeerConnectionState.RTCPeerConnectionStateDisconnected){update('Connection interrupted…');connectionTimer?.cancel();connectionTimer=Timer(const Duration(seconds:20),(){if(!finished)unawaited(fail('Audio connection lost.'));});}
     };
     // Native WebRTC renders remote audio tracks; no video renderer is needed.
     for(final track in stream.getAudioTracks()){await pc.addTrack(track,stream);}
@@ -235,7 +235,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     if(mounted)setState((){finished=true;status=message??(state=='missed'?'No answer':state=='declined'?'Call declined':'Call ended');});
     await closeMedia();
     if(write&&(published||widget.incoming))await finishRemote(state);
-    closing=false;
+    if(mounted)setState(()=>closing=false);else closing=false;
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){

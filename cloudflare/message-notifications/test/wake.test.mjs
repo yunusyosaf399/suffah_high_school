@@ -71,3 +71,9 @@ test('cleanup groups all chat record types into one commit and verifies empty be
   assert.deepEqual(await cleanupThreadBatch(env,'token',thread),{done:true,removed:1});
   assert.deepEqual(commits[1],[root+prefix]);
 });
+
+test('office call endpoints require authenticated school user',async()=>{
+  for(const path of ['/v1/call-ice?uid=parent','/v1/call-wake?uid=parent&call=ABCDEFGHIJKLMNOPQRST']){
+    assert.equal((await worker.fetch(new Request('https://example.test'+path,{method:'POST'}),{},{})).status,403);
+  }
+});
