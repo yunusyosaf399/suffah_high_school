@@ -28,6 +28,7 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <receiver android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" android:exported="false"/>
         <service android:name=".SchoolCallService" android:exported="false" android:foregroundServiceType="microphone" android:stopWithTask="true"/>
         <meta-data android:name="flutterEmbedding" android:value="2"/>
     </application>

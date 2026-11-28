@@ -79,7 +79,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
-    if(state==AppLifecycleState.resumed){showIncoming();unawaited(checkCalls());}
+    if(state==AppLifecycleState.resumed){showIncoming();unawaited(checkCalls());if(mobile)unawaited(checkPendingCall());}
   }
   Stream<_Alerts>? stream;
   StreamSubscription<DocumentSnapshot<Map<String,dynamic>>>? readSub;
@@ -91,6 +91,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   Timestamp? readThrough;
   bool ready=false;
   bool fullscreenCapable=false;
+  final Set<String> handledReplies={};
   bool opening=false;
   bool get mobile=>!kIsWeb&&defaultTargetPlatform==TargetPlatform.android;
   DocumentReference<Map<String,dynamic>> get readRef=>FirebaseFirestore.instance.collection('message_alert_reads').doc(uid!);
@@ -144,6 +145,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
       if(launch!=null&&mounted)openLocalCall(launch);
       foregroundPushSub=FirebaseMessaging.onMessage.listen((m){
         if(m.data['type']=='office_call_v2')openLocalCall(m.data);
+        if(m.data['type']=='school_message')unawaited(IncomingCallNotifications.showMessage(m.data));
       });
       final permission=await messaging.requestPermission(alert:true,badge:true,sound:true);
       if(!mounted||permission.authorizationStatus==AuthorizationStatus.denied)return;
@@ -163,14 +165,46 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
       final channel=await SchoolCallAudio.channelId();
       if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid)return;
       await FirebaseFirestore.instance.collection('push_devices').doc(token).set({
-        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':channel,'callFullscreen':fullscreenCapable,
+        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':channel,'callFullscreen':fullscreenCapable,'notificationVersion':2,
       });
     }catch(_){}
   }
+  Future<void> checkPendingCall()async{
+    if(!mounted||!mobile)return;
+    final payload=await IncomingCallNotifications.launchPayload();
+    if(payload!=null&&payload['type']=='office_call_v2'&&mounted)openLocalCall(payload);
+  }
   void openLocalCall(Map<String,dynamic> data){
     if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||data['recipientUid']!=uid)return;
+    if(data['type']=='school_message'){
+      final thread=data['threadUid'],id=data['messageId'];
+      if(thread is! String||id is! String||(!widget.admin&&thread!=uid))return;
+      final input=data['input'];
+      if(data['actionId']=='reply'&&input is String&&input.trim().isNotEmpty){
+        if(handledReplies.add(id))unawaited(sendNotificationReply(thread,id,input.trim()));
+      }else{openChat(widget.admin?thread:null);}
+      return;
+    }
     final caller=data['callerUid'],call=data['callId'];
     if(caller is String&&call is String)unawaited(OfficeCalls.receive(context,caller,call));
+  }
+  Future<void> sendNotificationReply(String thread,String id,String text)async{
+    try{
+      if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||text.length>4000)throw StateError('Reply unavailable. Open the conversation.');
+      // Re-read the original alert under the same role permissions; an old
+      // notification must not send into a removed/reassigned conversation.
+      final alert=(await FirebaseFirestore.instance.collection('message_alerts').doc(id).get(const GetOptions(source:Source.server))).data();
+      if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||alert==null||alert['threadUid']!=thread||alert['fromSchool']!=!widget.admin)throw StateError('Original message is unavailable.');
+      await SchoolMessageRepository().send(widget.admin?thread:null,text);
+      await IncomingCallNotifications.cancelMessage(id);
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Reply sent.')));
+    }catch(_){
+      handledReplies.remove(id);
+      if(mounted){
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Reply could not be sent. Open the conversation and try again.')));
+        unawaited(openChat(widget.admin?thread:null));
+      }
+    }
   }
   void openPush(RemoteMessage message){
     // The worker supplies no private content; the account dashboard and

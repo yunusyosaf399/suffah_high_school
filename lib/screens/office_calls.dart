@@ -38,13 +38,13 @@ class OfficeCalls {
     if(_open||!context.mounted)return;
     _open=true;
     try{
-      final data=(await ref(callId).get(const GetOptions(source:Source.server))).data();
+      final data=(await ref(callId).get(const GetOptions(source:Source.server)).timeout(const Duration(seconds:15))).data();
       unawaited(IncomingCallNotifications.cancel(callId));
       if(!context.mounted||!fresh(data)||data?['callId']!=callId||data?['callerUid']!=uid)return;
       await Navigator.of(context,rootNavigator:true).push<void>(MaterialPageRoute(builder:(_)=>_OfficeCallPage(callerUid:uid,callId:callId,incoming:true,targetUid:data!['targetUid'] as String)));
     }on FirebaseException catch(e){debugPrint('Office call verification failed: ${e.code}');}
     catch(_){debugPrint('Office call presentation failed.');}
-    finally{_open=false;}
+    finally{_open=false;await IncomingCallNotifications.lockScreen(false);}
   }
   static Future<void> _show(BuildContext context,{required String uid,required String callId,required bool incoming,required String targetUid,String? name})async{
     if(_open)return;
@@ -135,7 +135,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     if(widget.incoming){
       title=widget.targetUid=='office'?'Incoming school call':'School office';status='Incoming voice call';
       watch();unawaited(loadCaller());
-      unawaited(IncomingCallNotifications.lockScreen(true));
+      WidgetsBinding.instance.addPostFrameCallback((_){if(mounted&&!finished)unawaited(IncomingCallNotifications.lockScreen(true));});
       unawaited(callAudio.ring());
     }else{title=widget.name??'School office';unawaited(startCaller());}
   }
