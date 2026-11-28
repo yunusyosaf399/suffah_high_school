@@ -217,6 +217,7 @@ async function cleanupVoice(env,token){
 const rootName=env=>'projects/'+env.FIREBASE_PROJECT_ID+'/databases/(default)/documents/';
 async function listDocs(env,token,path,limit=12){
   const data=await request(base(env)+'/'+path+'?pageSize='+limit+'&showMissing=true'+(path==='voice_jobs'?'':'&mask.fieldPaths=createdAt'),token);
+  if(!data.documents?.length&&data.nextPageToken)throw Error('Incomplete Firestore listing');
   return data.documents||[];
 }
 async function deleteDocs(env,token,names){
@@ -234,7 +235,7 @@ async function deleteVoiceJobs(env,token,jobs){
 // Fetch independent collections together, then delete them in one Firestore
 // commit. A second pass verifies that nothing remains before removing a root.
 const CLEANUP_BATCH=40;
-async function cleanupThreadBatch(env,token,thread){
+export async function cleanupThreadBatch(env,token,thread){
   if(!/^[A-Za-z0-9_-]{1,128}$/.test(thread))throw Error('Invalid cleanup thread');
   const path='portal_threads/'+thread;
   const [jobs,msgs,scheduled,alerts,viewers,objects]=await Promise.all([
