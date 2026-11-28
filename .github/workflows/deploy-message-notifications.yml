@@ -1,0 +1,57 @@
+name: Deploy Android message notifications
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate Firebase credentials only, or deploy the Cloudflare Worker
+        type: choice
+        options:
+          - validate
+          - deploy
+        default: validate
+permissions:
+  contents: read
+concurrency:
+  group: school-message-notification-deployment
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install credential validator
+        run: python -m pip install 'google-auth>=2.38,<3' requests
+      - name: Validate Firebase notification credentials
+        env:
+          FIREBASE_NOTIFICATION_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_NOTIFICATION_SERVICE_ACCOUNT }}
+        run: python scripts/validate_notification_credentials.py
+      - uses: actions/setup-node@v4
+        if: inputs.mode == 'deploy'
+        with:
+          node-version: '22'
+      - name: Deploy notification Worker and encrypted secret together
+        if: inputs.mode == 'deploy'
+        working-directory: cloudflare/message-notifications
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          FIREBASE_NOTIFICATION_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_NOTIFICATION_SERVICE_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in repository settings."
+            exit 1
+          fi
+          npm install --no-audit --no-fund
+          node --check src/index.js
+          umask 077
+          secret_file="$(mktemp)"
+          trap 'rm -f "$secret_file"' EXIT
+          python -c 'import os,json,sys; json.dump({"FCM_SERVICE_ACCOUNT": os.environ["FIREBASE_NOTIFICATION_SERVICE_ACCOUNT"]},sys.stdout)' > "$secret_file"
+          npx wrangler deploy --secrets-file "$secret_file"

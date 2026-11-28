@@ -18,7 +18,7 @@ async function access(env){
   const pem=account.private_key.replace(/-----[^-]+-----/g,'').replace(/\s/g,'');
   const key=await crypto.subtle.importKey('pkcs8',Uint8Array.from(atob(pem),c=>c.charCodeAt(0)),{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
   const assertion=input+'.'+b64(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,enc(input)));
-  const response=await fetch(aud,{method:'POST',body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}),redirect:'error'});
+  const response=await fetch(aud,{method:'POST',body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}),redirect:'manual'});
   if(!response.ok)throw Error('Google OAuth failed: '+response.status);
   const data=await response.json();
   cached={token:data.access_token,exp:Date.now()+data.expires_in*1000};
