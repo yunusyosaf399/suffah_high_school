@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import worker,{available,blocked,cleanupThreadBatch,callOutcome} from '../src/index.js';
+import worker,{available,blocked,cleanupThreadBatch,callOutcome,messagePush} from '../src/index.js';
 test('lease prevents concurrent dispatch and expires',()=>{
   const now=Date.now();
   assert.equal(available({fields:{pushPending:{booleanValue:true}}},now),true);
@@ -89,4 +89,14 @@ test('two-way call endpoints reject anonymous clients',async()=>{
   for(const path of ['/v1/call-v2-wake?uid=parent&call=ABCDEFGHIJKLMNOPQRST','/v1/call-history?call=ABCDEFGHIJKLMNOPQRST']){
     assert.equal((await worker.fetch(new Request('https://example.test'+path,{method:'POST'}),{},{})).status,403);
   }
+});
+
+test('enhanced message devices receive private data-only pushes; older devices retain tray notifications',()=>{
+  const legacy=messagePush({name:'push_devices/legacy',fields:{}},'u','thread','msg').message;
+  const updated=messagePush({name:'push_devices/updated',fields:{notificationVersion:{integerValue:'2'}}},'u','thread','msg').message;
+  assert.equal(legacy.notification.body,'You have a new school message');
+  assert.equal(updated.notification,undefined);
+  assert.deepEqual(updated.data,{type:'school_message',recipientUid:'u',threadUid:'thread',messageId:'msg'});
+  assert.equal(updated.android.priority,'HIGH');
+  assert.equal(updated.data.text,undefined);
 });

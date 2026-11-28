@@ -83,6 +83,12 @@ async function authenticateWake(request,env,thread,alert){
   // expiry and project audience; its subject is therefore authenticated.
   return typeof uid==='string'&&message.fields?.senderUid?.stringValue===uid&&message.fields?.deleted?.booleanValue!==true?uid:false;
 }
+export function messagePush(device,uid,thread,messageId){
+  const enhanced=device.fields?.notificationVersion?.integerValue==='2'||device.fields?.notificationVersion?.integerValue===2;
+  const data={type:'school_message',recipientUid:uid,threadUid:thread,messageId};
+  const android={priority:'HIGH',ttl:'86400s',...(enhanced?{}:{notification:{tag:messageId,sound:'default'}})};
+  return {message:{token:id(device),data,android,...(enhanced?{}:{notification:{title:'Suffah High School',body:'You have a new school message'}})}};
+}
 async function deliver(env,token,d){
   const f=d.fields||{},thread=f.threadUid?.stringValue,sender=f.senderUid?.stringValue,fromSchool=f.fromSchool?.booleanValue;
   if(!thread||!sender||typeof fromSchool!=='boolean'||Date.now()-Date.parse(f.createdAt?.timestampValue)>86400000){await mark(env,token,d);return;}
@@ -106,7 +112,7 @@ async function deliver(env,token,d){
   for(const device of devices){
     const uid=device.fields.uid?.stringValue;
     if(!recipients.includes(uid))continue;
-    const body={message:{token:id(device),notification:{title:'Suffah High School',body:'You have a new school message'},data:{type:'school_message',recipientUid:uid,threadUid:thread},android:{priority:'HIGH',notification:{tag:id(d),sound:'default'}}}};
+    const body=messagePush(device,uid,thread,id(d));
     const response=await fetch('https://fcm.googleapis.com/v1/projects/'+encodeURIComponent(env.FIREBASE_PROJECT_ID)+'/messages:send',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body),redirect:'manual'});
     if(response.ok)continue;
     const error=await response.json().catch(()=>({}));

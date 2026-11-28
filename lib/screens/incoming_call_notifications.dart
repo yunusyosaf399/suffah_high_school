@@ -60,11 +60,13 @@ class IncomingCallNotifications{
   static Future<Map<String,dynamic>?> launchPayload()async{
     if(!android)return null;
     try{
+      final pending=decode(await _native.invokeMethod<String>('pendingCallPayload'));
+      if(pending!=null)return pending;
       final details=await plugin.getNotificationAppLaunchDetails();
       final response=details?.notificationResponse;
       final data=details?.didNotificationLaunchApp==true?decode(response?.payload):null;
-      if(data!=null)return {...data,if(response?.actionId!=null)'actionId':response!.actionId,if(response?.input!=null)'input':response!.input};
-      return decode(await _native.invokeMethod<String>('pendingCallPayload'));
+      if(data!=null&&response!=null)return {...data,if(response.actionId!=null)'actionId':response.actionId,if(response.input!=null)'input':response.input};
+      return null;
     }catch(_){return null;}
   }
   static Future<void> show(Map<String,dynamic> data)async{

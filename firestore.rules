@@ -1767,7 +1767,8 @@ service cloud.firestore {
       // the same installation can replace its registration.
       allow create,update: if canReceiveMessageAlerts()
         && token.size() > 20 && token.size() <= 512
-        && request.resource.data.keys().hasOnly(['uid','updatedAt','callChannel','callFullscreen'])
+        && request.resource.data.keys().hasOnly(['uid','updatedAt','callChannel','callFullscreen','notificationVersion'])
+        && request.resource.data.get('notificationVersion',1) in [1,2]
         && request.resource.data.get('callFullscreen',false) is bool
         && request.resource.data.get('callChannel','school_calls') is string
         && request.resource.data.get('callChannel','school_calls').matches('^school_calls[A-Za-z0-9_]{0,80}$')

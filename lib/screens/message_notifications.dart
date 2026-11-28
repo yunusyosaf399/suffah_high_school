@@ -165,7 +165,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
       final channel=await SchoolCallAudio.channelId();
       if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid)return;
       await FirebaseFirestore.instance.collection('push_devices').doc(token).set({
-        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':channel,'callFullscreen':fullscreenCapable,'notificationVersion':2,
+        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':channel,'callFullscreen':fullscreenCapable,'notificationVersion':fullscreenCapable?2:1,
       });
     }catch(_){}
   }
@@ -177,6 +177,8 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   void openLocalCall(Map<String,dynamic> data){
     if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||data['recipientUid']!=uid)return;
     if(data['type']=='school_message'){
+      // Do not expose chat screens over the keyguard during a call.
+      if(OfficeCalls.isOpen)return;
       final thread=data['threadUid'],id=data['messageId'];
       if(thread is! String||id is! String||(!widget.admin&&thread!=uid))return;
       final input=data['input'];
@@ -195,7 +197,13 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
       // notification must not send into a removed/reassigned conversation.
       final alert=(await FirebaseFirestore.instance.collection('message_alerts').doc(id).get(const GetOptions(source:Source.server))).data();
       if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid||alert==null||alert['threadUid']!=thread||alert['fromSchool']!=!widget.admin)throw StateError('Original message is unavailable.');
-      await SchoolMessageRepository().send(widget.admin?thread:null,text);
+      final account=uid!;
+      final repo=SchoolMessageRepository();
+      final replyId='reply_${id}_$account';
+      final existing=(await repo.thread(thread).collection('messages').doc(replyId).get(const GetOptions(source:Source.server))).data();
+      if(!mounted||FirebaseAuth.instance.currentUser?.uid!=account)throw StateError('Account changed.');
+      if(existing==null){await repo.send(widget.admin?thread:null,text,messageId:replyId);}
+      else if(existing['senderUid']!=account||existing['text']!=text){throw StateError('This notification already has a reply.');}
       await IncomingCallNotifications.cancelMessage(id);
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Reply sent.')));
     }catch(_){
@@ -215,7 +223,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
       if(caller is String&&call is String)unawaited(OfficeCalls.receive(context,caller,call));
       return;
     }
-    if(message.data['type']!='school_message')return;
+    if(message.data['type']!='school_message'||OfficeCalls.isOpen)return;
     openChat(widget.admin?message.data['threadUid']:null);
   }
   Future<void> openChat(String? thread)async{
