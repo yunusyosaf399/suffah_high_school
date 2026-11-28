@@ -196,7 +196,10 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
           activeCycleId:widget.activeCycle?['id']?.toString(), plannedClassIds:widget.classNames.keys.toList(),
           excludedDates:_excluded,skipSunday:_skipSunday);
       }
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) {
+        if(repo.parentSyncPending)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Published. Ask the owner to sync parent records to refresh the parent timetable.')));
+        Navigator.pop(context,true);
+      }
     } catch (error) {
       if (mounted) setState(() => _error = schoolErrorMessage(error));
     } finally {
@@ -218,7 +221,7 @@ class _ExamCreationWizardState extends State<ExamCreationWizard> {
         if (canScheduleFormalExams(widget.role))
           const DropdownMenuItem(value: 'term', child: Text('Term Examination')),
         const DropdownMenuItem(value: 'test', child: Text('Classwise Test')),
-        if (canScheduleFormalExams(widget.role))
+        if (canManageExamCentre(widget.role))
           const DropdownMenuItem(value: 'assignment', child: Text('Class Assignment')),
       ],
       onChanged: widget.activeCycle!=null ? null : (v) {

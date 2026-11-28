@@ -14,6 +14,11 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'principal';
     }
 
+    function accountPermission(key) {
+      return request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('permissions',{}).get(key,true) == true;
+    }
+
     function canManageAdmissions() {
       return isOwner() || isPrincipal();
     }
@@ -54,9 +59,17 @@ service cloud.firestore {
 
     function activeExamAdministrator() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return user.active == true && user.role in ['principal','examiner'];
+      return user.active == true && (user.role == 'examiner' || (user.role == 'principal' && user.get('permissions',{}).get('principal_exams',true) == true));
     }
 
+    function canCreateFormalTerm() {
+      return isOwner() || (request.auth != null && principalCanSchedule());
+    }
+    function principalCanSchedule() {
+      let user=get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return user.active == true && user.role == 'principal'
+        && user.get('permissions',{}).get('principal_exams',true) == true;
+    }
     function examAssignmentMatches(d) {
       let a = get(/databases/$(database)/documents/teacher_assignments/$(d.assignmentId)).data;
       return a.active == true && a.staffId == d.staffId
@@ -118,7 +131,7 @@ service cloud.firestore {
       return request.auth != null
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'
-        && isLinkedTeacher(staffId)
+        && isLinkedTeacher(staffId) && accountPermission('teacher_attendance')
         && exists(/databases/$(database)/documents/attendance_teacher_links/$(staffId))
         && get(/databases/$(database)/documents/attendance_teacher_links/$(staffId)).data.active == true
         && get(/databases/$(database)/documents/attendance_teacher_links/$(staffId)).data.classId == classId
@@ -150,6 +163,7 @@ service cloud.firestore {
       let assignment = get(/databases/$(database)/documents/teacher_assignments/$(d.assignmentId)).data;
       let schoolClass = get(/databases/$(database)/documents/classes/$(d.classId)).data;
       return user.active == true && user.role == 'teacher' && user.staffId == d.staffId
+        && user.get('permissions',{}).get('teacher_academics',true) == true
         && staff.active == true && staff.roleType == 'teacher'
         && assignment.active == true && assignment.staffId == d.staffId
         && assignment.classId == d.classId && assignment.subject == d.subject
@@ -324,28 +338,71 @@ service cloud.firestore {
       allow create: if isOwner()
         && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
         && allowedNewRole()
-        && request.resource.data.active == true
+        && request.resource.data.active == true && request.resource.data.get('removed',false) == false
+        && validAccountPermissions(request.resource.data)
+        && (request.resource.data.role != 'parent' || request.resource.data.get('linkedStudentIds',[]).size() > 0)
         && (
           request.resource.data.role != 'teacher'
           || validTeacherAccount(userId)
         );
-      // Suspensions only. Role changes are a separate, audited future flow.
       allow update: if isOwner()
         && userId != 'tQt6vca2zuagZipvknBwcmSRcrc2'
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['active', 'updatedAt']);
+          .hasOnly(['active','permissions','linkedStudentIds','removed','removedAt','updatedAt'])
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time
+        && (resource.data.get('removed',false) == false ||
+          (request.resource.data.get('removed',false) == true && request.resource.data.active == false))
+        && (request.resource.data.get('removed',false) == false ||
+          (request.resource.data.active == false && request.resource.data.removedAt is timestamp))
+        && validAccountPermissions(request.resource.data);
+      // Preserve role audit records and historical references.
+      allow delete: if false;
+    }
+    function validAccountPermissions(d) {
+      let p=d.get('permissions',{});
+      let ids=d.get('linkedStudentIds',[]);
+      return p is map && ids is list && ids.size() <= 50 && ids.toSet().size() == ids.size()
+        && p.get('parent_profile',true) is bool
+        && p.get('parent_fees',true) is bool
+        && p.get('parent_attendance',true) is bool
+        && p.get('parent_exams',true) is bool
+        && p.get('parent_documents',true) is bool
+        && p.get('messages',true) is bool
+        && p.get('teacher_profile',true) is bool
+        && p.get('teacher_payroll',true) is bool
+        && p.get('teacher_academics',true) is bool
+        && p.get('teacher_classwork',true) is bool
+        && p.get('teacher_attendance',true) is bool
+        && p.get('teacher_analytics',true) is bool
+        && p.get('principal_exams',true) is bool
+        && (d.role == 'parent' || ids.size() == 0)
+        && ((d.role == 'parent' && p.keys().hasOnly(['parent_profile','parent_fees','parent_attendance','parent_exams','parent_documents','messages']))
+          || (d.role == 'teacher' && p.keys().hasOnly(['teacher_profile','teacher_payroll','teacher_academics','teacher_classwork','teacher_attendance','teacher_analytics','messages']))
+          || (d.role == 'principal' && p.keys().hasOnly(['principal_exams','messages']))
+          || p.size() == 0);
+    }
+    match /staff_contracts/{staffId} {
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_profile'));
+      allow list: if canManageAdmissions();
+      allow create,update: if isOwner() && request.resource.data.keys().hasOnly(['type','startDate','endDate','details','updatedAt'])
+        && request.resource.data.type is string && request.resource.data.type.size() <= 80
+        && request.resource.data.startDate is string && request.resource.data.endDate is string
+        && request.resource.data.details is string && request.resource.data.details.size() <= 2000
+        && request.resource.data.updatedAt == request.time
+        && exists(/databases/$(database)/documents/staff/$(staffId));
       allow delete: if false;
     }
 
     match /classes/{classId} {
-      allow read: if canManageExams();
+      allow read: if canManageAdmissions() || canManageExams();
       allow create, update: if canManageAdmissions();
       allow delete: if false;
     }
 
     // Owner-managed subject catalog, distinct for each class and section.
     match /classes/{classId}/subjects/{subjectId} {
-      allow get, list: if canManageExams();
+      allow get, list: if canManageAdmissions() || canManageExams();
       allow create: if canManageAdmissions()
         && exists(/databases/$(database)/documents/classes/$(classId))
         && get(/databases/$(database)/documents/classes/$(classId)).data.active == true
@@ -426,7 +483,7 @@ service cloud.firestore {
     }
 
     match /attendance_teacher_links/{staffId} {
-      allow get: if canManageAdmissions() || isLinkedTeacher(staffId);
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_attendance'));
       allow list: if canManageAdmissions();
       allow create, update: if canManageAdmissions()
         && request.resource.data.staffId == staffId
@@ -490,7 +547,7 @@ service cloud.firestore {
 
     // School staff directory; only owner/principal can view and modify it.
     match /staff/{staffId} {
-      allow get: if canManageAdmissions() || isLinkedTeacher(staffId);
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_profile'));
       allow list: if canManageAdmissions();
       allow create: if canManageAdmissions()
         && request.resource.data.staffNo == staffId
@@ -510,7 +567,7 @@ service cloud.firestore {
 
     // One teacher-to-class-and-subject assignment per stable document ID.
     match /teacher_assignments/{assignmentId} {
-      allow read: if canManageExams() || isLinkedTeacher(resource.data.staffId);
+      allow read: if canManageAdmissions() || canManageExams() || isLinkedTeacher(resource.data.staffId);
       allow create: if canManageAdmissions()
         && request.resource.data.staffId is string
         && request.resource.data.classId is string
@@ -575,7 +632,7 @@ service cloud.firestore {
     // Safe roster projection: names and roll numbers only, never guardian,
     // contact, address or health details from the student record.
     match /class_rosters/{classId}/students/{studentId} {
-      allow get, list: if canManageExams()
+      allow get, list: if canManageAdmissions() || canManageExams()
         || (resource.data.active == true
           && (hasTeacherClassAccess(classId) || canMarkClassAttendance(classId)));
       allow create, update: if canManageAdmissions()
@@ -590,7 +647,8 @@ service cloud.firestore {
     // Teacher-created assignments and homework are scoped to an active
     // teacher/class/subject assignment and the authenticated linked teacher.
     match /classwork/{workId} {
-      allow get, list: if canManageExams() || isLinkedTeacher(resource.data.staffId);
+      allow get,list: if request.auth != null && parentCurrentClassAccess(resource.data.classId);
+      allow get, list: if canManageExams() || (isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_classwork'));
       allow create: if request.auth != null
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.title is string
@@ -599,13 +657,13 @@ service cloud.firestore {
           (canManageExams() && request.resource.data.kind == 'assignment'
             && examAssignmentMatches(request.resource.data))
           || (request.resource.data.kind in ['assignment', 'homework']
-            && isLinkedTeacher(request.resource.data.staffId)
+            && isLinkedTeacher(request.resource.data.staffId) && accountPermission('teacher_classwork')
             && activeTeacherAssignment(request.resource.data.assignmentId,
               request.resource.data.staffId, request.resource.data.classId,
               request.resource.data.subject))
         );
       allow update: if (canManageExams()
-          || (isLinkedTeacher(resource.data.staffId)
+          || (isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_classwork')
             && resource.data.teacherUid == request.auth.uid))
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['title', 'instructions', 'dueDate', 'active', 'updatedAt']);
@@ -650,7 +708,7 @@ service cloud.firestore {
     }
     function termControlChange() {
       let id = request.resource.data.cycleId;
-      return canManageExams() && request.resource.data.keys().hasOnly(['cycleId','updatedAt'])
+      return canCreateFormalTerm() && request.resource.data.keys().hasOnly(['cycleId','updatedAt'])
         && id is string && request.resource.data.updatedAt == request.time
         && !exists(termCyclePath(id))
         && getAfter(termCyclePath(id)).data.status == 'active';
@@ -710,10 +768,10 @@ service cloud.firestore {
     }
     match /exam_term_cycles/{id} {
       allow read: if canManageExams();
-      allow create: if canManageExams() && validTermStart(id,request.resource.data);
+      allow create: if canCreateFormalTerm() && validTermStart(id,request.resource.data);
       allow update: if canManageExams() && resource.data.status == 'active'
         && request.resource.data.updatedAt == request.time
-        && (appendTermClass(resource.data,request.resource.data)
+        && ((canCreateFormalTerm() && appendTermClass(resource.data,request.resource.data))
           || termCanClose(resource.data,request.resource.data)
           || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['excludedDates','updatedAt'])
             && request.resource.data.excludedDates is map)
@@ -776,7 +834,7 @@ service cloud.firestore {
 
     match /examinations/{examId} {
       allow get, list: if canManageExams()
-        || (resource.data.active == true && isLinkedTeacher(resource.data.staffId));
+        || (resource.data.active == true && isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_academics'));
       allow create: if request.auth != null
         && request.resource.data.assignmentId is string
         && request.resource.data.staffId is string
@@ -790,7 +848,8 @@ service cloud.firestore {
         && request.resource.data.get('resultStatus', 'draft') == 'draft'
         && examAssignmentMatches(request.resource.data)
         && (request.resource.data.get('kind','term') == 'test' || validManagedPaper(examId,request.resource.data))
-        && (canManageExams()
+        && ((request.resource.data.get('kind','term') != 'test' && canCreateFormalTerm())
+          || (request.resource.data.kind == 'test' && canManageExams())
           || (request.resource.data.kind == 'test'
             && request.resource.data.createdBy == request.auth.uid
             && examTeacherAuthorized(request.resource.data)))
@@ -841,6 +900,9 @@ service cloud.firestore {
 
       match /marks/{studentId} {
         allow get, list: if canManageExams() || canMarkExam(examId);
+        allow get: if parentFeature(studentId,'parent_exams')
+          && get(paperPath(examId)).data.active == true
+          && get(paperPath(examId)).data.resultStatus == 'released';
         allow create, update: if validExamMark(examId, studentId);
         allow delete: if false;
       }
@@ -892,7 +954,8 @@ service cloud.firestore {
     }
 
     match /finance_salary_rates/{staffId} {
-      allow get, list: if canManageAdmissions();
+      allow get: if canManageAdmissions() || (isLinkedTeacher(staffId) && accountPermission('teacher_payroll'));
+      allow list: if canManageAdmissions();
       allow create, update: if canManageAdmissions()
         && request.resource.data.staffId == staffId
         && request.resource.data.staffName is string
@@ -960,7 +1023,7 @@ service cloud.firestore {
 
     // A generated student bill does NOT record any money received.
     match /finance_fee_bills/{billId} {
-      allow get, list: if canManageAdmissions();
+      allow get, list: if canManageAdmissions() || parentFeature(resource.data.studentId,'parent_fees');
       allow create: if validFinanceBillCreate(billId)
         && request.resource.data.category
           in ['tuition', 'transport', 'one_time']
@@ -972,7 +1035,7 @@ service cloud.firestore {
     }
 
     match /finance_salary_bills/{billId} {
-      allow get, list: if canManageAdmissions();
+      allow get, list: if canManageAdmissions() || (isLinkedTeacher(resource.data.staffId) && accountPermission('teacher_payroll'));
       allow create: if validFinanceBillCreate(billId)
         && request.resource.data.category == 'salary'
         && request.resource.data.staffId is string
@@ -1001,7 +1064,7 @@ service cloud.firestore {
     // allowed. The transaction must reconcile with its bill in the same
     // atomic Firestore transaction, except for direct expenses.
     match /finance_ledger/{entryId} {
-      allow get, list: if canManageAdmissions();
+      allow get, list: if canManageAdmissions() || (resource.data.sourceType == 'fee' && resource.data.direction == 'credit' && parentFeature(resource.data.studentId,'parent_fees'));
       allow create: if canManageAdmissions()
         && request.resource.data.entryId == entryId
         && request.resource.data.createdBy == request.auth.uid
@@ -1165,6 +1228,7 @@ service cloud.firestore {
     }
 
     match /inventory_sales/{saleId} {
+      allow get,list: if resource.data.customerType == 'student' && parentFeature(resource.data.customerId,'parent_fees');
       allow get: if canManageInventory() || isPrincipal()
         || (inventoryRole('canteen_seller')
             && resource.data.sellerUid == request.auth.uid);
@@ -1302,6 +1366,7 @@ service cloud.firestore {
     // Every subsequent collection is append-only and must move the linked
     // receipt balance by the exact same amount in the same transaction.
     match /inventory_payments/{paymentId} {
+      allow get,list: if parentFeature(resource.data.customerId,'parent_fees');
       allow get, list: if canManageInventory() || isPrincipal()
         || (inventoryRole('canteen_seller')
             && resource.data.sellerUid == request.auth.uid);
@@ -1481,6 +1546,196 @@ service cloud.firestore {
 
     // Everything else stays inaccessible until role-specific modules are
     // implemented and reviewed. DO NOT add a broad match allow rule here.
+    // Direct private messages use the same storage as the optional portal
+    // HTTPS backend. Only school administrators and the active thread
+    // participant may read messages. A teacher cannot impersonate staff.
+    function schoolMessageAdmin() {
+      return isOwner() || (isPrincipal() && accountPermission('messages'));
+    }
+    function eligibleMessageAccount(uid) {
+      let u=get(/databases/$(database)/documents/users/$(uid)).data;
+      return u.active == true && u.get('removed',false) == false
+        && u.role in ['parent','teacher'] && u.get('permissions',{}).get('messages',true) == true;
+    }
+    function messageThreadAccess(uid) {
+      return request.auth != null && eligibleMessageAccount(uid)
+        && (schoolMessageAdmin() || request.auth.uid == uid);
+    }
+    function validMessageThread(uid) {
+      let d=request.resource.data;
+      let u=get(/databases/$(database)/documents/users/$(uid)).data;
+      return d.keys().hasOnly(['uid','updatedAt','name','role'])
+        && d.uid == uid && d.updatedAt == request.time
+        && d.get('name','') == u.get('displayName','')
+        && d.role == u.role;
+    }
+    match /portal_threads/{uid} {
+      allow get: if schoolMessageAdmin() || messageThreadAccess(uid);
+      allow list: if schoolMessageAdmin();
+      allow create,update: if messageThreadAccess(uid) && validMessageThread(uid);
+      allow delete: if false;
+      match /messages/{messageId} {
+        allow get,list: if messageThreadAccess(uid);
+        allow create: if messageThreadAccess(uid)
+          && request.resource.data.keys().hasOnly(['text','senderUid','fromSchool','createdAt'])
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.fromSchool == schoolMessageAdmin()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+          && getAfter(/databases/$(database)/documents/portal_threads/$(uid)).data.uid == uid;
+        allow update,delete: if false;
+      }
+    }
+
+
+    function linkedParent(studentId) {
+      let u = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return request.auth != null && u.active == true && u.get('removed',false) == false
+        && u.role == 'parent' && studentId in u.get('linkedStudentIds',[]);
+    }
+    function parentFeature(studentId,key) {
+      return request.auth != null && linkedParent(studentId) && accountPermission(key);
+    }
+    function admittedChild(studentId) {
+      return get(/databases/$(database)/documents/students/$(studentId)).data.get('status','admitted') == 'admitted';
+    }
+    match /parent_children/{studentId} {
+      allow get: if canManageAdmissions() || (linkedParent(studentId) && admittedChild(studentId));
+      allow list: if canManageAdmissions();
+      allow create,update: if canManageAdmissions() && request.resource.data.keys().hasOnly(['fullName','classId','className','historyClassIds']);
+      allow delete: if false;
+    }
+    match /parent_profiles/{studentId} {
+      allow get: if canManageAdmissions() || (parentFeature(studentId,'parent_profile') && admittedChild(studentId));
+      allow list: if canManageAdmissions();
+      allow create,update: if canManageAdmissions() && request.resource.data.keys().hasOnly(
+        ['fullName','admissionNo','rollNo','gender','status','active','dateOfBirth','nationality','classId','admissionDate']);
+      allow delete: if false;
+    }
+    match /parent_documents/{studentId} {
+      // A stale projection must never authorize a removed file.
+      allow get: if canManageAdmissions() || (parentFeature(studentId,'parent_documents') && admittedChild(studentId)
+        && resource.data.photoPath == get(/databases/$(database)/documents/students/$(studentId)).data.get('photoPath','')
+        && resource.data.attachments == get(/databases/$(database)/documents/students/$(studentId)).data.get('attachments',{}));
+      allow list: if canManageAdmissions();
+      allow create,update: if canManageAdmissions() && request.resource.data.keys().hasOnly(['photoPath','attachments'])
+        && request.resource.data.photoPath is string && request.resource.data.attachments is map;
+      allow delete: if false;
+    }
+    match /parent_attendance/{studentId}/days/{dayId} {
+      allow get,list: if canManageAdmissions() || parentFeature(studentId,'parent_attendance');
+      allow create,update: if request.resource.data.keys().hasOnly(['studentId','classId','date','status'])
+        && request.resource.data.studentId == studentId
+        && (canManageAdmissions() || canMarkClassAttendance(request.resource.data.classId))
+        && request.resource.data.studentId == getAfter(/databases/$(database)/documents/attendance_days/$(dayId)/marks/$(studentId)).data.studentId
+        && request.resource.data.classId == getAfter(/databases/$(database)/documents/attendance_days/$(dayId)/marks/$(studentId)).data.classId
+        && request.resource.data.date == getAfter(/databases/$(database)/documents/attendance_days/$(dayId)/marks/$(studentId)).data.date
+        && request.resource.data.status == getAfter(/databases/$(database)/documents/attendance_days/$(dayId)/marks/$(studentId)).data.status;
+      allow delete: if false;
+    }
+    function childClass(studentId,classId) {
+      return admittedChild(studentId) && (get(/databases/$(database)/documents/students/$(studentId)).data.get('classId','') == classId
+        || exists(/databases/$(database)/documents/class_rosters/$(classId)/students/$(studentId)));
+    }
+    match /parent_class_grants/{uid}/classes/{classId} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow create,update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['studentId'])
+        && parentFeature(request.resource.data.studentId,'parent_exams')
+        && childClass(request.resource.data.studentId,classId);
+      allow list,delete: if false;
+    }
+    // Historical snapshots are written only by admissions administrators and
+    // remain private to the linked child, not the entire former class.
+    match /parent_classwork_history/{studentId}/items/{workId} {
+      allow get,list: if canManageAdmissions() || parentFeature(studentId,'parent_exams');
+      allow create,update: if canManageAdmissions()
+        && request.resource.data.keys().hasOnly(['title','subject','instructions','dueDate','kind','classId','active'])
+        && childClass(studentId,request.resource.data.classId);
+      allow delete: if false;
+    }
+    function parentCurrentClassAccess(classId) {
+      let grant=get(/databases/$(database)/documents/parent_class_grants/$(request.auth.uid)/classes/$(classId)).data;
+      return parentFeature(grant.studentId,'parent_exams') && admittedChild(grant.studentId)
+        && get(/databases/$(database)/documents/students/$(grant.studentId)).data.classId == classId;
+    }
+    function parentClassAccess(classId) {
+      let grant=get(/databases/$(database)/documents/parent_class_grants/$(request.auth.uid)/classes/$(classId)).data;
+      return parentFeature(grant.studentId,'parent_exams') && childClass(grant.studentId,classId);
+    }
+    function validParentPaper(classId,examId) {
+      let p=get(/databases/$(database)/documents/examinations/$(examId)).data;
+      let d=request.resource.data;
+      return p.classId == classId && (canManageExams() || examTeacherAuthorized(p))
+        && d.keys().hasOnly(['classId','title','sessionTitle','kind','category','subject','examDate','paperType',
+          'startMinute','endMinute','maxMarks','resultStatus','active','cycleId','rescheduleReason'])
+        && d.get('classId',null) == p.get('classId',null)
+        && d.get('title',null) == p.get('title',null)
+        && d.get('sessionTitle',null) == p.get('sessionTitle',null)
+        && d.get('kind',null) == p.get('kind',null)
+        && d.get('category',null) == p.get('category',null)
+        && d.get('subject',null) == p.get('subject',null)
+        && d.get('examDate',null) == p.get('examDate',null)
+        && d.get('paperType',null) == p.get('paperType',null)
+        && d.get('startMinute',null) == p.get('startMinute',null)
+        && d.get('endMinute',null) == p.get('endMinute',null)
+        && d.get('maxMarks',null) == p.get('maxMarks',null)
+        && d.get('resultStatus',null) == p.get('resultStatus',null)
+        && d.get('active',null) == p.get('active',null)
+        && d.get('cycleId',null) == p.get('cycleId',null)
+        && d.get('rescheduleReason',null) == p.get('rescheduleReason',null);
+    }
+    match /parent_class_schedules/{classId}/papers/{examId} {
+      allow get,list: if canManageExams() || (request.auth != null && parentClassAccess(classId));
+      allow create,update: if request.auth != null && validParentPaper(classId,examId);
+      allow delete: if false;
+    }
+    match /parent_term_summaries/{cycleId} {
+      allow get: if canManageExams() || (request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true
+        && accountPermission('parent_exams'));
+      allow list: if canManageExams();
+      allow create,update: if canManageExams()
+        && request.resource.data.keys().hasOnly(['status','category','startDate','endDate','excludedDates']);
+      allow delete: if false;
+    }
+
+    // Only the owner can run the cross-collection backfill. This does not
+    // grant parents access to a collection-group of private marks.
+    match /{path=**}/marks/{markId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/subjects/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/students/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/messages/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/days/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/items/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/papers/{backupId} {
+      allow list: if isOwner();
+    }
+    match /{backupPath=**}/classes/{backupId} {
+      allow list: if isOwner();
+    }
+    // Container documents may not exist even when nested records do.
+    // Explicitly permit the owner to enumerate the known container roots.
+    match /{backupCollection}/{backupId} {
+      allow list: if isOwner() && backupCollection in [
+        'class_rosters','parent_attendance','parent_class_grants',
+        'parent_classwork_history','parent_class_schedules'
+      ];
+    }
     match /{other=**} {
       allow read, write: if false;
     }

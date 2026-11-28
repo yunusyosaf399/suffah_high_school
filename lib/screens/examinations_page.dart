@@ -10,6 +10,7 @@ import '../data/staff_repository.dart';
 import 'exam_creation_wizard.dart';
 import 'teacher_examinations_page.dart';
 import 'exam_term_overview.dart';
+import 'school_settings_page.dart';
 
 class ExaminationsPage extends StatefulWidget {
   const ExaminationsPage({super.key, required this.role});
@@ -47,6 +48,7 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
+      if(_filter=='term' && !canScheduleFormalExams(widget.role)) {_message('Only the owner or principal can create formal examinations.');return;}
       final cycle = _filter == 'term' ? await _repo.loadActiveTerm() : null;
       if (_filter == 'term' && cycle != null && !addClass) {
         _message('An examination is active. Close it before creating another, or add a class to its date sheet.'); return;
@@ -101,14 +103,15 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
       if (confirmed != true) return;
       if (action == 'release' || action == 'reopen') {
         await _repo.setTermResult(doc.id,release:action=='release');
-        _message('Paper updated.'); return;
+        _message(_repo.parentSyncPending?'Paper updated. Owner: sync parent records.':'Paper updated.'); return;
       }
       await doc.reference.update({
         if (action == 'archive' || action == 'restore') 'active': action == 'restore',
         if (action == 'release' || action == 'reopen') 'resultStatus': action == 'release' ? 'released' : 'draft',
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      _message('Paper updated.');
+      await _repo.syncParentPaper(doc.id);
+      _message(_repo.parentSyncPending?'Paper updated. Owner: sync parent records.':'Paper updated.');
     } catch (error) { _message(schoolErrorMessage(error)); }
   }
 
@@ -119,7 +122,7 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
       actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),
         FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Declare & close'))]));
     if(confirmed!=true)return;
-    try {await _repo.closeTerm(id);_message('Examination declared and closed.');}
+    try {await _repo.closeTerm(id);_message(_repo.parentSyncPending?'Examination closed. Owner: sync parent records.':'Examination declared and closed.');}
     catch(error){_message(schoolErrorMessage(error));}
   }
 
@@ -195,7 +198,7 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
     if(timing==null)return;
     try {
       await _repo.reschedulePaper(doc.id,date,timing.start,timing.end,timing.reason);
-      _message('Paper rescheduled to ${examDateKey(date)}.');
+      _message(_repo.parentSyncPending?'Paper rescheduled. Owner: sync parent records.':'Paper rescheduled to ${examDateKey(date)}.');
     } catch(error){_message(schoolErrorMessage(error));}
   }
 
@@ -273,16 +276,17 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!canScheduleFormalExams(widget.role)) return const Scaffold(body: Center(child: Text('Access denied.')));
+    if (!canManageExamCentre(widget.role)) return const Scaffold(body: Center(child: Text('Access denied.')));
     return Scaffold(
       appBar: AppBar(title: const Text('Examinations'),
         actions: [
+          const SchoolSettingsButton(),
           if (_admissionsAdmin) IconButton(tooltip: 'Sync student rosters & teachers', onPressed: _busy ? null : _sync,
             icon: const Icon(Icons.sync)),
           if (widget.role == 'examiner') IconButton(tooltip: 'Sign out',
             onPressed: () => FirebaseAuth.instance.signOut(), icon: const Icon(Icons.logout)),
         ]),
-      floatingActionButton: _filter == 'homework' ? null : FloatingActionButton.extended(
+      floatingActionButton: _filter == 'homework' || (_filter=='term' && !canScheduleFormalExams(widget.role)) ? null : FloatingActionButton.extended(
         onPressed: _busy ? null : () => _create(), icon: const Icon(Icons.add), label: const Text('Create assessment')),
       body: SafeArea(child: Column(children: [
         if (_busy) const LinearProgressIndicator(),
@@ -293,7 +297,7 @@ class _ExaminationsPageState extends State<ExaminationsPage> {
         ])),
         if (_admissionsAdmin) const Padding(padding: EdgeInsets.symmetric(horizontal: 16),
           child: Text('Sync rosters and teacher names before scheduling if school records changed.', style: TextStyle(fontSize: 12))),
-        if (_filter=='term') ExamTermOverview(onAddClass:_busy?null:()=>_create(addClass:true),
+        if (_filter=='term') ExamTermOverview(onAddClass:_busy || !canScheduleFormalExams(widget.role)?null:()=>_create(addClass:true),
           onClose:_closeTerm,onHoliday:_holiday,compact:true),
         Expanded(child: _filter == 'assignment' || _filter == 'homework' ? _workList() : _paperList()),
       ])),

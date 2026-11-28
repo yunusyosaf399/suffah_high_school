@@ -1,3 +1,4 @@
+import 'parent_portal_repository.dart';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,7 +11,8 @@ const classTestTypes = ['Monthly Test', 'Weekly Test', 'Unit Test', 'Quiz', 'Oth
 const paperTypes = ['Theory', 'Practical / Lab', 'Oral'];
 
 bool canScheduleFormalExams(String role) =>
-    ['owner', 'principal', 'examiner'].contains(role);
+    ['owner', 'principal'].contains(role);
+bool canManageExamCentre(String role)=>canScheduleFormalExams(role)||role=='examiner';
 
 String examDateKey(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
@@ -163,6 +165,13 @@ class ExaminationRepository {
         _auth = auth ?? FirebaseAuth.instance;
   final FirebaseFirestore db;
   final FirebaseAuth _auth;
+  bool parentSyncPending=false;
+  Future<void> syncParentPaper(String id)async{
+    try{await ParentPortalRepository.syncPaper(db,id);}catch(_){parentSyncPending=true;}
+  }
+  Future<void> _syncParentCycle(String id)async{
+    try{await ParentPortalRepository.syncCycle(db,id);}catch(_){parentSyncPending=true;}
+  }
 
   DocumentReference<Map<String,dynamic>> get termControl => db.collection('exam_term_control').doc('current');
   CollectionReference<Map<String,dynamic>> get terms => db.collection('exam_term_cycles');
@@ -212,7 +221,9 @@ class ExaminationRepository {
     if(kind=='test') {
       final batch=db.batch();
       for(var i=0;i<papers.length;i++) {batch.set(refs[i],fields(papers[i]));}
-      await batch.commit(); return;
+      await batch.commit();
+      for(final ref in refs){await syncParentPaper(ref.id);}
+      return;
     }
     final year=academicYear ?? start.year;
     if(year<2000 || year>2100) throw ArgumentError('Choose a valid academic year.');
@@ -288,6 +299,8 @@ class ExaminationRepository {
           'rosterSnapshot':students,'markedStudentIds':<String>[]});
       }
     });
+    for(final ref in refs){await syncParentPaper(ref.id);}
+    await _syncParentCycle(id);
   }
 
   Future<void> setTermResult(String examId,{required bool release}) async {
@@ -314,6 +327,7 @@ class ExaminationRepository {
       tx.update(ref,{'releasedPaperIds':release?FieldValue.arrayUnion([examId]):FieldValue.arrayRemove([examId]),
         'lastPaperId':examId,'updatedAt':FieldValue.serverTimestamp()});
     });
+    await syncParentPaper(examId);
   }
 
   Future<void> closeTerm(String id) async {
@@ -326,6 +340,7 @@ class ExaminationRepository {
       tx.update(ref,{'status':'closed','closedBy':user.uid,'closedAt':FieldValue.serverTimestamp(),
         'updatedAt':FieldValue.serverTimestamp()});
     });
+    await _syncParentCycle(id);
   }
 
   Future<void> markSchoolClosure(String id,String date,String reason) async {
@@ -344,6 +359,7 @@ class ExaminationRepository {
       off[date]=reason.trim();
       tx.update(ref,{'excludedDates':off,'updatedAt':FieldValue.serverTimestamp()});
     });
+    await _syncParentCycle(id);
   }
 
   Future<void> removeSchoolClosure(String id,String date) async {
@@ -355,6 +371,7 @@ class ExaminationRepository {
       off.remove(date);
       tx.update(ref,{'excludedDates':off,'updatedAt':FieldValue.serverTimestamp()});
     });
+    await _syncParentCycle(id);
   }
 
   Future<void> reschedulePaper(String examId,DateTime newDate,int startMinute,int endMinute,String reason) async {
@@ -390,6 +407,7 @@ class ExaminationRepository {
         'updatedAt':FieldValue.serverTimestamp()});
       tx.update(cycleRef,{'slots':slots,'endDate':end,'lastPaperId':examId,'updatedAt':FieldValue.serverTimestamp()});
     });
+    await syncParentPaper(examId);
   }
 
   Future<void> createAssignment({required TeacherAssignment assignment,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { authorizeStudent } from '../src/index.js';
+import { authorizeStudent, authorizeParentFile } from '../src/index.js';
 
 const env = { FIREBASE_PROJECT_ID: 'suffah-high-school' };
 const token = 'fake-test-id-token';
@@ -72,5 +72,25 @@ test('missing student draft is clearly reported', async () => {
       () => authorizeStudent(env, token, studentId),
       (error) => error.status === 404 && error.code === 'STUDENT_NOT_FOUND',
     );
+  });
+});
+
+
+test('parent authorization uses Firestore rules and checks the exact referenced file',async()=>{
+  const path='student-documents/ST-2026-0005/other/11111111-1111-1111-1111-111111111111.pdf';
+  await withMockFetch(async(url,options)=>{
+    assert.match(String(url),/\/documents\/parent_documents\/ST-2026-0005$/);
+    assert.equal(options.redirect,'manual');
+    assert.equal(options.headers.Authorization,'Bearer '+token);
+    return Response.json({fields:{attachments:{mapValue:{fields:{one:{mapValue:{fields:{path:{stringValue:path}}}}}}}}});
+  },()=>authorizeParentFile(env,token,path));
+  await withMockFetch(async()=>Response.json({fields:{}}),async()=>{
+    await assert.rejects(()=>authorizeParentFile(env,token,path),e=>e.status===403);
+  });
+  await withMockFetch(async()=>new Response(null,{status:403}),async()=>{
+    await assert.rejects(()=>authorizeParentFile(env,token,path),e=>e.status===403);
+  });
+  await withMockFetch(async()=>new Response(null,{status:302,headers:{Location:'https://unexpected.example'}}),async()=>{
+    await assert.rejects(()=>authorizeParentFile(env,token,path),e=>e.status===502);
   });
 });

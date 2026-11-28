@@ -6,7 +6,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   doc, setDoc, getDoc, getDocs, collection, updateDoc, runTransaction,
-  query, where, serverTimestamp, Timestamp, writeBatch, arrayUnion,
+  query, where, collectionGroup, serverTimestamp, Timestamp, writeBatch, arrayUnion,
 } from 'firebase/firestore';
 
 const ownerId = 'tQt6vca2zuagZipvknBwcmSRcrc2';
@@ -793,7 +793,7 @@ test('annual exam locks, complete marks, release and closure are enforced', asyn
   const examiner='examiner-uid',teacher='exam-teacher-uid';
   await environment.withSecurityRulesDisabled(async context => {
     const admin=context.firestore();
-    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    await setDoc(doc(admin,'users',examiner),{role:'principal',active:true});
     await setDoc(doc(admin,'users',teacher),{role:'teacher',active:true,staffId:'T1'});
     await setDoc(doc(admin,'staff','T1'),{active:true,roleType:'teacher'});
     await setDoc(doc(admin,'classes','C1'),{active:true});
@@ -811,9 +811,14 @@ test('annual exam locks, complete marks, release and closure are enforced', asyn
   await assertFails(closeExam(manager,'2026_first',examiner));
   await assertFails(updateDoc(doc(manager,'exam_term_cycles','2026_first'),{releasedPaperIds:['E1'],lastPaperId:'E1',updatedAt:serverTimestamp()}));
   await assertSucceeds(getDocs(query(collection(tutor,'examinations'),where('staffId','==','T1'),where('active','==',true))));
-  await assertFails(getDoc(doc(manager,'students','S1')));
-  await assertFails(getDoc(doc(manager,'staff','T1')));
-  await assertFails(getDoc(doc(manager,'inventory_purchases','sample-purchase')));
+  await environment.withSecurityRulesDisabled(async context=>{
+    await setDoc(doc(context.firestore(),'users','review-examiner'),{role:'examiner',active:true});
+  });
+  const review=db('review-examiner');
+  await assertFails(getDoc(doc(review,'students','S1')));
+  await assertFails(getDoc(doc(review,'staff','T1')));
+  await assertFails(getDoc(doc(review,'inventory_purchases','sample-purchase')));
+  await assertFails(publishTerm(review,'review-examiner','2026_mid',{E3:{...middle,createdBy:'review-examiner'}},{category:'Mid Term'}));
   await assertFails(setDoc(doc(tutor,'examinations','formal'),{...fields,createdBy:teacher}));
   const classTest={...fields,kind:'test',category:'Monthly Test',createdBy:teacher};
   delete classTest.cycleId;
@@ -843,7 +848,7 @@ test('term supports 15 distinct papers in one class and appends a second class',
   const examiner='schedule-examiner';
   await environment.withSecurityRulesDisabled(async context => {
     const admin=context.firestore();
-    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    await setDoc(doc(admin,'users',examiner),{role:'principal',active:true});
     for(let i=0;i<16;i++) {
       await setDoc(doc(admin,'teacher_assignments','multi-'+i),{active:true,staffId:'teacher-'+i,classId:i===15?'C2':'C1',subject:'Subject '+i});
     }
@@ -866,7 +871,7 @@ test('holiday exclusion and paper reschedule preserve slots and audit reason', a
   const examiner='holiday-examiner';
   await environment.withSecurityRulesDisabled(async context=>{
     const admin=context.firestore();
-    await setDoc(doc(admin,'users',examiner),{role:'examiner',active:true});
+    await setDoc(doc(admin,'users',examiner),{role:'principal',active:true});
     await setDoc(doc(admin,'teacher_assignments','A1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
     await setDoc(doc(admin,'teacher_assignments','A2'),{active:true,staffId:'T2',classId:'C1',subject:'English'});
   });
@@ -886,3 +891,214 @@ test('holiday exclusion and paper reschedule preserve slots and audit reason', a
   await assertFails(move('2090-01-04',{'C1__2090-01-04':'E1','C1__2026-01-03':'E2'}));
   await assertSucceeds(move('2090-01-06',{'C1__2090-01-06':'E1','C1__2026-01-03':'E2'}));
 });
+
+test('owner can suspend, configure parent links and remove accounts; principal and parent cannot alter them',async()=>{
+  const parent='guardian-one', principal='principal-one';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'users',parent),{active:true,role:'parent',linkedStudentIds:['S1']});
+    await setDoc(doc(a,'users',principal),{active:true,role:'principal'});
+    await setDoc(doc(a,'students','S1'),{fullName:'Student'});
+    await setDoc(doc(a,'examinations','private-exam'),{active:true,rosterSnapshot:{S1:{fullName:'Student'},S2:{fullName:'Other'}}});
+  });
+  const own=db(ownerId),p=db(parent),admin=db(principal);
+  const target=database=>doc(database,'users',parent);
+  const patch={permissions:{parent_fees:false},linkedStudentIds:['S1'],updatedAt:serverTimestamp()};
+  await assertFails(updateDoc(target(p),patch));
+  await assertFails(updateDoc(target(admin),patch));
+  await assertSucceeds(updateDoc(target(own),patch));
+  await assertFails(updateDoc(target(own),{permissions:{teacher_payroll:true},updatedAt:serverTimestamp()}));
+  await assertFails(getDoc(doc(p,'students','S1')));
+  await assertFails(getDoc(doc(p,'examinations','private-exam')));
+  await assertSucceeds(updateDoc(target(own),{active:false,updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(target(own),{active:true,updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(target(own),{active:false,removed:true,removedAt:serverTimestamp(),updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(target(own),{active:true,updatedAt:serverTimestamp()}));
+  await assertFails(updateDoc(target(own),{removed:false,updatedAt:serverTimestamp()}));
+});
+test('disabled teacher capabilities deny direct Firestore reads and writes',async()=>{
+  const teacher='restricted-teacher';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'users',teacher),{active:true,role:'teacher',staffId:'T1',permissions:{teacher_profile:false,teacher_academics:false,teacher_classwork:false}});
+    await setDoc(doc(a,'staff','T1'),{active:true,roleType:'teacher'});
+    await setDoc(doc(a,'classes','C1'),{active:true});
+    await setDoc(doc(a,'teacher_assignments','A1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
+    await setDoc(doc(a,'examinations','E1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
+    await setDoc(doc(a,'classwork','W1'),{active:true,staffId:'T1',classId:'C1',subject:'Math'});
+  });
+  const tutor=db(teacher);
+  await assertFails(getDoc(doc(tutor,'staff','T1')));
+  await assertFails(getDoc(doc(tutor,'examinations','E1')));
+  await assertFails(getDoc(doc(tutor,'classwork','W1')));
+  await assertFails(setDoc(doc(tutor,'classwork','W2'),{kind:'homework',teacherUid:teacher,active:true,title:'Homework',staffId:'T1',assignmentId:'A1',classId:'C1',subject:'Math'}));
+});
+
+test('teacher direct profile, contract and payroll reads stay scoped and read-only',async()=>{
+  const teacher='portal-teacher',other='portal-other';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'users',teacher),{active:true,role:'teacher',staffId:'T1'});
+    await setDoc(doc(a,'users',other),{active:true,role:'teacher',staffId:'T2'});
+    for(const id of ['T1','T2']){
+      await setDoc(doc(a,'staff',id),{active:true,roleType:'teacher'});
+      await setDoc(doc(a,'staff_contracts',id),{type:'Full time'});
+      await setDoc(doc(a,'finance_salary_rates',id),{staffId:id,amountMinor:10000});
+      await setDoc(doc(a,'finance_salary_bills','bill-'+id),{staffId:id,amountMinor:10000,paidMinor:0});
+    }
+  });
+  const tutor=db(teacher),own=db(ownerId);
+  for(const collectionName of ['staff','staff_contracts','finance_salary_rates']){
+    await assertSucceeds(getDoc(doc(tutor,collectionName,'T1')));
+    await assertFails(getDoc(doc(tutor,collectionName,'T2')));
+    await assertFails(updateDoc(doc(tutor,collectionName,'T1'),{amountMinor:999999}));
+  }
+  await assertSucceeds(getDocs(query(collection(tutor,'finance_salary_bills'),where('staffId','==','T1'))));
+  await assertFails(getDocs(collection(tutor,'finance_salary_bills')));
+  await assertFails(getDoc(doc(tutor,'finance_salary_bills','bill-T2')));
+  await assertFails(updateDoc(doc(tutor,'finance_salary_bills','bill-T1'),{paidMinor:10000}));
+  await assertSucceeds(updateDoc(doc(own,'users',teacher),{permissions:{teacher_payroll:false,teacher_profile:false},updatedAt:serverTimestamp()}));
+  await assertFails(getDoc(doc(tutor,'finance_salary_rates','T1')));
+  await assertFails(getDocs(query(collection(tutor,'finance_salary_bills'),where('staffId','==','T1'))));
+  await assertFails(getDoc(doc(tutor,'staff_contracts','T1')));
+});
+test('private conversations permit own messages and school replies but block impersonation and cross-account access',async()=>{
+  const teacher='msg-teacher',other='msg-other',principal='msg-principal';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    for(const [uid,role] of [[teacher,'teacher'],[other,'teacher'],[principal,'principal']])
+      await setDoc(doc(a,'users',uid),{active:true,role,displayName:uid});
+  });
+  const tutor=db(teacher),admin=db(principal),stranger=db(other),own=db(ownerId);
+  async function send(database,target,sender,fromSchool,id){
+    const batch=writeBatch(database);
+    batch.set(doc(database,'portal_threads',target),{uid:target,name:target,role:'teacher',updatedAt:serverTimestamp()},{merge:true});
+    batch.set(doc(database,'portal_threads',target,'messages',id),{text:'Hello',senderUid:sender,fromSchool,createdAt:serverTimestamp()});
+    return batch.commit();
+  }
+  await assertSucceeds(send(tutor,teacher,teacher,false,'first'));
+  await assertFails(send(tutor,teacher,teacher,true,'forged'));
+  await assertFails(send(stranger,teacher,other,false,'cross'));
+  await assertFails(getDocs(collection(stranger,'portal_threads',teacher,'messages')));
+  await assertFails(getDocs(collection(tutor,'portal_threads')));
+  await assertSucceeds(getDocs(collection(admin,'portal_threads')));
+  await assertSucceeds(send(admin,teacher,principal,true,'reply'));
+  await assertSucceeds(getDocs(collection(tutor,'portal_threads',teacher,'messages')));
+  await assertFails(updateDoc(doc(tutor,'portal_threads',teacher,'messages','first'),{text:'edited'}));
+  await assertSucceeds(updateDoc(doc(own,'users',teacher),{permissions:{messages:false},updatedAt:serverTimestamp()}));
+  await assertFails(getDocs(collection(tutor,'portal_threads',teacher,'messages')));
+  await assertFails(send(tutor,teacher,teacher,false,'blocked'));
+});
+
+test('new parent account and guardian emails are saved atomically by owner only',async()=>{
+  const guardian='new-parent-profile', child='parent-child-new';
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'students',child),{admissionNo:child,rollNo:'12345',status:'admitted',active:true,
+      guardianName:'Guardian',details:{guardian:{firstName:'Guardian',email:'old@example.com'},student:{firstName:'Child'}}});
+    await setDoc(doc(a,'users','parent-creator-principal'),{active:true,role:'principal'});
+  });
+  const own=db(ownerId), principal=db('parent-creator-principal');
+  const profile={role:'parent',displayName:'Guardian',email:'new@example.com',active:true,
+    linkedStudentIds:[child],createdBy:ownerId,createdAt:serverTimestamp(),updatedAt:serverTimestamp()};
+  await assertFails(setDoc(doc(own,'users','empty-parent'),{...profile,linkedStudentIds:[]}));
+  await assertFails(setDoc(doc(own,'users','duplicate-child-parent'),{...profile,linkedStudentIds:[child,child]}));
+  async function create(database){
+    const batch=writeBatch(database);
+    batch.set(doc(database,'users',guardian),profile);
+    batch.update(doc(database,'students',child),{'details.guardian.email':'new@example.com',updatedAt:serverTimestamp()});
+    return batch.commit();
+  }
+  await assertFails(create(principal));
+  assert.equal((await getDoc(doc(own,'students',child))).data().details.guardian.email,'old@example.com');
+  await assertSucceeds(create(own));
+  assert.deepEqual((await getDoc(doc(own,'users',guardian))).data().linkedStudentIds,[child]);
+  assert.equal((await getDoc(doc(own,'students',child))).data().details.guardian.email,'new@example.com');
+  assert.equal((await getDoc(doc(own,'students',child))).data().details.student.firstName,'Child');
+  await assertFails(updateDoc(doc(db(guardian),'students',child),{'details.guardian.email':'tampered@example.com'}));
+});
+
+test('parent portal reads only linked child views, live fees, attendance and released marks',async()=>{
+  const uid='portal-parent', child='PC1', other='PC2', klass='PC-A', otherClass='PC-B';
+  const file='student-documents/PC1/other/one.pdf';
+  const attachments={one:{path:file,name:'One',contentType:'application/pdf'}};
+  const paper={classId:klass,title:'Math',subject:'Math',active:true,resultStatus:'draft',maxMarks:100,examDate:'2026-12-01'};
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    const a=ctx.firestore();
+    await setDoc(doc(a,'users',uid),{role:'parent',active:true,linkedStudentIds:[child]});
+    for(const [id,c] of [[child,klass],[other,otherClass]]){
+      await setDoc(doc(a,'students',id),{status:'admitted',classId:c,fullName:id,photoPath:'',attachments:id===child?attachments:{}});
+      await setDoc(doc(a,'parent_children',id),{fullName:id,classId:c});
+      await setDoc(doc(a,'parent_profiles',id),{fullName:id,classId:c});
+      await setDoc(doc(a,'parent_documents',id),{photoPath:'',attachments:id===child?attachments:{}});
+      await setDoc(doc(a,'finance_fee_bills',id),{studentId:id,amountMinor:1000,paidMinor:0});
+      await setDoc(doc(a,'parent_attendance',id,'days','day'),{studentId:id,classId:c,date:'2026-11-01',status:'present'});
+      await setDoc(doc(a,'class_rosters',c,'students',id),{studentId:id,classId:c,active:true});
+    }
+    await setDoc(doc(a,'examinations','PE1'),{...paper,rosterSnapshot:{PC1:{fullName:'Child'},PC2:{fullName:'Other'}}});
+    await setDoc(doc(a,'examinations','PE1','marks',child),{studentId:child,score:70});
+    await setDoc(doc(a,'examinations','PE1','marks',other),{studentId:other,score:99});
+    await setDoc(doc(a,'parent_class_schedules',klass,'papers','PE1'),paper);
+  });
+  const parent=db(uid), own=db(ownerId);
+  await assertSucceeds(getDoc(doc(parent,'parent_children',child)));
+  await assertSucceeds(getDoc(doc(parent,'parent_profiles',child)));
+  await assertSucceeds(getDoc(doc(parent,'parent_documents',child)));
+  await assertFails(getDoc(doc(parent,'students',child)));
+  await assertFails(getDoc(doc(parent,'parent_profiles',other)));
+  await assertFails(getDocs(collection(parent,'parent_profiles')));
+  await assertFails(updateDoc(doc(parent,'parent_profiles',child),{fullName:'Changed'}));
+  await assertSucceeds(getDocs(query(collection(parent,'finance_fee_bills'),where('studentId','==',child))));
+  await assertFails(getDocs(collection(parent,'finance_fee_bills')));
+  await assertFails(getDocs(query(collection(parent,'finance_fee_bills'),where('studentId','==',other))));
+  await assertSucceeds(getDocs(collection(parent,'parent_attendance',child,'days')));
+  await assertFails(getDocs(collection(parent,'parent_attendance',other,'days')));
+  await assertFails(getDocs(query(collectionGroup(parent,'marks'),where('studentId','==',child))));
+  await assertSucceeds(getDocs(query(collectionGroup(own,'marks'),where('studentId','==',child))));
+  const grant=c=>doc(parent,'parent_class_grants',uid,'classes',c);
+  await assertFails(getDocs(collection(parent,'parent_class_schedules',klass,'papers')));
+  await assertFails(setDoc(grant(otherClass),{studentId:child}));
+  await assertFails(setDoc(grant(otherClass),{studentId:other}));
+  await assertSucceeds(setDoc(grant(klass),{studentId:child}));
+  await assertSucceeds(getDocs(collection(parent,'parent_class_schedules',klass,'papers')));
+  await assertFails(getDoc(doc(parent,'examinations','PE1')));
+  await assertFails(getDoc(doc(parent,'examinations','PE1','marks',child)));
+  await environment.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),'examinations','PE1'),{resultStatus:'released'});
+  });
+  await assertSucceeds(getDoc(doc(parent,'examinations','PE1','marks',child)));
+  await assertFails(getDoc(doc(parent,'examinations','PE1','marks',other)));
+  await assertFails(getDocs(collection(parent,'examinations','PE1','marks')));
+  await assertFails(setDoc(doc(parent,'parent_class_schedules',klass,'papers','PE1'),paper));
+  await assertSucceeds(setDoc(doc(own,'parent_class_schedules',klass,'papers','PE1'),{...paper,resultStatus:'released'}));
+  await assertFails(setDoc(doc(own,'parent_class_schedules',klass,'papers','PE1'),{...paper,resultStatus:'released',rosterSnapshot:{PC2:'Other'}}));
+  // Removing the attachment revokes the stale parent view immediately.
+  await assertSucceeds(updateDoc(doc(own,'students',child),{attachments:{}}));
+  await assertFails(getDoc(doc(parent,'parent_documents',child)));
+  await assertSucceeds(updateDoc(doc(own,'users',uid),{permissions:{parent_fees:false,parent_exams:false},updatedAt:serverTimestamp()}));
+  await assertFails(getDocs(query(collection(parent,'finance_fee_bills'),where('studentId','==',child))));
+  await assertFails(getDocs(collection(parent,'parent_class_schedules',klass,'papers')));
+  await assertFails(getDoc(doc(parent,'examinations','PE1','marks',child)));
+  await assertSucceeds(updateDoc(doc(own,'users',uid),{active:false,updatedAt:serverTimestamp()}));
+  await assertFails(getDoc(doc(parent,'parent_profiles',child)));
+  await assertFails(getDocs(collection(parent,'parent_attendance',child,'days')));
+});
+
+ test('owner can export nested records, other accounts cannot enumerate collection groups', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(),'parent_classwork_history','child-a','items','work-a'),{title:'Private'});
+    await setDoc(doc(context.firestore(),'portal_threads','parent-a','messages','message-a'),{text:'Private'});
+  });
+  for(const name of ['items','messages']){
+    await assertSucceeds(getDocs(collectionGroup(db(ownerId),name)));
+    await assertFails(getDocs(collectionGroup(db(sellerId),name)));
+    await assertFails(getDocs(collectionGroup(db(guestId),name)));
+  }
+ });
+
+ test('owner can enumerate empty or existing backup container roots', async () => {
+  for(const name of ['class_rosters','parent_attendance','parent_class_grants','parent_classwork_history','parent_class_schedules']){
+    await assertSucceeds(getDocs(collection(db(ownerId),name)));
+    await assertFails(getDocs(collection(db(sellerId),name)));
+  }
+ });

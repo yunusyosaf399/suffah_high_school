@@ -135,6 +135,71 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('owner can open a parent permission editor', (tester) async {
+    await tester.pumpWidget(MaterialApp(home:UsersPage(role:'owner',usersStream:Stream.value(const [
+      SchoolUserAccount(uid:'parent-test',name:'Test Parent',email:'parent@example.com',role:'parent',active:true,linkedStudentIds:['S1'])
+    ]))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Test Parent'));
+    await tester.pumpAndSettle();
+    expect(find.text('Account & permissions'),findsOneWidget);
+    expect(find.text('Fees and dues'),findsOneWidget);
+    await tester.tap(find.text('Fees and dues'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile,'Fees and dues')).value,isFalse);
+    expect(tester.takeException(),isNull);
+  });
+
+  testWidgets('parent form autofills guardian and sends confirmed child links with corrected email',(tester)async{
+    await tester.binding.setSurfaceSize(const Size(1000,1100));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    final children=const [
+      ParentChildOption(id:'S1',name:'Student One',guardianName:'Example Guardian',relationship:'Father',phone:'03000000000',email:'old@example.com'),
+      ParentChildOption(id:'S2',name:'Student Two',guardianName:'Example Guardian',relationship:'Father'),
+    ];
+    var called=false;
+    await tester.pumpWidget(MaterialApp(home:UsersPage(role:'owner',usersStream:Stream.value(const []),
+      childrenStream:Stream.value(children),
+      parentCreateOverride:({required name,required email,required password,required children,required guardianConfirmed})async{
+        expect(name,'Example Guardian');expect(email,'new@example.com');
+        expect(children.map((c)=>c.id),['S1','S2']);expect(guardianConfirmed,isTrue);
+        called=true;
+        return const CreatedSchoolUser(uid:'parent',email:'new@example.com',resetEmailSent:false);
+      })));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Create user account'));await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('account_role_dropdown')));await tester.pumpAndSettle();
+    await tester.tap(find.text('Parent / guardian').last);await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('parent_child_picker')));await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('parent_child_S1')));await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('parent_child_S2')));await tester.pumpAndSettle();
+    await tester.tap(find.text('Select 2 children'));await tester.pumpAndSettle();
+    final field=find.byKey(const Key('parent_guardian_email'));
+    expect(tester.widget<TextField>(field).controller!.text,'old@example.com');
+    await tester.ensureVisible(field);await tester.enterText(field,'new@example.com');await tester.pumpAndSettle();
+    final confirm=find.byKey(const Key('parent_guardian_confirm'));
+    await tester.ensureVisible(confirm);await tester.tap(confirm);await tester.pumpAndSettle();
+    await tester.tap(find.text('Create account'));await tester.pumpAndSettle();
+    expect(called,isTrue);expect(find.text('Account created'),findsOneWidget);
+  });
+
+  test('guardian email update retains nested student and guardian details and legacy email',(){
+    final data=<String,dynamic>{'fullName':'Child','guardianName':'Guardian','guardianPhone':'123',
+      'guardianEmail':'old@example.com','details':{'student':{'firstName':'Child','dateOfBirth':'2020-01-01'},
+        'guardian':{'firstName':'Guardian','phone':'123','email':'old@example.com'},'health':{'note':'retain'}}};
+    final option=ParentChildOption.fromData('S1',data);
+    expect(option.email,'old@example.com');expect(option.guardianName,'Guardian');
+    final patch=guardianEmailUpdate(data,'new@example.com');
+    expect(patch['details']['guardian']['email'],'new@example.com');
+    expect(patch['details']['guardian']['phone'],'123');
+    expect(patch['details']['health']['note'],'retain');
+    expect(patch['guardianEmail'],'new@example.com');
+    expect(data['details']['guardian']['email'],'old@example.com');
+    final legacy=guardianEmailUpdate({'fullName':'Legacy Child','guardianName':'Old Guardian','guardianPhone':'456'},'parent@example.com');
+    expect(legacy['details']['guardian']['firstName'],'Old Guardian');
+    expect(legacy['details']['guardian']['email'],'parent@example.com');
+  });
+
   testWidgets('non-owner cannot manage or create users', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

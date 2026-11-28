@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --check index.js && node --check scheduler.js && node --test test/*.test.js"
+    "check": "node --check index.js && node --check scheduler.js && node --check portal.js && node --test test/*.test.js"
   },
   "dependencies": {
     "firebase-admin": "^14.5.1",

@@ -1,3 +1,4 @@
+import '../data/parent_portal_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -207,14 +208,16 @@ class _TeacherExamMarksPageState extends State<TeacherExamMarksPage> {
       }
       if (count > 0) await batch.commit();
       }
+      var parentSyncPending=false;
       if (submit) {
         await ref.update({'resultStatus': 'submitted', 'submittedBy': user.uid,
           'submittedAt': FieldValue.serverTimestamp(), 'updatedAt': FieldValue.serverTimestamp()});
+        try{await ParentPortalRepository.syncPaper(_db,widget.examId);}catch(_){parentSyncPending=true;}
       }
       if (mounted) {
         if (submit) setState(() => _locked = true);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
-          submit ? 'Results submitted for review. Marks are locked.' : 'Examination marks saved.')));
+          submit ? (parentSyncPending?'Results submitted. Owner: sync parent records.':'Results submitted for review. Marks are locked.') : 'Examination marks saved.')));
       }
     } catch (error) {
       if (mounted) setState(() => _error = schoolErrorMessage(error));

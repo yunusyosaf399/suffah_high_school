@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'school_settings_page.dart';
 
 class SignInPage extends StatefulWidget {
   const SignInPage({super.key});
@@ -105,6 +106,7 @@ class _SignInPageState extends State<SignInPage> {
                             ),
                           ),
                           const SizedBox(height: 22),
+                          const Align(alignment:Alignment.centerRight,child:SchoolSettingsButton()),
                           Text('Welcome back', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
                           const SizedBox(height: 6),
                           Text('Suffah High School • Management portal', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),

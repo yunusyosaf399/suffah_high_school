@@ -6,9 +6,13 @@ import '../data/school_errors.dart';
 import '../data/staff_repository.dart';
 import 'teacher_examinations_page.dart';
 import 'teacher_attendance_page.dart';
+import '../data/school_user_service.dart';
+import 'role_portal_pages.dart';
+import 'school_settings_page.dart';
 
 class TeacherDashboard extends StatefulWidget {
-  const TeacherDashboard({super.key, required this.displayName, required this.staffId});
+  const TeacherDashboard({super.key, required this.displayName, required this.staffId,this.permissions=const {}});
+  final Map<String,bool> permissions;
   final String displayName;
   final String staffId;
   @override
@@ -51,6 +55,7 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
         title: const Text('Teacher portal',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
         actions: [
+          const SchoolSettingsButton(),
           IconButton(
             tooltip: 'Sign out',
             onPressed: () => FirebaseAuth.instance.signOut(),
@@ -115,21 +120,25 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                   mainAxisSpacing: 10,
                   childAspectRatio: 1.12,
                   children: [
-                    _module('Examinations & marks', 'View exams and enter marks',
+                    if(schoolPermission(widget.permissions,'teacher_profile')) _module('My profile & contract','Employment and service details',Icons.person_outline,()=>_open(const TeacherPersonalPage(section:'profile'))),
+                    if(schoolPermission(widget.permissions,'teacher_payroll')) _module('My salary','Salary bills, payments and dues',Icons.payments_outlined,()=>_open(const TeacherPersonalPage(section:'salary'))),
+                    if(schoolPermission(widget.permissions,'teacher_analytics') && schoolPermission(widget.permissions,'teacher_academics')) _module('Performance analytics','Released subject result outcomes',Icons.insights_outlined,()=>_open(const TeacherPersonalPage(section:'analytics'))),
+                    if(schoolPermission(widget.permissions,'messages')) _module('Messages','Contact school administration',Icons.forum_outlined,()=>_open(const SchoolMessagesPage())),
+                    if(schoolPermission(widget.permissions,'teacher_academics')) _module('Examinations & marks', 'View exams and enter marks',
                       Icons.fact_check_outlined,
                       () => _open(TeacherExaminationsPage(staffId: widget.staffId))),
-                    _module('Class tests', 'Create monthly and class assessments',
+                    if(schoolPermission(widget.permissions,'teacher_academics')) _module('Class tests', 'Create monthly and class assessments',
                       Icons.quiz_outlined,
                       () => _open(TeacherExaminationsPage(staffId: widget.staffId, testsOnly: true))),
-                    _module('Assignments', 'Create class assignments',
+                    if(schoolPermission(widget.permissions,'teacher_classwork')) _module('Assignments', 'Create class assignments',
                       Icons.assignment_outlined,
                       () => _open(TeacherClassworkPage(
                         staffId: widget.staffId, kind: 'assignment'))),
-                    _module('Homework', 'Set and review homework',
+                    if(schoolPermission(widget.permissions,'teacher_classwork')) _module('Homework', 'Set and review homework',
                       Icons.menu_book_outlined,
                       () => _open(TeacherClassworkPage(
                         staffId: widget.staffId, kind: 'homework'))),
-                    _module('My class attendance', 'Mark your assigned class',
+                    if(schoolPermission(widget.permissions,'teacher_attendance')) _module('My class attendance', 'Mark your assigned class',
                       Icons.fact_check_outlined,
                       () => _open(TeacherAttendancePage(
                         staffId: widget.staffId))),

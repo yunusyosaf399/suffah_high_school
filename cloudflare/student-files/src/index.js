@@ -75,13 +75,13 @@ async function firebaseToken(request, projectId) {
 
 // Firestore REST with a Firebase ID token ENFORCES the same students/{id}
 // security rule as the Flutter client. No service-account/admin bypass.
-async function authorizeStudent(env, token, studentId) {
+async function authorizeStudent(env, token, studentId, collection='students') {
   if (!studentPattern.test(studentId)) {
     throw new ApiError(400, 'Invalid student registration number.');
   }
   const url = 'https://firestore.googleapis.com/v1/projects/' +
     encodeURIComponent(env.FIREBASE_PROJECT_ID) +
-    '/databases/(default)/documents/students/' + encodeURIComponent(studentId);
+    '/databases/(default)/documents/' + collection + '/' + encodeURIComponent(studentId);
   let response;
   try {
     response = await fetch(url, {
@@ -186,15 +186,36 @@ function stillReferenced(student, path) {
     value?.mapValue?.fields?.path?.stringValue === path);
 }
 
+async function authorizeParentFile(env,token,path) {
+  const childId=studentFromPath(path);
+  // The caller's own Firebase ID token enforces the parent link,
+  // document permission and current attachment equality in Firestore.
+  const view=await authorizeStudent(env,token,childId,'parent_documents');
+  if(!stillReferenced(view,path))throw new ApiError(403,'This file is not linked to your child.');
+}
+
 async function handle(request, env) {
   if (!env.STUDENT_FILES || !env.FIREBASE_PROJECT_ID) {
     throw new ApiError(503, 'R2 storage is not configured on this Worker.');
   }
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname === '/health') {
-    return json({ status: 'ok', release: 'r2-firestore-redirect-v3' });
+    return json({ status: 'ok', release: 'r2-parent-firestore-v4' });
   }
   const token = await firebaseToken(request, env.FIREBASE_PROJECT_ID);
+
+  // Parent reads use a separate endpoint. The original student read/write
+  // authorization remains administrator-only, even before this Worker deploys.
+  if(url.pathname==='/v1/parent-files' && request.method==='GET') {
+    const path=url.searchParams.get('path')||'';
+    await authorizeParentFile(env,token,path);
+    const object=await env.STUDENT_FILES.get(path);
+    if(!object) throw new ApiError(404,'File not found.');
+    return new Response(object.body,{headers:{
+      'Content-Type':object.httpMetadata?.contentType||'application/octet-stream',
+      'Content-Disposition':'attachment','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff',
+    }});
+  }
 
   const upload = /^\/v1\/students\/([^/]+)\/(photo|documents\/([a-z_]+))$/.exec(url.pathname);
   if (request.method === 'PUT' && upload) {
@@ -290,4 +311,4 @@ export default {
 };
 
 // Exported for direct regression tests; no additional public HTTP endpoint.
-export { authorizeStudent };
+export { authorizeStudent, authorizeParentFile };

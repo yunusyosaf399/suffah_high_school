@@ -135,7 +135,9 @@ void main() {
   });
 
   test('formal exams are restricted to exam administrators', () {
-    expect(canScheduleFormalExams('examiner'),isTrue);
+    expect(canScheduleFormalExams('examiner'),isFalse);
+    expect(canScheduleFormalExams('principal'),isTrue);
+    expect(canManageExamCentre('examiner'),isTrue);
     expect(canScheduleFormalExams('teacher'),isFalse);
     expect(canScheduleFormalExams('canteen_seller'),isFalse);
   });
