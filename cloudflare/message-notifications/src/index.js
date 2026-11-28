@@ -352,12 +352,24 @@ async function callWake(req,env,uid,callId){
 async function callV2Wake(req,env,uid,callId){
   if(!/^[A-Za-z0-9_-]{20}$/.test(callId))return new Response('Invalid call',{status:400});
   if(!await callIdentity(req,env,uid))return new Response('Forbidden',{status:403});
-  const auth=await clientRead(req,env,'/office_calls_v2/'+callId);
-  const f=auth?.doc?.fields||{};
+  let auth=await clientRead(req,env,'/office_calls_v2/'+callId);
+  let f=auth?.doc?.fields||{};
   if(!auth||auth.uid!==uid||f.callerUid?.stringValue!==uid||f.status?.stringValue!=='ringing'||Date.parse(f.expiresAt?.timestampValue)<=Date.now())return new Response('Expired',{status:409});
   if(f.pushNotified?.booleanValue===true)return new Response(null,{status:204});
   const token=await access(env);
-  try{await request(base(env)+'/office_calls_v2/'+callId+'?updateMask.fieldPaths=pushNotified&currentDocument.updateTime='+encodeURIComponent(auth.doc.updateTime),token,{method:'PATCH',body:JSON.stringify({fields:{pushNotified:B(true)}})});}catch(e){if(/status (409|412)$/.test(e.message))return new Response(null,{status:204});throw e;}
+  // Publishing the offer can race this claim. Refresh the authorized call
+  // on precondition failure rather than silently losing the incoming alert.
+  for(let attempt=0;;attempt++){
+    try{
+      await request(base(env)+'/office_calls_v2/'+callId+'?updateMask.fieldPaths=pushNotified&currentDocument.updateTime='+encodeURIComponent(auth.doc.updateTime),token,{method:'PATCH',body:JSON.stringify({fields:{pushNotified:B(true)}})});
+      break;
+    }catch(e){
+      if(!/status (400|409|412)$/.test(e.message)||attempt>=2)throw e;
+      auth=await clientRead(req,env,'/office_calls_v2/'+callId);f=auth?.doc?.fields||{};
+      if(!auth||auth.uid!==uid||f.callerUid?.stringValue!==uid||f.status?.stringValue!=='ringing'||Date.parse(f.expiresAt?.timestampValue)<=Date.now())return new Response('Expired',{status:409});
+      if(f.pushNotified?.booleanValue===true)return new Response(null,{status:204});
+    }
+  }
   const target=f.targetUid.stringValue;
   let recipients=[target];
   if(target==='office'){

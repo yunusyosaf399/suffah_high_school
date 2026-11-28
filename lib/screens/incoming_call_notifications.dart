@@ -73,7 +73,8 @@ class IncomingCallNotifications{
     if(id is! String||!RegExp(r'^[A-Za-z0-9_-]{20}$').hasMatch(id)||caller is! String
       ||expiry==null||!expiry.isAfter(DateTime.now()))return;
     final prefs=await SharedPreferences.getInstance();await prefs.reload();
-    if(prefs.getString(_accountKey)!=data['recipientUid'])return;
+    final account=prefs.getString(_accountKey);
+    if(account==null||account.isEmpty||account!=data['recipientUid'])return;
     if(!await initialize())return;
     final channelId=channel is String&&RegExp(r'^school_calls[A-Za-z0-9_]{0,80}$').hasMatch(channel)?channel:'school_calls';
     final remaining=expiry.difference(DateTime.now()).inMilliseconds.clamp(1,60000).toInt();

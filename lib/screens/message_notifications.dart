@@ -90,6 +90,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
   StreamSubscription<Map<String,dynamic>>? localCallSub;
   Timestamp? readThrough;
   bool ready=false;
+  bool fullscreenCapable=false;
   bool opening=false;
   bool get mobile=>!kIsWeb&&defaultTargetPlatform==TargetPlatform.android;
   DocumentReference<Map<String,dynamic>> get readRef=>FirebaseFirestore.instance.collection('message_alert_reads').doc(uid!);
@@ -137,7 +138,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
       await IncomingCallNotifications.registerAccount(uid!);
       if(!mounted)return;
       localCallSub=IncomingCallNotifications.opened.stream.listen(openLocalCall);
-      await IncomingCallNotifications.initialize();
+      fullscreenCapable=await IncomingCallNotifications.initialize();
       if(!mounted)return;
       final launch=await IncomingCallNotifications.launchPayload();
       if(launch!=null&&mounted)openLocalCall(launch);
@@ -162,7 +163,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell> with 
       final channel=await SchoolCallAudio.channelId();
       if(!mounted||FirebaseAuth.instance.currentUser?.uid!=uid)return;
       await FirebaseFirestore.instance.collection('push_devices').doc(token).set({
-        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':channel,'callFullscreen':true,
+        'uid':uid,'updatedAt':FieldValue.serverTimestamp(),'callChannel':channel,'callFullscreen':fullscreenCapable,
       });
     }catch(_){}
   }

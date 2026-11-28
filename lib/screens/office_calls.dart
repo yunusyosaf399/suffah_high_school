@@ -39,7 +39,7 @@ class OfficeCalls {
     _open=true;
     try{
       final data=(await ref(callId).get(const GetOptions(source:Source.server))).data();
-      await IncomingCallNotifications.cancel(callId);
+      unawaited(IncomingCallNotifications.cancel(callId));
       if(!context.mounted||!fresh(data)||data?['callId']!=callId||data?['callerUid']!=uid)return;
       await Navigator.of(context,rootNavigator:true).push<void>(MaterialPageRoute(builder:(_)=>_OfficeCallPage(callerUid:uid,callId:callId,incoming:true,targetUid:data!['targetUid'] as String)));
     }on FirebaseException catch(e){debugPrint('Office call verification failed: ${e.code}');}
@@ -346,7 +346,9 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
-    if(state==AppLifecycleState.detached||(mobile&&state==AppLifecycleState.paused&&!serviceStarted)){unawaited(end('ended'));}
+    // A lock-screen activity can briefly pause while Android switches tasks.
+    // Do not terminate unanswered incoming calls before their expiry.
+    if(state==AppLifecycleState.detached||(mobile&&state==AppLifecycleState.paused&&!serviceStarted&&connectedAt!=null)){unawaited(end('ended'));}
   }
   void toggleMute(){
     if(microphone==null)return;

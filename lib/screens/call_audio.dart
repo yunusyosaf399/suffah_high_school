@@ -35,7 +35,7 @@ class SchoolCallAudio {
         final token=await FirebaseMessaging.instance.getToken();
         if(token!=null&&uid==account)await FirebaseFirestore.instance.collection('push_devices').doc(token).set({
           'uid':account,'updatedAt':FieldValue.serverTimestamp(),'callChannel':await channelId(),
-        });
+        },SetOptions(merge:true));
       }else{
         final reset=await showDialog<bool>(context:context,builder:(ctx)=>SimpleDialog(title:const Text('Call ringtone'),children:[
           SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Choose audio file')),
