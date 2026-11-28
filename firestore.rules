@@ -1732,6 +1732,7 @@ service cloud.firestore {
     // Explicitly permit the owner to enumerate the known container roots.
     match /{backupCollection}/{backupId} {
       allow list: if isOwner() && backupCollection in [
+        'finance_scheduler_runtime','finance_dashboard_preferences',
         'class_rosters','parent_attendance','parent_class_grants',
         'parent_classwork_history','parent_class_schedules'
       ];

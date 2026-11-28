@@ -1102,3 +1102,11 @@ test('parent portal reads only linked child views, live fees, attendance and rel
     await assertFails(getDocs(collection(db(sellerId),name)));
   }
  });
+
+ test('owner export can enumerate finance scheduler runtime and dashboard preferences', async () => {
+  for(const name of ['finance_scheduler_runtime','finance_dashboard_preferences']){
+    await assertSucceeds(getDocs(collection(db(ownerId),name)));
+    await assertFails(getDocs(collection(db(sellerId),name)));
+    await assertFails(getDocs(collection(db(guestId),name)));
+  }
+ });

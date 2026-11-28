@@ -72,8 +72,14 @@ class SchoolBackupRepository {
       final ordered=query.orderBy(FieldPath.documentId);
       while(true){
         requireOwner();
-        final page=await (cursor==null?ordered:ordered.startAfterDocument(cursor)).limit(250)
-          .get(const GetOptions(source:Source.server));
+        progress(label,records.length);
+        final QuerySnapshot<Map<String,dynamic>> page;
+        try {
+          page=await (cursor==null?ordered:ordered.startAfterDocument(cursor)).limit(250)
+            .get(const GetOptions(source:Source.server));
+        } on FirebaseException catch(e) {
+          throw StateError('Cannot export $label (${e.code}). Deploy the latest Firestore rules and retry. No partial export was saved.');
+        }
         for(final d in page.docs){records[d.reference.path]=BackupDocument(d.reference.path,Map<String,dynamic>.from(_portable(d.data()) as Map));}
         progress(label,records.length);
         if(page.docs.length<250)break;
