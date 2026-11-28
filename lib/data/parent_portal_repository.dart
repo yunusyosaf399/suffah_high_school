@@ -242,6 +242,30 @@ class ParentPortalRepository {
         [klass['name'],klass['section']].whereType<String>().where((s)=>s.isNotEmpty).join(' – ')},SetOptions(merge:true));
       await batch.commit();
       final marks=await db.collectionGroup('marks').where('studentId',isEqualTo:id).get(server);
+      // Attendance provides dated evidence of former-class membership.
+      // Restore only work published on a day with a recorded attendance
+      // mark for that child in that class; never assume continuous enrollment.
+      final verifiedDays=<String,Set<String>>{};
+      for(final m in marks.docs){
+        final parent=m.reference.parent.parent;
+        if(parent==null||parent.parent.id!='attendance_days'||m.id!=id)continue;
+        final d=m.data(),klass=d['classId'],date=d['date'];
+        if(klass is String&&klass!=classId&&date is String&&
+          ['present','late','absent','leave'].contains(d['status'])){
+          verifiedDays.putIfAbsent(klass,()=>{}).add(date);
+        }
+      }
+      for(final entry in verifiedDays.entries){
+        if(!history.contains(entry.key))continue;
+        final work=await _all(db.collection('classwork').where('classId',isEqualTo:entry.key));
+        for(final item in work){
+          final d=item.data();
+          if(!entry.value.contains(_day(d['createdAt'])))continue;
+          final target=db.collection('parent_classwork_history').doc(id).collection('items').doc(item.id);
+          if((await target.get(server)).exists)continue;
+          await target.set(parentPick(d,['title','subject','instructions','dueDate','kind','classId','active']));
+        }
+      }
       for(final m in marks.docs){
         final parent=m.reference.parent.parent;
         if(parent==null||parent.parent.id!='attendance_days'||m.id!=id)continue;
