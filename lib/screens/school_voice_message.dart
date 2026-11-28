@@ -52,6 +52,7 @@ class _InlineVoiceComposerState extends State<InlineVoiceComposer> with WidgetsB
   Future<void> start()async{
     if(active||!widget.enabled)return;
     FocusScope.of(context).unfocus();
+    clock.reset();
     setState((){starting=true;locked=false;cancelRequested=false;releaseRequested=false;held=false;});
     try{
       if(!await recorder.hasPermission())throw StateError('Microphone permission is required.');

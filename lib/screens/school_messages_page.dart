@@ -31,6 +31,41 @@ class _MessageProfileButton extends StatelessWidget {
     ),
   );
 }
+Future<bool> _confirmConversationDeletion(BuildContext context,SchoolMessageRepository repo,{String? uid,String? name})async{
+  final all=uid==null;
+  final yes=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+    title:Text(all?'Delete ALL conversations?':'Delete conversation?'),
+    content:Text(all?'Permanently remove every school conversation for both sides, including messages, attachments, voice recordings and scheduled messages. Accounts and other school records will remain. This cannot be undone.':'Permanently remove the conversation with ${name??'this account'} for both sides, including its voice recordings and scheduled messages. This cannot be undone.'),
+    actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancel')),
+      FilledButton(style:FilledButton.styleFrom(backgroundColor:Theme.of(ctx).colorScheme.error,foregroundColor:Theme.of(ctx).colorScheme.onError),onPressed:()=>Navigator.pop(ctx,true),child:Text(all?'Delete all':'Delete conversation'))],
+  ));
+  if(yes!=true||!context.mounted)return false;
+  try{
+    await repo.deleteConversations(uid);
+    if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Deletion queued. The server will remove the conversation records and audio.')));
+    return true;
+  }catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));return false;}
+}
+class _OwnerCleanupStatus extends StatefulWidget{
+  const _OwnerCleanupStatus({required this.repo});
+  final SchoolMessageRepository repo;
+  @override
+  State<_OwnerCleanupStatus> createState()=>_OwnerCleanupStatusState();
+}
+class _OwnerCleanupStatusState extends State<_OwnerCleanupStatus>{
+  late final stream=widget.repo.cleanupRequest.snapshots();
+  @override
+  Widget build(BuildContext context)=>StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(stream:stream,builder:(context,s){
+    final data=s.data?.data();
+    if(data==null||s.hasError)return const SizedBox.shrink();
+    final done=data['status']=='done';
+    return Material(color:Theme.of(context).colorScheme.surfaceContainerHighest,child:ListTile(
+      leading:done?const Icon(Icons.check_circle_outline):const SizedBox(width:22,height:22,child:CircularProgressIndicator(strokeWidth:2)),
+      title:Text(done?'Conversation deletion completed':'Deleting conversations…'),
+      subtitle:Text(done?'Deleted messages are no longer available.':'The server removes records in batches. Sending is temporarily disabled in affected chats.'),
+    ));
+  });
+}
 class _ThreadList extends StatefulWidget{
   const _ThreadList();
   @override
@@ -40,11 +75,14 @@ class _ThreadListState extends State<_ThreadList>{
   final repo=SchoolMessageRepository();
   late Future<Map<String,dynamic>> rows=repo.threads();
   String query='';
+  late final owner=repo.isOwner();
   @override
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('School messages'),actions:[
     IconButton(tooltip:'Refresh conversations',onPressed:()=>setState(()=>rows=repo.threads()),icon:const Icon(Icons.refresh)),
+    FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true?IconButton(tooltip:'Delete all conversations',icon:const Icon(Icons.delete_sweep_outlined),onPressed:()=>_confirmConversationDeletion(context,repo)):const SizedBox.shrink()),
     _MessageProfileButton(uid:repo.currentUid)
   ]),body:Column(children:[
+    FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true?_OwnerCleanupStatus(repo:repo):const SizedBox.shrink()),
     Padding(padding:const EdgeInsets.all(12),child:TextField(decoration:const InputDecoration(prefixIcon:Icon(Icons.search),hintText:'Search conversations'),onChanged:(v)=>setState(()=>query=v.toLowerCase()))),
     Expanded(child:FutureBuilder<Map<String,dynamic>>(future:rows,builder:(context,s){
       if(s.hasError)return Center(child:Text(schoolErrorMessage(s.error!)));
@@ -53,7 +91,7 @@ class _ThreadListState extends State<_ThreadList>{
       if(items.isEmpty)return const Center(child:Text('No matching conversations.'));
       return ListView.builder(itemCount:items.length,itemBuilder:(context,i){
         final x=items[i],uid=x['uid'].toString(),name=x['name'].toString();
-        return ListTile(leading:AccountPicture(uid:uid,name:name),title:Text(name),subtitle:Text(x['role'].toString()),trailing:const Icon(Icons.chevron_right),
+        return ListTile(leading:AccountPicture(uid:uid,name:name),title:Text(name),subtitle:Text(x['role'].toString()),trailing:FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true?PopupMenuButton<String>(tooltip:'Conversation options',onSelected:(v){if(v=='delete')_confirmConversationDeletion(context,repo,uid:uid,name:name);},itemBuilder:(_)=>const [PopupMenuItem(value:'delete',child:Text('Delete conversation for everyone'))]):const Icon(Icons.chevron_right)),
           onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>_Conversation(uid:uid,name:name))));
       });
     }))
@@ -70,6 +108,7 @@ class _ConversationState extends State<_Conversation>{
   final text=TextEditingController();
   final scroll=ScrollController();
   late final String me=repo.currentUid;
+  late final owner=repo.isOwner();
   int limit=60;
   late Stream<_Docs> messages=repo.watch(widget.uid,limit);
   late final Stream<_Docs> hidden=repo.hidden(widget.uid);
@@ -262,6 +301,7 @@ class _ConversationState extends State<_Conversation>{
       return Scaffold(appBar:AppBar(title:Text(widget.name??'School messages'),actions:[
         IconButton(tooltip:'Scheduled messages',onPressed:queue,icon:const Icon(Icons.schedule)),
         IconButton(tooltip:'Chat colors',onPressed:()=>colors(p,scheme),icon:const Icon(Icons.palette_outlined)),
+        FutureBuilder<bool>(future:owner,builder:(context,s)=>s.data==true&&widget.uid!=null?IconButton(tooltip:'Delete conversation for everyone',icon:const Icon(Icons.delete_outline),onPressed:()async{if(await _confirmConversationDeletion(context,repo,uid:widget.uid,name:widget.name)&&context.mounted)Navigator.pop(context);}):const SizedBox.shrink()),
         _MessageProfileButton(uid:me),
       ]),body:SafeArea(child:Column(children:[
         Expanded(child:ColoredBox(color:color(p,'background',scheme.surface),child:StreamBuilder<_Docs>(stream:hidden,builder:(context,h){

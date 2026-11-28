@@ -105,10 +105,14 @@ class SchoolMessageRepository {
     final self=(await _db.collection('users').doc(_uid).get(_server)).data()??{};
     if(self['role']=='owner'){
       final result=await _db.collection('users').where('role',whereIn:['parent','teacher']).limit(1001).get(_server);
-      return {'rows':result.docs.take(1000).where((d)=>d.data()['active']==true&&d.data()['removed']!=true
-        &&(d.data()['permissions'] is! Map||(d.data()['permissions'] as Map)['messages']!=false))
-        .map((d)=>{'uid':d.id,'name':d.data()['displayName']??d.id,'role':d.data()['role']}).toList(),
-        'truncated':result.docs.length>1000};
+      final existing=await _db.collection('portal_threads').limit(1001).get(_server);
+      final rows=<String,Map<String,dynamic>>{
+        for(final d in existing.docs.take(1000))d.id:{'uid':d.id,'name':d.data()['name']??d.id,'role':d.data()['role']??'Archived conversation'},
+        for(final d in result.docs.take(1000))
+          if(d.data()['active']==true&&d.data()['removed']!=true&&(d.data()['permissions'] is! Map||(d.data()['permissions'] as Map)['messages']!=false))
+            d.id:{'uid':d.id,'name':d.data()['displayName']??d.id,'role':d.data()['role']},
+      };
+      return {'rows':rows.values.toList(),'truncated':result.docs.length>1000||existing.docs.length>1000};
     }
     final result=await _db.collection('portal_threads').orderBy('updatedAt',descending:true).limit(1001).get(_server);
     return {'rows':result.docs.take(1000).map((d)=>{'uid':d.id,'name':d.data()['name']??d.id,'role':d.data()['role']??'School account'}).toList(),
