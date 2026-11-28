@@ -34,7 +34,21 @@ class _StudentAvatarState extends State<StudentAvatar> {
       final uid=FirebaseAuth.instance.currentUser?.uid;
       if(uid==null)return null;
       storage=AdmissionStorage();
-      final bytes=await storage.downloadStudentPhoto(widget.studentId);
+      // Admissions already has the authenticated student's current photo path.
+      // Use the established file endpoint (also used by StudentProfilePage).
+      // Restricted lists only have an ID and use the scoped photo-only endpoint.
+      final path=widget.photoPath;
+      final id=widget.studentId;
+      Uint8List bytes;
+      if(path!=null && path.startsWith('student-photos/$id/')){
+        try {
+          bytes=await storage.downloadFile(path);
+        } catch (_) {
+          bytes=await storage.downloadStudentPhoto(id);
+        }
+      } else {
+        bytes=await storage.downloadStudentPhoto(id);
+      }
       if(FirebaseAuth.instance.currentUser?.uid!=uid)return null;
       return bytes;
     }catch(_){return null;}finally{storage?.close();}
