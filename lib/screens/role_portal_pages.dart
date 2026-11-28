@@ -158,6 +158,8 @@ class _ParentHistoryState extends State<_ParentHistory>{
   String group='Daily';
   late String activity=widget.currentOnly?'Current':'All';
   String category='All';
+  String session='All';
+  bool paymentsOnly=false;
   String date(Map<String,dynamic> r)=>(r['month']??r['date']??r['examDate']??r['dueDate']??'').toString();
   String month(DateTime d)=>'${d.year}-${d.month.toString().padLeft(2,'0')}';
   bool isCurrent(Map<String,dynamic> r,String today){
@@ -177,12 +179,14 @@ class _ParentHistoryState extends State<_ParentHistory>{
     final fees=widget.section=='fees',attendance=widget.section=='attendance';
     final exams=widget.section=='exams'||widget.section=='tests';
     final years=widget.rows.map(date).where((d)=>d.length>=4).map((d)=>d.substring(0,4)).toSet().toList()..sort((a,b)=>b.compareTo(a));
+    final sessions=widget.rows.map((r)=>r['academicSession']).whereType<String>().where((s)=>s.isNotEmpty).toSet().toList()..sort((a,b)=>b.compareTo(a));
     final cats=widget.rows.map((r)=>(r['category']??'Other').toString()).toSet().toList()..sort();
     final months=period=='This month'?1:period=='Last 6 months'?6:12;
     final first=month(DateTime(now.year,now.month-months+1));
     final rows=widget.rows.where((r){
       final d=date(r);
       if(year!='All'&&!d.startsWith(year))return false;
+      if(exams&&session!='All'&&r['academicSession']!=session)return false;
       if((fees||attendance)&&period!='All'&&(d.length<7||d.substring(0,7).compareTo(first)<0||d.substring(0,7).compareTo(month(now))>0))return false;
       if(fees&&category!='All'&&r['category']!=category)return false;
       if(!fees&&!attendance&&activity!='All'&&(isCurrent(r,today)!=(activity=='Current')))return false;
@@ -212,7 +216,18 @@ class _ParentHistoryState extends State<_ParentHistory>{
       if(fees)select('Fee or purchase type',category,['All',...cats],(s)=>category=s),
       if(attendance)select('Attendance view',group,['Daily','Monthly','Yearly'],(s)=>group=s),
       if(!fees&&!attendance)select('Activity',activity,['All','Current','History'],(s)=>activity=s),
-      if(fees)..._bills(rows),
+      if(exams)select('Academic session / term',session,['All',...sessions],(s)=>session=s),
+      if(fees)SwitchListTile(title:const Text('Individual payment history'),value:paymentsOnly,onChanged:(v)=>setState(()=>paymentsOnly=v)),
+      if(fees&&!paymentsOnly)..._bills(rows),
+      if(fees&&paymentsOnly)...[
+        const Text('Payment dates use the selected period, independently of the original bill month.'),
+        for(final bill in widget.rows)
+          if(category=='All'||bill['category']==category)
+            for(final receipt in portalRows(bill['receipts']))
+              if((year=='All'||(receipt['date']??'').toString().startsWith(year))&&
+                (period=='All'||((receipt['date']??'').toString().compareTo(first)>=0&&(receipt['date']??'').toString().compareTo(today)<=0)))
+                Card(child:ListTile(title:Text(_value(bill['title'])),subtitle:Text('${_value(receipt['date'])} • ${_value(receipt['method'])}\\nReceipt: ${_value(receipt['id'])}'),trailing:Text(_money(receipt['amountMinor'])))),
+      ],
       if(attendance)...[
         attendanceCard('Selected period',rows),
         if(group=='Daily')for(final r in rows)Card(child:ListTile(title:Text(date(r)),trailing:Text(_value(r['status'])))),
@@ -233,9 +248,12 @@ List<Widget> _bills(List<Map<String,dynamic>> rows){
   return [
     _notice('Total: ${_money(total)}\nPaid: ${_money(paid)}\nOutstanding: ${_money(total-paid)}'),
     if(rows.isEmpty)_notice('No bills recorded.'),
-    for(final r in rows)Card(child:ListTile(title:Text('${_value(r['title'])} • ${_value(r['month'])}'),
+    for(final r in rows)Card(child:ExpansionTile(title:Text('${_value(r['title'])} • ${_value(r['month'])}'),
       subtitle:Text('${_value(r['category'])} • ${_value(r['status'])} • Paid: ${_money(r['paidMinor'])}\nOutstanding: ${_money(_amount(r['amountMinor'])-_amount(r['paidMinor']))}'),
-      trailing:Text(_money(r['amountMinor'])))),
+      trailing:Text(_money(r['amountMinor'])),children:[
+        if(portalRows(r['receipts']).isEmpty)const ListTile(title:Text('No individual receipt recorded.')),
+        for(final receipt in portalRows(r['receipts']))ListTile(title:Text(_money(receipt['amountMinor'])),subtitle:Text('${_value(receipt['date'])} • ${_value(receipt['method'])}\\nReceipt: ${_value(receipt['id'])}')),
+      ])),
   ];
 }
 class _ParentDocument extends StatefulWidget{

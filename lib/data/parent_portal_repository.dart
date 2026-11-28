@@ -48,7 +48,7 @@ class ParentPortalRepository {
     final a=await _account(),rows=<Map<String,dynamic>>[];
     for(final id in _ids(a)){
       final d=(await db.collection('parent_children').doc(id).get(server)).data();
-      rows.add({'id':id,'name':d?['fullName']??id,'needsSync':d==null});
+      rows.add({'id':id,'name':d?['fullName']??id,'className':d?['className'],'needsSync':d==null});
     }
     return {'rows':rows};
   }
@@ -77,8 +77,25 @@ class ParentPortalRepository {
     if(section=='fees'){
       final bills=await _all(db.collection('finance_fee_bills').where('studentId',isEqualTo:id));
       final sales=await _all(db.collection('inventory_sales').where('customerType',isEqualTo:'student').where('customerId',isEqualTo:id));
+      final receipts=await _all(db.collection('finance_ledger').where('studentId',isEqualTo:id).where('sourceType',isEqualTo:'fee').where('direction',isEqualTo:'credit'));
+      final collections=await _all(db.collection('inventory_payments').where('customerId',isEqualTo:id));
+      final byBill=<String,List<Map<String,dynamic>>>{};
+      for(final receipt in receipts){
+        final d=receipt.data();
+        byBill.putIfAbsent('fee:${d['sourceId']}',()=>[]).add({
+          'id':receipt.id,'amountMinor':d['amountMinor'],'date':_day(d['createdAt']),
+          'method':d['method'],'reference':d['reference'],
+        });
+      }
+      for(final receipt in collections){
+        final d=receipt.data();
+        byBill.putIfAbsent('sale:${d['saleId']}',()=>[]).add({
+          'id':receipt.id,'amountMinor':d['amountMinor'],'date':_day(d['collectedAt']),'method':d['method'],
+        });
+      }
       final rows=<Map<String,dynamic>>[
-        for(final d in bills) parentPick(d.data(),['title','month','category','amountMinor','paidMinor','status','currency','dueDate']),
+        for(final d in bills) {...parentPick(d.data(),['title','month','category','amountMinor','paidMinor','status','currency','dueDate']),
+          'receipts':byBill['fee:${d.id}']??[]},
         for(final d in sales) {
           'title':'${d.data()['itemName']} × ${d.data()['quantity']}',
           'category':d.data()['department']??'stationery',
@@ -87,6 +104,7 @@ class ParentPortalRepository {
           'paidMinor':d.data()['paidMinor']??d.data()['totalMinor'],
           'status':d.data()['paymentStatus']??'paid',
           'currency':d.data()['currency'],
+          'receipts':_saleReceipts(d.data(),byBill['sale:${d.id}']??[]),
         },
       ]..sort((a,b)=>(b['month']??'').toString().compareTo((a['month']??'').toString()));
       return {'rows':rows};
@@ -101,10 +119,15 @@ class ParentPortalRepository {
     if(child==null)throw StateError('Ask the school owner to sync parent records.');
     final current=child['classId']?.toString()??'';
     if(section=='assignments'||section=='homework'){
-      if(current.isEmpty)return {'rows':[]};
-      await db.collection('parent_class_grants').doc(uid).collection('classes').doc(current).set({'studentId':id});
-      final work=await _all(db.collection('classwork').where('classId',isEqualTo:current));
-      final rows=work.map((d)=>d.data()).where((d)=>d['kind']==(section=='assignments'?'assignment':'homework')).map((d)=>parentPick(d,['title','subject','instructions','dueDate','active','kind'])).toList()
+      final history=await _all(db.collection('parent_classwork_history').doc(id).collection('items'));
+      final work=<String,Map<String,dynamic>>{for(final d in history)d.id:{...d.data(),'active':false}};
+      if(current.isNotEmpty){
+        await db.collection('parent_class_grants').doc(uid).collection('classes').doc(current).set({'studentId':id});
+        for(final d in await _all(db.collection('classwork').where('classId',isEqualTo:current))){
+          work[d.id]=d.data();
+        }
+      }
+      final rows=work.values.where((d)=>d['kind']==(section=='assignments'?'assignment':'homework')).map((d)=>parentPick(d,['title','subject','instructions','dueDate','active','kind','classId'])).toList()
         ..sort((a,b)=>(b['dueDate']??'').toString().compareTo((a['dueDate']??'').toString()));
       return {'rows':rows};
     }
@@ -134,6 +157,7 @@ class ParentPortalRepository {
         }
         final cycle=cycles[cycleId]??{};
         rows.add({...paper,'cycleStatus':cycle['status']??'',
+          'academicSession':cycleId is String&&cycleId.isNotEmpty?cycleId:'${paper['sessionTitle']??paper['category']??'Unspecified'}',
           'schoolClosure':_map(cycle['excludedDates'])[paper['examDate']]??'',
           if(mark?['score'] is num)'score':mark!['score']});
       }
@@ -142,6 +166,28 @@ class ParentPortalRepository {
     return {'rows':rows};
   }
 
+  static List<Map<String,dynamic>> _saleReceipts(Map<String,dynamic> sale,List<Map<String,dynamic>> later){
+    final paid=sale['paidMinor']??sale['totalMinor'];
+    final collected=later.fold<num>(0,(sum,r)=>sum+(r['amountMinor'] is num?r['amountMinor'] as num:0));
+    final initial=paid is num?paid-collected:0;
+    return [
+      if(initial>0) {'id':sale['saleId'],'amountMinor':initial,'date':_day(sale['soldAt']),'method':sale['paymentMethod'],'initial':true},
+      ...later,
+    ]..sort((a,b)=>(b['date']??'').toString().compareTo((a['date']??'').toString()));
+  }
+  static String _day(dynamic value){
+    if(value is! Timestamp)return '';
+    return value.toDate().toUtc().add(const Duration(hours:5)).toIso8601String().split('T').first;
+  }
+  static Future<void> archiveClasswork(FirebaseFirestore db,String id,String classId)async{
+    // Capture only records already created before transfer; never grant
+    // access to future work posted to a former class.
+    final work=await _all(db.collection('classwork').where('classId',isEqualTo:classId));
+    for(final d in work){
+      await db.collection('parent_classwork_history').doc(id).collection('items').doc(d.id)
+        .set(parentPick(d.data(),['title','subject','instructions','dueDate','kind','classId','active']));
+    }
+  }
   static String _month(dynamic value){
     if(value is! Timestamp)return '';
     final date=value.toDate().toUtc().add(const Duration(hours:5));

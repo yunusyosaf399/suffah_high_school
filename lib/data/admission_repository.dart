@@ -270,6 +270,11 @@ class AdmissionRepository {
     }
     if (attachments != null) data['attachments'] = attachments;
     if (photoPath != null) data['photoPath'] = photoPath;
+    final oldClass=(admission.details['academic']?['classId']??'').trim();
+    final newClass=value('academic','classId');
+    if(complete&&admission.status=='admitted'&&oldClass.isNotEmpty&&oldClass!=newClass){
+      await ParentPortalRepository.archiveClasswork(_db,admission.id,oldClass);
+    }
     final batch = _db.batch();
     final studentRef = _students.doc(admission.id);
     batch.update(studentRef, data);

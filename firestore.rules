@@ -1064,7 +1064,7 @@ service cloud.firestore {
     // allowed. The transaction must reconcile with its bill in the same
     // atomic Firestore transaction, except for direct expenses.
     match /finance_ledger/{entryId} {
-      allow get, list: if canManageAdmissions();
+      allow get, list: if canManageAdmissions() || (resource.data.sourceType == 'fee' && resource.data.direction == 'credit' && parentFeature(resource.data.studentId,'parent_fees'));
       allow create: if canManageAdmissions()
         && request.resource.data.entryId == entryId
         && request.resource.data.createdBy == request.auth.uid
@@ -1366,6 +1366,7 @@ service cloud.firestore {
     // Every subsequent collection is append-only and must move the linked
     // receipt balance by the exact same amount in the same transaction.
     match /inventory_payments/{paymentId} {
+      allow get,list: if parentFeature(resource.data.customerId,'parent_fees');
       allow get, list: if canManageInventory() || isPrincipal()
         || (inventoryRole('canteen_seller')
             && resource.data.sellerUid == request.auth.uid);
@@ -1644,6 +1645,15 @@ service cloud.firestore {
         && parentFeature(request.resource.data.studentId,'parent_exams')
         && childClass(request.resource.data.studentId,classId);
       allow list,delete: if false;
+    }
+    // Historical snapshots are written only by admissions administrators and
+    // remain private to the linked child, not the entire former class.
+    match /parent_classwork_history/{studentId}/items/{workId} {
+      allow get,list: if canManageAdmissions() || parentFeature(studentId,'parent_exams');
+      allow create,update: if canManageAdmissions()
+        && request.resource.data.keys().hasOnly(['title','subject','instructions','dueDate','kind','classId','active'])
+        && childClass(studentId,request.resource.data.classId);
+      allow delete: if false;
     }
     function parentCurrentClassAccess(classId) {
       let grant=get(/databases/$(database)/documents/parent_class_grants/$(request.auth.uid)/classes/$(classId)).data;
