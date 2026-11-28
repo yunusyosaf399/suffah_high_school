@@ -7,7 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -86,6 +86,7 @@ class SchoolCallAudio {
       if(windows){
         // Native WinMM ringtone avoids creating a second Flutter audio plugin
         // player alongside the Windows WebRTC capture device.
+        debugPrint('Office call: starting Windows ringtone');
         final ok=await native.invokeMethod<bool>('ringFile',{'path':path});
         if(ok!=true){await native.invokeMethod<bool>('ringFile',{'path':await _toneFile(outgoing)});}
         if(disposed||run!=generation){await native.invokeMethod<void>('stopRing');return;}
@@ -111,6 +112,7 @@ class SchoolCallAudio {
     return ordered(()async{
       try{await player?.stop();}catch(_){}
       if(android||windows){try{await native.invokeMethod<void>('stopRing');}catch(_){}}
+      if(windows)debugPrint('Office call: Windows ringtone stopped');
     });
   }
   Future<void> dispose()async{

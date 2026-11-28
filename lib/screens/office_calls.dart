@@ -191,6 +191,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     checkOpen();
     pc.onConnectionState=(state){
       if(finished)return;
+      trace('peer state $state');
       if(state==RTCPeerConnectionState.RTCPeerConnectionStateConnected){
         connectionTimer?.cancel();
         if(mounted)setState((){connectedAt??=DateTime.now();status='Connected';});
@@ -207,12 +208,15 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     pc.onIceGatheringState=(state){
       if(state==RTCIceGatheringState.RTCIceGatheringStateComplete&&!complete.isCompleted)complete.complete();
     };
+    trace('setting local description');
     await pc.setLocalDescription(description);
+    trace('gathering ICE candidates');
     await complete.future.timeout(const Duration(seconds:12),onTimeout:(){});
     if(finished||closing)throw StateError('Call closed.');
     final local=await pc.getLocalDescription();
     final sdp=local?.sdp;
     if(sdp==null||sdp.isEmpty||sdp.length>60000)throw StateError('Could not prepare voice connection.');
+    trace('local description ready');
     return sdp;
   }
   Future<void> startCaller()async{
@@ -327,7 +331,7 @@ class _OfficeCallPageState extends State<_OfficeCallPage> with WidgetsBindingObs
     unawaited(mediaOperation(()async{if(finished)return;for(final track in microphone?.getAudioTracks()??<MediaStreamTrack>[]){track.enabled=!muted;}}).catchError((Object _){trace('mute update failed');}));
   }
   Future<void> toggleSpeaker()async{
-    try{await Helper.setSpeakerphoneOn(!speaker);if(mounted)setState(()=>speaker=!speaker);}catch(_){}
+    try{await mediaOperation(()async{if(!finished){await Helper.setSpeakerphoneOn(!speaker);if(mounted&&!finished)setState(()=>speaker=!speaker);}});}catch(_){}
   }
   @override
   void dispose(){
