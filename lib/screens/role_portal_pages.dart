@@ -77,6 +77,20 @@ class _ChildPortalPage extends StatelessWidget {
   @override
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(_value(child['name']))),
     body:ListView(padding:const EdgeInsets.all(16),children:[
+      Card(child:Padding(padding:const EdgeInsets.all(18),child:Row(children:[
+        const CircleAvatar(radius:28,child:Icon(Icons.school_outlined,size:28)),
+        const SizedBox(width:14),
+        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text(_value(child['name']),style:Theme.of(context).textTheme.titleLarge),
+          const Text('Student dashboard'),
+          if(child['className']!=null)Text(_value(child['className'])),
+        ])),
+      ]))),
+      _heading(context,'Student records'),
+      LayoutBuilder(builder:(context,constraints){
+        final columns=constraints.maxWidth>=720?4:2;
+        return GridView.count(crossAxisCount:columns,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
+          crossAxisSpacing:10,mainAxisSpacing:10,childAspectRatio:1.35,children:[
       for(final item in const [
         ('profile','Profile','parent_profile',Icons.person_outline),
         ('fees','Fees and dues','parent_fees',Icons.receipt_long_outlined),
@@ -86,14 +100,28 @@ class _ChildPortalPage extends StatelessWidget {
         ('assignments','Assignments','parent_exams',Icons.assignment_outlined),
         ('homework','Homework','parent_exams',Icons.menu_book_outlined),
         ('documents','Documents','parent_documents',Icons.folder_outlined),
-      ]) if(schoolPermission(permissions,item.$3))Card(child:ListTile(
-        leading:Icon(item.$4),title:Text(item.$2),trailing:const Icon(Icons.chevron_right),
+      ]) if(schoolPermission(permissions,item.$3))Card(clipBehavior:Clip.antiAlias,child:InkWell(
         onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>
-          _ParentSection(childId:child['id'].toString(),section:item.$1,title:item.$2))))),
+          _ParentSection(childId:child['id'].toString(),section:item.$1,title:item.$2))),
+        child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Icon(item.$4,color:Theme.of(context).colorScheme.primary,size:28),
+          const Spacer(),
+          Text(item.$2,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w700)),
+        ])))),
+        ]);
+      }),
+      if(schoolPermission(permissions,'parent_exams'))...[
+        _heading(context,'Current school activities'),
+        for(final item in const [('exams','Upcoming examinations'),('tests','Upcoming tests'),('assignments','Active assignments'),('homework','Active homework')])
+          Card(child:ListTile(leading:const Icon(Icons.event_note_outlined),title:Text(item.$2),trailing:const Icon(Icons.chevron_right),
+            onTap:()=>Navigator.push<void>(context,MaterialPageRoute(builder:(_)=>
+              _ParentSection(childId:child['id'].toString(),section:item.$1,title:item.$2,currentOnly:true))))),
+      ],
     ]));
 }
 class _ParentSection extends StatelessWidget {
-  const _ParentSection({required this.childId,required this.section,required this.title});
+  const _ParentSection({required this.childId,required this.section,required this.title,this.currentOnly=false});
+  final bool currentOnly;
   final String childId,section,title;
   @override
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(title)),
@@ -107,7 +135,7 @@ class _ParentSection extends StatelessWidget {
             _entry(field.$2,p[field.$1])];
         }
         if(section=='fees')return [ _ParentHistory(rows:rows,section:section) ];
-        if(['attendance','exams','tests','assignments','homework'].contains(section))return [_ParentHistory(rows:rows,section:section)];
+        if(['attendance','exams','tests','assignments','homework'].contains(section))return [_ParentHistory(rows:rows,section:section,currentOnly:currentOnly)];
         return [
           if(rows.isEmpty)_notice('No documents available.'),
           for(final file in rows)Card(child:ListTile(leading:const Icon(Icons.insert_drive_file_outlined),
@@ -117,7 +145,8 @@ class _ParentSection extends StatelessWidget {
       }));
 }
 class _ParentHistory extends StatefulWidget {
-  const _ParentHistory({required this.rows,required this.section});
+  const _ParentHistory({required this.rows,required this.section,this.currentOnly=false});
+  final bool currentOnly;
   final List<Map<String,dynamic>> rows;
   final String section;
   @override
@@ -127,7 +156,7 @@ class _ParentHistoryState extends State<_ParentHistory>{
   String period='All';
   String year='All';
   String group='Daily';
-  String activity='All';
+  late String activity=widget.currentOnly?'Current':'All';
   String category='All';
   String date(Map<String,dynamic> r)=>(r['month']??r['date']??r['examDate']??r['dueDate']??'').toString();
   String month(DateTime d)=>'${d.year}-${d.month.toString().padLeft(2,'0')}';
