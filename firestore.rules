@@ -1611,6 +1611,44 @@ service cloud.firestore {
             && d.attachment.contentType in ['application/pdf','image/jpeg','image/png','image/webp','text/plain'])
           : (!('attachment' in d) && d.text.size() > 0));
     }
+    function canReceiveMessageAlerts() {
+      return request.auth != null && (schoolMessageAdmin() || eligibleMessageAccount(request.auth.uid));
+    }
+    match /message_alerts/{id} {
+      allow get,list: if canReceiveMessageAlerts() && (
+        (schoolMessageAdmin() && resource.data.fromSchool == false)
+        || (resource.data.fromSchool == true && resource.data.threadUid == request.auth.uid));
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['threadUid','senderUid','fromSchool','createdAt','pushPending'])
+        && request.resource.data.threadUid is string
+        && messageThreadAccess(request.resource.data.threadUid)
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.fromSchool == schoolMessageAdmin()
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.pushPending == true
+        && !exists(/databases/$(database)/documents/portal_threads/$(request.resource.data.threadUid)/messages/$(id))
+        && getAfter(/databases/$(database)/documents/portal_threads/$(request.resource.data.threadUid)/messages/$(id)).data.senderUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/portal_threads/$(request.resource.data.threadUid)/messages/$(id)).data.createdAt == request.time;
+      allow update,delete: if false;
+    }
+    match /message_alert_reads/{uid} {
+      allow get: if canReceiveMessageAlerts() && request.auth.uid == uid;
+      allow create,update: if canReceiveMessageAlerts() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['readThrough'])
+        && request.resource.data.readThrough == request.time;
+      allow delete: if false;
+    }
+    match /push_devices/{token} {
+      allow get,delete: if request.auth != null && resource.data.uid == request.auth.uid;
+      // Tokens are high entropy and never listed to clients. A new login on
+      // the same installation can replace its registration.
+      allow create,update: if canReceiveMessageAlerts()
+        && token.size() > 20 && token.size() <= 512
+        && request.resource.data.keys().hasOnly(['uid','updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow list: if false;
+    }
     match /portal_threads/{uid} {
       allow get: if schoolMessageAdmin() || messageThreadAccess(uid);
       allow list: if schoolMessageAdmin();

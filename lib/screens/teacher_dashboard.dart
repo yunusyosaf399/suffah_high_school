@@ -1,3 +1,4 @@
+import 'message_notifications.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -55,10 +56,11 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
         title: const Text('Teacher portal',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
         actions: [
+          if(schoolPermission(widget.permissions,'messages')) const MessageNotificationBell(),
           const SchoolSettingsButton(),
           IconButton(
             tooltip: 'Sign out',
-            onPressed: () => FirebaseAuth.instance.signOut(),
+            onPressed: () => signOutSchool(),
             icon: const Icon(Icons.logout_rounded),
           ),
         ],

@@ -1,3 +1,4 @@
+import 'message_notifications.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -178,6 +179,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           ],
         ),
         actions: [
+          if(widget.messageAccess && widget.summaryLoader==null) const MessageNotificationBell(admin:true),
           const SchoolSettingsButton(),
           IconButton(
             tooltip: 'Refresh school overview',
@@ -186,7 +188,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           ),
           IconButton(
             tooltip: 'Sign out',
-            onPressed: () => FirebaseAuth.instance.signOut(),
+            onPressed: () => signOutSchool(),
             icon: const Icon(Icons.logout_rounded, size: 21),
           ),
           const SizedBox(width: 7),

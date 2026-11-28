@@ -8,10 +8,11 @@ import 'account_picture.dart';
 typedef _Docs = QuerySnapshot<Map<String,dynamic>>;
 
 class SchoolMessagesPage extends StatelessWidget {
-  const SchoolMessagesPage({super.key,this.admin=false});
+  const SchoolMessagesPage({super.key,this.admin=false,this.threadUid});
   final bool admin;
+  final String? threadUid;
   @override
-  Widget build(BuildContext context)=>admin?const _ThreadList():const _Conversation();
+  Widget build(BuildContext context)=>admin?(threadUid==null?const _ThreadList():_Conversation(uid:threadUid,name:'School conversation')):const _Conversation();
 }
 class _ThreadList extends StatefulWidget{
   const _ThreadList();

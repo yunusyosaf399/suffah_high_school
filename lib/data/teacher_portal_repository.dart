@@ -151,7 +151,12 @@ class SchoolMessageRepository {
     }
     final batch=_db.batch();
     batch.set(thread,{'uid':target,...metadata,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
-    batch.set(thread.collection('messages').doc(),{'text':text.trim(),'kind':kind,if(attachment!=null)'attachment':attachment,'senderUid':uid,'fromSchool':admin,'createdAt':FieldValue.serverTimestamp()});
+    final message=thread.collection('messages').doc();
+    batch.set(message,{'text':text.trim(),'kind':kind,if(attachment!=null)'attachment':attachment,'senderUid':uid,'fromSchool':admin,'createdAt':FieldValue.serverTimestamp()});
+    batch.set(_db.collection('message_alerts').doc(message.id),{
+      'threadUid':target,'senderUid':uid,'fromSchool':admin,
+      'createdAt':FieldValue.serverTimestamp(),'pushPending':true,
+    });
     await batch.commit();
   }
 }

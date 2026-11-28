@@ -1,5 +1,6 @@
 export 'school_messages_page.dart';
 import 'school_messages_page.dart';
+import 'message_notifications.dart';
 import 'student_avatar.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -54,8 +55,9 @@ class ParentPortalPage extends StatelessWidget {
   @override
   Widget build(BuildContext context)=>Scaffold(
     appBar:AppBar(title:const Text('Parent portal'),actions:[
+      if(schoolPermission(permissions,'messages')) const MessageNotificationBell(),
       const SchoolSettingsButton(),
-      IconButton(tooltip:'Sign out',icon:const Icon(Icons.logout),onPressed:()=>FirebaseAuth.instance.signOut()),
+      IconButton(tooltip:'Sign out',icon:const Icon(Icons.logout),onPressed:()=>signOutSchool()),
     ]),
     body:_PortalLoad(load:()=>ParentPortalRepository().children(),content:(context,data){
       final children=portalRows(data['rows']);

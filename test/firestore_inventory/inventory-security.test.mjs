@@ -1136,3 +1136,27 @@ test('chat pictures, attachments, hidden messages and retraction are scoped',asy
   await assertSucceeds(setDoc(doc(own,'portal_threads',teacher,'scheduled','later'),{text:'Later',kind:'text',senderUid:teacher,fromSchool:false,createdAt:serverTimestamp(),sendAt:Timestamp.fromMillis(Date.now()+600000)}));
   await assertFails(getDoc(doc(outsider,'portal_threads',teacher,'scheduled','later')));
 });
+
+test('message notification event must accompany a new authorized message and is private',async()=>{
+  const teacher='alert-teacher',other='alert-other';
+  await environment.withSecurityRulesDisabled(async c=>{
+    for(const uid of [teacher,other])await setDoc(doc(c.firestore(),'users',uid),{role:'teacher',active:true,displayName:uid});
+  });
+  const own=db(teacher), outsider=db(other), admin=db(ownerId);
+  const data={threadUid:teacher,senderUid:teacher,fromSchool:false,createdAt:serverTimestamp(),pushPending:true};
+  await assertFails(setDoc(doc(own,'message_alerts','fake'),data));
+  const batch=writeBatch(own);
+  batch.set(doc(own,'portal_threads',teacher),{uid:teacher,name:teacher,role:'teacher',updatedAt:serverTimestamp()});
+  batch.set(doc(own,'portal_threads',teacher,'messages','real'),{text:'Hello',senderUid:teacher,fromSchool:false,createdAt:serverTimestamp()});
+  batch.set(doc(own,'message_alerts','real'),data);
+  await assertSucceeds(batch.commit());
+  await assertSucceeds(getDoc(doc(admin,'message_alerts','real')));
+  await assertFails(getDoc(doc(outsider,'message_alerts','real')));
+  await assertFails(getDoc(doc(own,'message_alerts','real')));
+  await assertFails(updateDoc(doc(admin,'message_alerts','real'),{pushPending:false}));
+  await assertSucceeds(setDoc(doc(own,'message_alert_reads',teacher),{readThrough:serverTimestamp()}));
+  await assertFails(setDoc(doc(outsider,'message_alert_reads',teacher),{readThrough:serverTimestamp()}));
+  const token='a-very-long-example-token-not-real';
+  await assertSucceeds(setDoc(doc(own,'push_devices',token),{uid:teacher,updatedAt:serverTimestamp()}));
+  await assertFails(getDocs(collection(own,'push_devices')));
+});

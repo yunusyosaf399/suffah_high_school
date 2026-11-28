@@ -78,6 +78,9 @@ exports.deliverScheduledMessages = onSchedule({
         &&typeof d.text==='string'&&d.text.length>0&&d.text.length<=2000&&['text','sticker'].includes(d.kind);
       if(valid){
         tx.set(thread,{uid:target,name:receiver.displayName||'',role:receiver.role,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+        tx.create(db.collection('message_alerts').doc('scheduled_'+item.id),{
+          threadUid:target,senderUid:d.senderUid,fromSchool:admin,createdAt:FieldValue.serverTimestamp(),pushPending:true
+        });
         tx.create(thread.collection('messages').doc('scheduled_'+item.id),{
           text:d.text,kind:d.kind,senderUid:d.senderUid,fromSchool:admin,createdAt:FieldValue.serverTimestamp()
         });
