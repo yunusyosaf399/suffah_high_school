@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../data/voice_cache.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -17,6 +18,7 @@ class MessageNotificationBell extends StatefulWidget {
 }
 class _MessageNotificationBellState extends State<MessageNotificationBell>{
   String? uid;
+  Timer? cacheTimer;
   Stream<_Alerts>? stream;
   StreamSubscription<DocumentSnapshot<Map<String,dynamic>>>? readSub;
   StreamSubscription<String>? tokenSub;
@@ -34,6 +36,8 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
     try{
       uid=FirebaseAuth.instance.currentUser?.uid;
       if(uid==null)return;
+      unawaited(VoiceCache.prune(uid!));
+      cacheTimer=Timer.periodic(const Duration(minutes:1),(_){if(mounted&&uid!=null)unawaited(VoiceCache.prune(uid!));});
       Query<Map<String,dynamic>> q=FirebaseFirestore.instance.collection('message_alerts').where('fromSchool',isEqualTo:!widget.admin);
       if(!widget.admin)q=q.where('threadUid',isEqualTo:uid);
       stream=q.orderBy('createdAt',descending:true).limit(100).snapshots();
@@ -95,6 +99,7 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
   }
   @override
   void dispose(){
+    cacheTimer?.cancel();
     readSub?.cancel();tokenSub?.cancel();pushSub?.cancel();deliverySub?.cancel();
     super.dispose();
   }
@@ -144,6 +149,8 @@ class _MessageNotificationBellState extends State<MessageNotificationBell>{
 
 /// Called before explicit sign-out, to avoid delivery to a shared phone.
 Future<void> signOutSchool()async{
+  final account=FirebaseAuth.instance.currentUser?.uid;
+  if(account!=null)await VoiceCache.clear(account);
   if(!kIsWeb&&defaultTargetPlatform==TargetPlatform.android){
     try{
       final messaging=FirebaseMessaging.instance;

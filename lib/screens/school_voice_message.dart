@@ -80,7 +80,7 @@ class _VoiceRecorderDialogState extends State<VoiceRecorderDialog>{
 class SchoolVoicePlayer extends StatefulWidget{
   const SchoolVoicePlayer({super.key,required this.durationMs,required this.load,required this.foreground,this.onPlayed});
   final int durationMs;
-  final Future<Uint8List> Function() load;
+  final Future<File> Function() load;
   final Future<void> Function()? onPlayed;
   final Color foreground;
   @override
@@ -99,23 +99,18 @@ class _SchoolVoicePlayerState extends State<SchoolVoicePlayer>{
     super.initState();
     subs.add(player.onPositionChanged.listen((p){if(mounted)setState(()=>position=p.inMilliseconds);}));
     subs.add(player.onPlayerStateChanged.listen((s){if(mounted)setState(()=>playing=s==PlayerState.playing);}));
-    subs.add(player.onPlayerComplete.listen((_){if(mounted){setState(()=>position=0);final cb=widget.onPlayed;if(cb!=null)unawaited(cb());}}));
+    subs.add(player.onPlayerComplete.listen((_){if(mounted){setState((){position=0;loaded=false;playing=false;});final cb=widget.onPlayed;if(cb!=null)unawaited(cb());}}));
   }
   Future<void> toggle()async{
     if(loading)return;
     setState((){loading=true;problem=null;});
     try{
       if(playing){await player.pause();}
-      else if(loaded){await player.resume();}
       else{
-        final bytes=await widget.load();
+        final file=await widget.load();
         if(!mounted)return;
-        final dir=await getTemporaryDirectory();
-        local=File('${dir.path}/school-play-${DateTime.now().microsecondsSinceEpoch}.m4a');
-        await local!.writeAsBytes(bytes,flush:true);
-        if(!mounted){await local!.delete();return;}
-        await player.play(DeviceFileSource(local!.path));
-        loaded=true;
+        if(loaded&&local?.path==file.path){await player.resume();}
+        else{local=file;await player.play(DeviceFileSource(file.path));loaded=true;}
       }
       if(playing||loaded)await player.setPlaybackRate(speed);
     }catch(e){if(mounted)setState(()=>problem='Voice unavailable or expired');}
@@ -128,7 +123,7 @@ class _SchoolVoicePlayerState extends State<SchoolVoicePlayer>{
     super.dispose();
   }
   Future<void> _disposePlayer()async{
-    try{await player.dispose();}finally{try{await local?.delete();}catch(_){}}
+    await player.dispose();
   }
   @override
   Widget build(BuildContext context)=>SizedBox(width:245,child:Column(mainAxisSize:MainAxisSize.min,children:[

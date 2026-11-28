@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'voice_cache.dart';
 import 'dart:typed_data';
 import 'dart:async';
 import 'package:http/http.dart' as http;
@@ -144,9 +146,9 @@ class SchoolMessageRepository {
   Future<void> receipt(String? uid,String id,{bool read=false,bool played=false})async{
     final ref=thread(uid).collection('messages').doc(id);
     final me=_uid;
-    await _db.runTransaction((tx)async{
+    final removeLocal=await _db.runTransaction<bool>((tx)async{
       final m=(await tx.get(ref)).data();
-      if(m==null||m['senderUid']==me||m['deleted']==true)return;
+      if(m==null||m['senderUid']==me||m['deleted']==true)return false;
       final changes=<String,dynamic>{};
       if(m['deliveredAt']==null)changes['deliveredAt']=FieldValue.serverTimestamp();
       final markRead=(read&&(m['kind']!='voice'||played)&&m['readAt']==null);
@@ -155,7 +157,9 @@ class SchoolMessageRepository {
       if(markRead)changes['readAt']=FieldValue.serverTimestamp();
       if(changes.isNotEmpty)tx.update(ref,changes);
       if(j?['mode']=='played')tx.update(job,{'expiresAt':FieldValue.serverTimestamp()});
+      return j?['mode']=='played';
     });
+    if(removeLocal)await VoiceCache.remove(me,uid??me,id);
   }
   Uri _voiceEndpoint(String path,String threadId,String messageId){
     const configured=String.fromEnvironment('NOTIFICATION_WORKER_URL',
@@ -169,14 +173,42 @@ class SchoolMessageRepository {
     if(token==null)throw StateError('Sign in again.');
     return token;
   }
-  Future<Uint8List> voiceBytes(String? uid,String id)async{
-    final result=await http.get(_voiceEndpoint('/v1/voice',uid??_uid,id),
+  String reserveMessageId(String? uid)=>thread(uid).collection('messages').doc().id;
+  Future<void> discardVoiceCache(String? uid,String id)=>VoiceCache.remove(_uid,uid??_uid,id);
+  Future<DateTime> _voiceExpiry(String account,String target,String id)async{
+    try{
+      final m=(await thread(target).collection('messages').doc(id).get(_server)).data();
+      if(m==null||m['kind']!='voice'||m['deleted']==true)throw StateError('Voice message expired.');
+      final j=(await _db.collection('voice_jobs').doc(id).get(_server)).data();
+      final expiry=j?['expiresAt'];
+      if(j==null||j['ready']!=true||j['threadUid']!=target||expiry is! Timestamp||!expiry.toDate().isAfter(DateTime.now()))throw StateError('Voice message expired.');
+      if(_auth.currentUser?.uid!=account)throw StateError('Account changed.');
+      return expiry.toDate();
+    }on FirebaseException catch(e){
+      if(e.code=='permission-denied'||e.code=='not-found')await VoiceCache.remove(account,target,id);
+      rethrow;
+    }on StateError{
+      await VoiceCache.remove(account,target,id);
+      rethrow;
+    }
+  }
+  // Verify small server metadata for revocation, but never re-download cached audio.
+  Future<File> voiceFile(String? uid,String id)async{
+    final account=_uid,target=uid??account;
+    final expiry=await _voiceExpiry(account,target,id);
+    final cached=await VoiceCache.read(account,target,id);
+    if(cached!=null){
+      await cached.setLastModified(expiry);
+      return cached;
+    }
+    final result=await http.get(_voiceEndpoint('/v1/voice',target,id),
       headers:{'Authorization':'Bearer ${await _voiceToken()}'}).timeout(const Duration(seconds:30));
     if(result.statusCode!=200)throw StateError('Voice message expired or is unavailable.');
-    return result.bodyBytes;
+    if(_auth.currentUser?.uid!=account)throw StateError('Account changed.');
+    return VoiceCache.store(account,target,id,result.bodyBytes,expiry);
   }
   Future<void> cancel(String? uid,String id)=>thread(uid).collection('scheduled').doc(id).delete();
-  Future<void> send(String? threadUid,String text,{String kind='text',Map<String,dynamic>? attachment,DateTime? sendAt,Uint8List? voice})async{
+  Future<void> send(String? threadUid,String text,{String kind='text',Map<String,dynamic>? attachment,DateTime? sendAt,Uint8List? voice,String? messageId})async{
     final uid=_uid;
     final target=threadUid??uid;
     final self=(await _db.collection('users').doc(uid).get(_server)).data()??{};
@@ -196,14 +228,14 @@ class SchoolMessageRepository {
         'fromSchool':admin,'sendAt':Timestamp.fromDate(sendAt),'createdAt':FieldValue.serverTimestamp()});
       return;
     }
-    final message=thread.collection('messages').doc();
+    final message=thread.collection('messages').doc(messageId);
     if(kind=='voice'){
       if(voice==null||voice.isEmpty||voice.length>3000000)throw StateError('Recording is too large.');
       await thread.set({'uid':target,...metadata,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
       final result=await http.put(_voiceEndpoint('/v1/voice',target,message.id),
         headers:{'Authorization':'Bearer ${await _voiceToken()}','Content-Type':'audio/mp4'},
         body:voice).timeout(const Duration(seconds:45));
-      if(result.statusCode!=201)throw StateError('Voice upload failed. Try again.');
+      if(result.statusCode!=201)throw StateError('Voice upload failed (HTTP ${result.statusCode}). Try again.');
     }
     final batch=_db.batch();
     batch.set(thread,{'uid':target,...metadata,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
@@ -214,6 +246,12 @@ class SchoolMessageRepository {
     });
     await batch.commit();
     unawaited(_wakeNotification(target,message.id,uid));
+    if(kind=='voice'&&voice!=null){
+      try{
+        final expiry=await _voiceExpiry(uid,target,message.id);
+        await VoiceCache.store(uid,target,message.id,voice,expiry);
+      }catch(_){/* A local cache failure must not fail a committed message. */}
+    }
   }
   // Push is best-effort. A successful message write must never appear failed
   // because the notification service is offline; cron retries queued events.

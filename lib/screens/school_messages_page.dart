@@ -77,6 +77,10 @@ class _ConversationState extends State<_Conversation>{
   late final preferences=FirebaseFirestore.instance.collection('chat_preferences').doc(me);
   late final preferenceStream=preferences.snapshots();
   bool busy=false;
+  VoiceClip? pendingVoice;
+  String? pendingVoiceId;
+  bool voiceSending=false;
+  String? voiceFailure;
   final Set<String> acknowledging={};
   Future<void> ack(String id,{bool played=false})async{
     if(!acknowledging.add(id)){
@@ -88,8 +92,41 @@ class _ConversationState extends State<_Conversation>{
   }
   Future<void> recordVoice()async{
     final clip=await showDialog<VoiceClip>(context:context,barrierDismissible:false,builder:(_)=>const VoiceRecorderDialog());
-    if(clip==null||!mounted)return;
-    await send(value:'',kind:'voice',attachment:{'durationMs':clip.durationMs,'contentType':'audio/mp4'},voice:clip.bytes);
+    if(clip==null||!mounted||pendingVoice!=null)return;
+    setState((){pendingVoice=clip;pendingVoiceId=repo.reserveMessageId(widget.uid);voiceFailure=null;});
+    await uploadVoice();
+  }
+  Future<void> uploadVoice()async{
+    final clip=pendingVoice,id=pendingVoiceId;
+    if(clip==null||id==null||voiceSending)return;
+    setState((){voiceSending=true;voiceFailure=null;});
+    WidgetsBinding.instance.addPostFrameCallback((_){if(mounted&&scroll.hasClients)scroll.jumpTo(0);});
+    try{
+      await repo.send(widget.uid,'',kind:'voice',attachment:{'durationMs':clip.durationMs,'contentType':'audio/mp4'},voice:clip.bytes,messageId:id);
+      if(mounted)setState((){pendingVoice=null;pendingVoiceId=null;});
+    }catch(e){
+      if(mounted)setState(()=>voiceFailure=schoolErrorMessage(e));
+    }finally{if(mounted)setState(()=>voiceSending=false);}
+  }
+  Widget pendingVoiceBubble(Map<String,dynamic> p,ColorScheme scheme){
+    final clip=pendingVoice!;
+    final bg=color(p,'outgoing',scheme.primaryContainer),fg=readable(bg);
+    return Padding(padding:const EdgeInsets.symmetric(vertical:4,horizontal:8),child:Row(mainAxisAlignment:MainAxisAlignment.end,children:[
+      Flexible(child:Container(constraints:const BoxConstraints(maxWidth:300),padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(14)),child:Column(crossAxisAlignment:CrossAxisAlignment.end,mainAxisSize:MainAxisSize.min,children:[
+        Row(mainAxisSize:MainAxisSize.min,children:[
+          if(voiceSending)SizedBox(width:28,height:28,child:CircularProgressIndicator(strokeWidth:2.5,color:fg))
+          else IconButton(tooltip:'Retry voice upload',onPressed:uploadVoice,icon:Icon(Icons.refresh,color:fg)),
+          const SizedBox(width:10),
+          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Row(children:[for(var i=0;i<24;i++)Expanded(child:Padding(padding:const EdgeInsets.symmetric(horizontal:1),child:Container(height:8+((i*7)%19).toDouble(),decoration:BoxDecoration(color:fg.withValues(alpha:.4),borderRadius:BorderRadius.circular(2)))))]),
+            Text('${clip.durationMs~/60000}:${(clip.durationMs~/1000%60).toString().padLeft(2,'0')}',style:TextStyle(color:fg,fontSize:11)),
+          ])),
+          if(!voiceSending)IconButton(tooltip:'Discard unsent voice',onPressed:()=>setState((){pendingVoice=null;pendingVoiceId=null;voiceFailure=null;}),icon:Icon(Icons.close,color:fg)),
+        ]),
+        Text(voiceSending?'Sending voice…':voiceFailure??'Upload failed · Retry',style:TextStyle(color:fg,fontSize:11)),
+      ]))),
+      const SizedBox(width:6),AccountPicture(uid:me,name:'You',radius:15),
+    ]));
   }
   static const emojis=['😀','😂','😊','❤️','👍','🙏','🎉','✅','📚','✏️','⭐','🤝','😢','👏','🌷','👋'];
   void error(Object e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(schoolErrorMessage(e))));}
@@ -181,8 +218,8 @@ class _ConversationState extends State<_Conversation>{
       if(m['senderUid']==me&&m['deleted']!=true)ListTile(leading:const Icon(Icons.delete_outline),title:const Text('Delete for everyone'),onTap:()=>Navigator.pop(ctx,'retract'))
     ])));
     try{
-      if(action=='hide')await repo.hide(widget.uid,id);
-      if(action=='retract')await repo.retract(widget.uid,id);
+      if(action=='hide'){await repo.hide(widget.uid,id);await repo.discardVoiceCache(widget.uid,id);}
+      if(action=='retract'){await repo.retract(widget.uid,id);await repo.discardVoiceCache(widget.uid,id);}
     }catch(e){error(e);}
   }
   Color readable(Color c)=>c.computeLuminance()>.42?Colors.black:Colors.white;
@@ -210,7 +247,7 @@ class _ConversationState extends State<_Conversation>{
         if(deleted)Text('This message was deleted',style:TextStyle(color:fg,fontStyle:FontStyle.italic))
         else...[
           if((m['text']??'').toString().isNotEmpty)Text(m['text'].toString(),style:TextStyle(color:fg,fontSize:m['kind']=='sticker'?48:15)),
-          if(m['kind']=='voice'&&a is Map)SchoolVoicePlayer(key:ValueKey(d.id),durationMs:(a['durationMs'] as num?)?.toInt()??0,load:()=>repo.voiceBytes(widget.uid,d.id),onPlayed:mine?null:()=>ack(d.id,played:true),foreground:fg)
+          if(m['kind']=='voice'&&a is Map)SchoolVoicePlayer(key:ValueKey(d.id),durationMs:(a['durationMs'] as num?)?.toInt()??0,load:()=>repo.voiceFile(widget.uid,d.id),onPlayed:mine?null:()=>ack(d.id,played:true),foreground:fg)
           else if(a is Map)TextButton.icon(style:TextButton.styleFrom(foregroundColor:fg),onPressed:()=>download(a),icon:const Icon(Icons.file_download_outlined),label:Flexible(child:Text((a['name']??'Attachment').toString(),overflow:TextOverflow.ellipsis))),
         ],
         Row(mainAxisSize:MainAxisSize.min,children:[Text(stamp(m['createdAt']),style:TextStyle(color:fg,fontSize:10)),if(mine&&!deleted)...[const SizedBox(width:4),Tooltip(message:d.metadata.hasPendingWrites?'Sending':m['readAt']!=null?'Read / played':m['deliveredAt']!=null?'Delivered · unread':'Sent',child:Icon(d.metadata.hasPendingWrites?Icons.schedule:m['deliveredAt']!=null?Icons.done_all:Icons.done,size:16,color:m['readAt']!=null?Colors.lightBlueAccent:fg.withValues(alpha:.65)))]]),
@@ -233,13 +270,18 @@ class _ConversationState extends State<_Conversation>{
           return StreamBuilder<_Docs>(stream:messages,builder:(context,s){
             if(s.hasError)return Center(child:Text(schoolErrorMessage(s.error!)));
             if(h.hasError)return Center(child:Text(schoolErrorMessage(h.error!)));
-            if(!s.hasData||!h.hasData)return const Center(child:CircularProgressIndicator());
-            final docs=s.data!.docs.where((d)=>!hiddenIds.contains(d.id)).toList();
-            final more=s.data!.docs.length>=limit;
-            if(docs.isEmpty&&!more)return const Center(child:Text('No messages yet.'));
-            return ListView.builder(controller:scroll,reverse:true,padding:const EdgeInsets.symmetric(vertical:8),itemCount:docs.length+(more?1:0),itemBuilder:(context,i){
-              if(i==docs.length)return Center(child:TextButton(onPressed:()=>setState((){limit+=60;messages=repo.watch(widget.uid,limit);}),child:const Text('Load older messages')));
-              return bubble(docs[i],p,scheme);
+            if((!s.hasData||!h.hasData)&&pendingVoice==null)return const Center(child:CircularProgressIndicator());
+            final docs=(s.data?.docs??[]).where((d)=>!hiddenIds.contains(d.id)).toList();
+            final showPending=pendingVoice!=null&&!docs.any((d)=>d.id==pendingVoiceId&&!d.metadata.hasPendingWrites);
+            final visibleDocs=docs.where((d)=>!showPending||d.id!=pendingVoiceId).toList();
+            final offset=showPending?1:0;
+            final more=(s.data?.docs.length??0)>=limit;
+            if(visibleDocs.isEmpty&&!more&&!showPending)return const Center(child:Text('No messages yet.'));
+            return ListView.builder(controller:scroll,reverse:true,padding:const EdgeInsets.symmetric(vertical:8),itemCount:visibleDocs.length+offset+(more?1:0),itemBuilder:(context,i){
+              if(showPending&&i==0)return pendingVoiceBubble(p,scheme);
+              final index=i-offset;
+              if(index==visibleDocs.length)return Center(child:TextButton(onPressed:()=>setState((){limit+=60;messages=repo.watch(widget.uid,limit);}),child:const Text('Load older messages')));
+              return bubble(visibleDocs[index],p,scheme);
             });
           });
         }))),
@@ -251,7 +293,7 @@ class _ConversationState extends State<_Conversation>{
             PopupMenuItem(value:'schedule',child:Text('Schedule message'))]),
           IconButton(tooltip:'Emoji',onPressed:()=>picker(false),icon:const Icon(Icons.emoji_emotions_outlined)),
           Expanded(child:TextField(controller:text,maxLength:2000,minLines:1,maxLines:4,decoration:const InputDecoration(hintText:'Message',counterText:'',isDense:true,border:OutlineInputBorder()))),
-          IconButton(tooltip:'Record voice message',onPressed:busy?null:recordVoice,icon:const Icon(Icons.mic)),
+          IconButton(tooltip:'Record voice message',onPressed:busy||pendingVoice!=null?null:recordVoice,icon:const Icon(Icons.mic)),
           IconButton.filled(tooltip:'Send',onPressed:busy?null:()=>send(),icon:const Icon(Icons.send)),
         ]))
       ])));
